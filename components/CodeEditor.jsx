@@ -2,7 +2,7 @@
 
 import { Editor } from '@monaco-editor/react';
 
-export default function CodeEditor({ code, onChange, onApply, onOptimize, onClear, jsonError, onClearJsonError, isGenerating, isApplyingCode, isOptimizingCode }) {
+export default function CodeEditor({ code, onChange, onApply, onOptimize, onClear, jsonError, onClearJsonError, isGenerating, isApplyingCode, isOptimizingCode, engine = 'excalidraw' }) {
   return (
     <div className="flex relative flex-col h-full bg-gray-50 border-t border-gray-200">
       <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
@@ -20,7 +20,7 @@ export default function CodeEditor({ code, onChange, onApply, onOptimize, onClea
           </button>
           <button
             onClick={onOptimize}
-            disabled={isGenerating || isApplyingCode || isOptimizingCode || !code.trim()}
+            disabled={engine === 'mermaid' || isGenerating || isApplyingCode || isOptimizingCode || !code.trim()}
             className="px-4 py-2 text-sm font-medium text-white rounded disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center gap-2"
             style={{
               background: isGenerating || isApplyingCode || isOptimizingCode ? '#d1d5db' : 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'
@@ -98,7 +98,7 @@ export default function CodeEditor({ code, onChange, onApply, onOptimize, onClea
       <div className="flex-1">
         <Editor
           height="100%"
-          defaultLanguage="javascript"
+          language={engine === 'mermaid' ? 'plaintext' : 'javascript'}
           value={code}
           onChange={onChange}
           theme="vs-light"

@@ -10,7 +10,7 @@ import {
 } from '@/lib/image-utils';
 import { CHART_TYPES } from '@/lib/constants';
 
-export default function ImageUpload({ onImageSelect, isGenerating, chartType, onChartTypeChange, onImageGenerate }) {
+export default function ImageUpload({ onImageSelect, isGenerating, chartType, onChartTypeChange, onImageGenerate, engine = 'excalidraw', onEngineChange }) {
   const [imagePreview, setImagePreview] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadStatus, setUploadStatus] = useState(''); // '', 'uploading', 'success', 'error'
@@ -126,6 +126,22 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
 
   return (
     <div className="flex-1 flex flex-col p-4">
+      <div className="mb-2 flex rounded border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="绘图引擎">
+        {[
+          ['excalidraw', 'Excalidraw'],
+          ['mermaid', 'Mermaid'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onEngineChange?.(value)}
+            disabled={isGenerating || uploadStatus === 'uploading'}
+            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium ${engine === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {/* 图表类型选择器 */}
       <div className="w-full mb-4">
         {/* <label htmlFor="chart-type-image" className="block text-xs font-medium text-gray-700 mb-1">

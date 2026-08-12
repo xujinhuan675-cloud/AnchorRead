@@ -109,6 +109,9 @@ function HistoryModalContent({ onClose, onApply }) {
                         <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">
                           {CHART_TYPES[history.chartType] || history.chartType}
                         </span>
+                        <span className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
+                          {history.engine === 'mermaid' ? 'Mermaid' : 'Excalidraw'}
+                        </span>
                         <span className="text-xs text-gray-500">
                           {new Date(history.timestamp).toLocaleString()}
                         </span>

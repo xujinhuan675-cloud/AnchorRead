@@ -7,10 +7,11 @@ import { generateImagePrompt } from '@/lib/image-utils';
 import { CHART_TYPES } from '@/lib/constants';
 import { track } from '@vercel/analytics';
 
-export default function Chat({ onSendMessage, isGenerating, initialInput = '', initialChartType = 'auto' }) {
+export default function Chat({ onSendMessage, isGenerating, initialInput = '', initialChartType = 'auto', initialEngine = 'excalidraw', onEngineChange }) {
   const [activeTab, setActiveTab] = useState('text'); // 'text', 'file', or 'image'
   const [input, setInput] = useState(initialInput);
   const [chartType, setChartType] = useState(initialChartType); // Selected chart type
+  const [engine, setEngine] = useState(initialEngine);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileStatus, setFileStatus] = useState(''); // '', 'parsing', 'success', 'error'
   const [fileError, setFileError] = useState('');
@@ -38,12 +39,21 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
     setChartType(initialChartType);
   }, [initialChartType]);
 
+  useEffect(() => {
+    setEngine(initialEngine);
+  }, [initialEngine]);
+
+  const changeEngine = (nextEngine) => {
+    setEngine(nextEngine);
+    onEngineChange?.(nextEngine);
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (input.trim() && !isGenerating) {
       track('text_submit');
       lastSubmitSourceRef.current = 'text';
-      onSendMessage(input.trim(), chartType, 'text');
+      onSendMessage(input.trim(), chartType, 'text', engine);
       // Don't clear input - keep it for user reference
     }
   };
@@ -128,7 +138,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
       track('file_submit');
       // Mark source as file to avoid syncing file content into text input
       lastSubmitSourceRef.current = 'file';
-      onSendMessage(fileContent, chartType, 'file');
+      onSendMessage(fileContent, chartType, 'file', engine);
       // Reset canGenerate state after initiating generation
       setCanGenerate(false);
     }
@@ -160,7 +170,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
         chartType
       };
 
-      onSendMessage(messageData, chartType, 'image');
+      onSendMessage(messageData, chartType, 'image', engine);
       // Reset canGenerate state after initiating generation
       setCanGenerate(false);
     }
@@ -223,7 +233,23 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
           <div className="flex-1 flex flex-col p-4 relative">
             <form onSubmit={handleSubmit} className="flex-1 flex flex-col">
               {/* Chart Type Selector */}
-              <div className="mb-3">
+              <div className="mb-3 space-y-2">
+                <div className="flex rounded border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="绘图引擎">
+                  {[
+                    ['excalidraw', 'Excalidraw'],
+                    ['mermaid', 'Mermaid'],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => changeEngine(value)}
+                      disabled={isGenerating}
+                      className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${engine === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 {/* <label htmlFor="chart-type-text" className="block text-xs font-medium text-gray-700 mb-1">
                   图表类型
                 </label> */}
@@ -285,7 +311,17 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
         {activeTab === 'file' && (
           <div className="flex-1 flex flex-col items-center  p-4 relative">
             {/* Chart Type Selector */}
-            <div className="w-full max-w-md mb-6">
+              <div className="w-full max-w-md mb-6 space-y-2">
+                <div className="flex rounded border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="绘图引擎">
+                  {[
+                    ['excalidraw', 'Excalidraw'],
+                    ['mermaid', 'Mermaid'],
+                  ].map(([value, label]) => (
+                    <button key={value} type="button" onClick={() => changeEngine(value)} disabled={isGenerating} className={`flex-1 rounded px-3 py-1.5 text-xs font-medium ${engine === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
               {/* <label htmlFor="chart-type-file" className="block text-xs font-medium text-gray-700 mb-1">
                 图表类型
               </label> */}
@@ -413,6 +449,8 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
               chartType={chartType}
               onChartTypeChange={setChartType}
               onImageGenerate={handleImageSubmit}
+              engine={engine}
+              onEngineChange={changeEngine}
             />
             {/* Unified Loading Overlay for image upload */}
             <LoadingOverlay

@@ -16,7 +16,7 @@ const getConvertFunction = async () => {
   return excalidrawModule.convertToExcalidrawElements;
 };
 
-export default function ExcalidrawCanvas({ elements }) {
+export default function ExcalidrawCanvas({ elements, onElementsChange }) {
   const [convertToExcalidrawElements, setConvertFunction] = useState(null);
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
 
@@ -34,6 +34,9 @@ export default function ExcalidrawCanvas({ elements }) {
     }
 
     try {
+      if (elements.every((element) => Number.isFinite(element?.version))) {
+        return elements;
+      }
       return convertToExcalidrawElements(elements);
     } catch (error) {
       console.error('Failed to convert elements:', error);
@@ -75,6 +78,7 @@ export default function ExcalidrawCanvas({ elements }) {
           },
           scrollToContent: true,
         }}
+        onChange={(nextElements) => onElementsChange?.(nextElements)}
       />
     </div>
   );

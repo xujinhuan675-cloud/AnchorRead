@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { callLLM } from '@/lib/llm-client';
 import { SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from '@/lib/prompts';
+import {
+  MERMAID_SYSTEM_PROMPT,
+  buildMermaidUserPrompt,
+} from '@/lib/mermaid-prompts';
 
 /**
  * POST /api/generate
@@ -8,7 +12,7 @@ import { SYSTEM_PROMPT, USER_PROMPT_TEMPLATE } from '@/lib/prompts';
  */
 export async function POST(request) {
   try {
-    const { config, userInput, chartType } = await request.json();
+    const { config, userInput, chartType, engine = 'excalidraw' } = await request.json();
     const accessPassword = request.headers.get('x-access-password');
 
     // Check if using server-side config with access password
@@ -47,6 +51,17 @@ export async function POST(request) {
       );
     }
 
+    if (!['excalidraw', 'mermaid'].includes(engine)) {
+      return NextResponse.json(
+        { error: 'Unsupported drawing engine' },
+        { status: 400 }
+      );
+    }
+
+    const buildUserPrompt = engine === 'mermaid'
+      ? buildMermaidUserPrompt
+      : USER_PROMPT_TEMPLATE;
+
     // Build messages array
     let userMessage;
 
@@ -56,7 +71,7 @@ export async function POST(request) {
       const { text, image } = userInput;
       userMessage = {
         role: 'user',
-        content: USER_PROMPT_TEMPLATE(text, chartType),
+        content: buildUserPrompt(text, chartType),
         image: {
           data: image.data,
           mimeType: image.mimeType
@@ -66,12 +81,15 @@ export async function POST(request) {
       // Regular text input
       userMessage = {
         role: 'user',
-        content: USER_PROMPT_TEMPLATE(userInput, chartType)
+        content: buildUserPrompt(userInput, chartType)
       };
     }
 
     const fullMessages = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      {
+        role: 'system',
+        content: engine === 'mermaid' ? MERMAID_SYSTEM_PROMPT : SYSTEM_PROMPT,
+      },
       userMessage
     ];
 
