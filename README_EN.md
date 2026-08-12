@@ -1,4 +1,4 @@
-# Smart Excalidraw
+# Anchor Read
 
 > **Draw Professional Charts with Natural Language**
 
@@ -72,7 +72,7 @@ If you want to run the project locally:
 ```bash
 # Clone the project
 git clone https://github.com/liujuntao123/smart-excalidraw-next.git
-cd smart-excalidraw-next
+cd AnchorRead
 
 # Install dependencies
 pnpm install

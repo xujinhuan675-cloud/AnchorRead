@@ -1,4 +1,4 @@
-# Smart Excalidraw
+# Anchor Read
 > **用自然语言，绘制专业图表**
 
 
@@ -89,7 +89,7 @@ AI 会自动生成图表，你可以在画布上直接编辑和调整。
 ```bash
 # 克隆项目
 git clone <your-repo-url>
-cd smart-excalidraw-next
+cd AnchorRead
 
 # 安装依赖
 pnpm install
