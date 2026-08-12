@@ -9,6 +9,11 @@
     "lint": "eslint",
     "test:llm": "node --experimental-default-type=module --test tests/llm-client.test.js",
     "test:document": "node --experimental-default-type=module --test tests/document-content.test.js",
+    "test:explain": "node --experimental-default-type=module --test tests/explain-contract.test.js tests/explanation-store.test.js",
+    "test:explain-e2e": "node --experimental-default-type=module tests/explain-api.e2e.js",
+    "test:workspace": "node --experimental-default-type=module --test tests/local-workspace-db.test.js tests/workspace-file.test.js",
+    "test:mermaid": "node --experimental-default-type=module --test tests/mermaid-prompts.test.js tests/mermaid-canvas-contract.test.js",
+    "test:mermaid-e2e": "node --experimental-default-type=module tests/mermaid-api.e2e.js",
     "test:parse-e2e": "node --experimental-default-type=module tests/parse-api.e2e.js"
   },
   "dependencies": {

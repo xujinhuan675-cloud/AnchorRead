@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Chat from '@/components/Chat';
 import ArticlePanel from '@/components/ArticlePanel';
@@ -17,7 +17,12 @@ import { getConfig, isConfigValid } from '@/lib/config';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { optimizeExcalidrawCode } from '@/lib/optimizeArrows';
 import { historyManager } from '@/lib/history-manager';
+import { createExplanationCacheKey, explanationStore } from '@/lib/explanation-store';
 import { repairJsonClosure } from '@/lib/json-repair';
+import MermaidCanvas from '@/components/MermaidCanvas';
+import LocalDataNotice from '@/components/LocalDataNotice';
+import { workspaceRepository } from '@/lib/local-workspace-db';
+import { downloadWorkspaceFile, exportWorkspace, importWorkspace } from '@/lib/workspace-file';
 
 // Dynamically import ExcalidrawCanvas to avoid SSR issues
 const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), {
@@ -41,6 +46,12 @@ export default function Home() {
   const [jsonError, setJsonError] = useState(null);
   const [currentInput, setCurrentInput] = useState('');
   const [currentChartType, setCurrentChartType] = useState('auto');
+  const [drawingEngine, setDrawingEngine] = useState('excalidraw');
+  const [mermaidSource, setMermaidSource] = useState('');
+  const [excalidrawSource, setExcalidrawSource] = useState('');
+  const [localSaveStatus, setLocalSaveStatus] = useState('saved');
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [articleSession, setArticleSession] = useState(null);
   // 工作模式：draw 图表绘制 | article 文章理解
   const [mode, setMode] = useState('article');
   const [articleSessionKey, setArticleSessionKey] = useState(0);
@@ -90,6 +101,89 @@ export default function Home() {
       window.removeEventListener('password-settings-changed', handlePasswordSettingsChanged);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function restoreWorkspace() {
+      try {
+        const [sessions, drawings, explanations] = await Promise.all([
+          workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
+          workspaceRepository.drawings.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
+          workspaceRepository.explanations.list(),
+        ]);
+        if (cancelled) return;
+        if (sessions[0]) {
+          setArticleSession(sessions[0]);
+          setArticleSessionKey((current) => current + 1);
+        }
+        if (drawings[0]) {
+          setDrawingEngine(drawings[0].engine || 'excalidraw');
+          setGeneratedCode(drawings[0].source || '');
+          if (drawings[0].engine === 'mermaid') setMermaidSource(drawings[0].source || '');
+          else {
+            setExcalidrawSource(drawings[0].source || '');
+            tryParseAndApply(drawings[0].source || '');
+          }
+          setCurrentChartType(drawings[0].chartType || 'auto');
+        }
+        if (explanations.length > 0) explanationStore.replaceEntries(explanations);
+      } catch (error) {
+        console.error('Failed to restore local workspace:', error);
+        setLocalSaveStatus('error');
+      } finally {
+        if (!cancelled) setWorkspaceReady(true);
+      }
+    }
+    restoreWorkspace();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceReady) return undefined;
+    setLocalSaveStatus('saving');
+    const timer = window.setTimeout(async () => {
+      try {
+        await workspaceRepository.drawings.save({
+          id: 'current-drawing',
+          documentId: 'current-document',
+          engine: drawingEngine,
+          chartType: currentChartType,
+          source: generatedCode,
+          updatedAt: Date.now(),
+        });
+        setLocalSaveStatus('saved');
+      } catch (error) {
+        console.error('Failed to save drawing locally:', error);
+        setLocalSaveStatus('error');
+      }
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [currentChartType, drawingEngine, generatedCode, workspaceReady]);
+
+  const saveArticleSession = useCallback(async (session) => {
+    setArticleSession(session);
+    if (!workspaceReady) return;
+    setLocalSaveStatus('saving');
+    try {
+      const now = Date.now();
+      await workspaceRepository.documents.save({
+        id: 'current-document',
+        title: session.articleTitle,
+        content: session.articleText,
+        updatedAt: now,
+      });
+      await workspaceRepository.readSessions.save({
+        id: 'current-session',
+        documentId: 'current-document',
+        ...session,
+        updatedAt: now,
+      });
+      setLocalSaveStatus('saved');
+    } catch (error) {
+      console.error('Failed to save reading session locally:', error);
+      setLocalSaveStatus('error');
+    }
+  }, [workspaceReady]);
 
   // 跟踪闪卡到期数量，监听卡片库变化（同页签自定义事件）
   useEffect(() => {
@@ -184,7 +278,7 @@ export default function Home() {
   };
 
   // Handle sending a message (single-turn)
-  const handleSendMessage = async (userMessage, chartType = 'auto', sourceType = 'text') => {
+  const handleSendMessage = async (userMessage, chartType = 'auto', sourceType = 'text', engine = drawingEngine) => {
     const usePassword = typeof window !== 'undefined' && localStorage.getItem('smart-excalidraw-use-password') === 'true';
     const accessPassword = typeof window !== 'undefined' ? localStorage.getItem('smart-excalidraw-access-password') : '';
 
@@ -201,6 +295,7 @@ export default function Home() {
 
     setCurrentInput(userMessage);
     setCurrentChartType(chartType);
+    setDrawingEngine(engine);
     setIsGenerating(true);
     setApiError(null); // Clear previous errors
     setJsonError(null); // Clear previous JSON errors
@@ -219,6 +314,7 @@ export default function Home() {
           config: usePassword ? null : config,
           userInput: userMessage,
           chartType,
+          engine,
         }),
       });
 
@@ -277,8 +373,9 @@ export default function Home() {
               const data = JSON.parse(line.slice(6));
               if (data.content) {
                 accumulatedCode += data.content;
-                // Post-process and set the cleaned code to editor
-                const processedCode = postProcessExcalidrawCode(accumulatedCode);
+                const processedCode = engine === 'mermaid'
+                  ? accumulatedCode.trim().replace(/^```(?:mermaid)?\s*/i, '').replace(/\s*```$/, '').trim()
+                  : postProcessExcalidrawCode(accumulatedCode);
                 setGeneratedCode(processedCode);
               } else if (data.error) {
                 throw new Error(data.error);
@@ -294,22 +391,31 @@ export default function Home() {
         }
       }
 
-      // Try to parse and apply the generated code (already post-processed)
-      const processedCode = postProcessExcalidrawCode(accumulatedCode);
-      tryParseAndApply(processedCode);
-
-      // Automatically optimize the generated code
-      const optimizedCode = optimizeExcalidrawCode(processedCode);
-      setGeneratedCode(optimizedCode);
-      tryParseAndApply(optimizedCode);
+      let historyCode = '';
+      if (engine === 'mermaid') {
+        const source = accumulatedCode.trim().replace(/^```(?:mermaid)?\s*/i, '').replace(/\s*```$/, '').trim();
+        setGeneratedCode(source);
+        setMermaidSource(source);
+        historyCode = source;
+      } else {
+        // Try to parse and apply the Excalidraw code.
+        const processedCode = postProcessExcalidrawCode(accumulatedCode);
+        tryParseAndApply(processedCode);
+        const optimizedCode = optimizeExcalidrawCode(processedCode);
+        setGeneratedCode(optimizedCode);
+        setExcalidrawSource(optimizedCode);
+        tryParseAndApply(optimizedCode);
+        historyCode = optimizedCode;
+      }
 
       // Save to history only for text input mode
-      if (sourceType === 'text' && userMessage && optimizedCode) {
+      if (sourceType === 'text' && userMessage && accumulatedCode) {
         const userInputText = typeof userMessage === 'object' ? (userMessage.text || '') : userMessage;
         historyManager.addHistory({
           chartType,
           userInput: userInputText,
-          generatedCode: optimizedCode,
+          generatedCode: historyCode,
+          engine,
           config: {
             name: config?.name || config?.type,
             model: config?.model
@@ -368,7 +474,8 @@ export default function Home() {
     try {
       // Simulate async operation for better UX
       await new Promise(resolve => setTimeout(resolve, 300));
-      tryParseAndApply(generatedCode);
+      if (drawingEngine === 'mermaid') setMermaidSource(generatedCode);
+      else tryParseAndApply(generatedCode);
     } catch (error) {
       console.error('Error applying code:', error);
     } finally {
@@ -395,6 +502,26 @@ export default function Home() {
   // Handle clearing code
   const handleClearCode = () => {
     setGeneratedCode('');
+    setMermaidSource('');
+    setExcalidrawSource('');
+    setElements([]);
+  };
+
+  const handleEngineChange = (nextEngine) => {
+    if (nextEngine === drawingEngine) return;
+    if (drawingEngine === 'mermaid') setMermaidSource(generatedCode);
+    else setExcalidrawSource(generatedCode);
+
+    const nextSource = nextEngine === 'mermaid' ? mermaidSource : excalidrawSource;
+    setDrawingEngine(nextEngine);
+    setGeneratedCode(nextSource || '');
+    if (nextEngine === 'mermaid') {
+      setMermaidSource(nextSource || '');
+    } else if (nextSource) {
+      tryParseAndApply(nextSource);
+    } else {
+      setElements([]);
+    }
   };
 
   // Handle config selection from manager
@@ -413,8 +540,13 @@ export default function Home() {
 
     setCurrentInput(userInputText);
     setCurrentChartType(history.chartType);
+    setDrawingEngine(history.engine || 'excalidraw');
     setGeneratedCode(history.generatedCode);
-    tryParseAndApply(history.generatedCode);
+    if (history.engine === 'mermaid') setMermaidSource(history.generatedCode);
+    else {
+      setExcalidrawSource(history.generatedCode);
+      tryParseAndApply(history.generatedCode);
+    }
     setMode('draw');
   };
 
@@ -428,6 +560,82 @@ export default function Home() {
   // 闪卡库变化后刷新到期徽标
   const handleCardsChanged = () => {
     setDueCount(flashcardStore.getDueCount());
+  };
+
+  const saveWorkspaceFile = async () => {
+    try {
+      setLocalSaveStatus('saving');
+      for (const card of flashcardStore.getAll()) {
+        await workspaceRepository.reviewStates.save({
+          ...card,
+          id: card.id,
+          documentId: card.documentId || 'current-document',
+          dueAt: card.due,
+          updatedAt: card.lastReview || card.createdAt || Date.now(),
+        });
+      }
+      for (const entry of explanationStore.exportEntries()) {
+        await workspaceRepository.explanations.save({
+          ...entry,
+          id: entry.key,
+          documentId: 'current-document',
+          updatedAt: entry.accessedAt || Date.now(),
+        });
+      }
+      const payload = await exportWorkspace(workspaceRepository);
+      downloadWorkspaceFile(payload);
+      setLocalSaveStatus('saved');
+    } catch (error) {
+      setLocalSaveStatus('error');
+      setNotification({ isOpen: true, title: '保存失败', message: error.message, type: 'error' });
+    }
+  };
+
+  const openWorkspaceFile = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.anchorread,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (!window.confirm('打开工作区文件会覆盖此浏览器中的当前工作区，是否继续？')) return;
+      try {
+        setLocalSaveStatus('saving');
+        await importWorkspace(workspaceRepository, await file.text(), { replace: true });
+        const [sessions, drawings] = await Promise.all([
+          workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
+          workspaceRepository.drawings.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
+        ]);
+        if (sessions[0]) {
+          setArticleSession(sessions[0]);
+          setArticleSessionKey((current) => current + 1);
+        }
+        if (drawings[0]) {
+          setDrawingEngine(drawings[0].engine || 'excalidraw');
+          setCurrentChartType(drawings[0].chartType || 'auto');
+          setGeneratedCode(drawings[0].source || '');
+          if (drawings[0].engine === 'mermaid') setMermaidSource(drawings[0].source || '');
+          else {
+            setExcalidrawSource(drawings[0].source || '');
+            tryParseAndApply(drawings[0].source || '');
+          }
+        }
+        const restoredExplanations = await workspaceRepository.explanations.list();
+        explanationStore.replaceEntries(restoredExplanations);
+        const restoredCards = await workspaceRepository.reviewStates.list();
+        if (restoredCards.length > 0) {
+          flashcardStore.replaceAll(
+            restoredCards.map(({ dueAt, ...card }) => ({ ...card, due: card.due ?? dueAt }))
+          );
+        }
+        setNotification({ isOpen: true, title: '工作区已打开', message: '本地文章与绘图数据已恢复。', type: 'info' });
+        setLocalSaveStatus('saved');
+      } catch (error) {
+        setLocalSaveStatus('error');
+        setNotification({ isOpen: true, title: '打开失败', message: error.message, type: 'error' });
+      }
+    };
+    input.click();
   };
 
   const handleNewArticle = () => {
@@ -509,6 +717,7 @@ export default function Home() {
             >
               <Code2 size={18} strokeWidth={1.8} aria-hidden="true" />
             </a>
+            <LocalDataNotice status={localSaveStatus} onSave={saveWorkspaceFile} onOpen={openWorkspaceFile} />
             <button
               type="button"
               onClick={() => setIsAccessPasswordModalOpen(true)}
@@ -529,6 +738,10 @@ export default function Home() {
             </button>
           </div>
         </header>
+
+        <div className="flex min-h-8 shrink-0 items-center border-b border-gray-200 bg-gray-50 px-4 text-[11px] leading-4 text-gray-500 md:px-7">
+          数据默认保存在此浏览器，由您自行控制。浏览器数据可能被意外清除，请定期保存工作区文件；调用 AI 时，相关内容会发送给您配置的模型服务。
+        </div>
 
         <WorkspaceNav
           mobile
@@ -556,6 +769,27 @@ export default function Home() {
               setNotification({ isOpen: true, title, message, type })
             }
             onRequireConfig={() => setIsConfigManagerOpen(true)}
+            initialSession={articleSession}
+            onSessionChange={saveArticleSession}
+            onExplanationSave={(item) => {
+              const article = item.article.trim();
+              const selectedText = item.selectedText.trim();
+              const key = createExplanationCacheKey(article, selectedText);
+              const now = Date.now();
+              workspaceRepository.explanations.save({
+                id: key,
+                key,
+                documentId: 'current-document',
+                articleLength: article.length,
+                selectedText,
+                explanation: item.explanation,
+                accessedAt: now,
+                updatedAt: now,
+              }).catch((error) => {
+                console.error('Failed to save explanation locally:', error);
+                setLocalSaveStatus('error');
+              });
+            }}
           />
         </main>
       ) : (
@@ -590,6 +824,8 @@ export default function Home() {
               isGenerating={isGenerating}
               initialInput={currentInput}
               initialChartType={currentChartType}
+              initialEngine={drawingEngine}
+              onEngineChange={handleEngineChange}
             />
           </div>
 
@@ -605,6 +841,7 @@ export default function Home() {
               isGenerating={isGenerating}
               isApplyingCode={isApplyingCode}
               isOptimizingCode={isOptimizingCode}
+              engine={drawingEngine}
             />
           </div>
         </div>
@@ -617,7 +854,19 @@ export default function Home() {
 
         {/* Right Panel - Excalidraw Canvas */}
         <div style={{ width: `${100 - leftPanelWidth}%` }} className="bg-gray-50">
-          <ExcalidrawCanvas elements={elements} />
+          {drawingEngine === 'mermaid' ? (
+            <MermaidCanvas source={mermaidSource || generatedCode} title="Mermaid 绘图" />
+          ) : (
+            <ExcalidrawCanvas
+              elements={elements}
+              onElementsChange={(nextElements) => {
+                setElements(nextElements);
+                const source = JSON.stringify(nextElements, null, 2);
+                setGeneratedCode(source);
+                setExcalidrawSource(source);
+              }}
+            />
+          )}
         </div>
         </main>
         )}
