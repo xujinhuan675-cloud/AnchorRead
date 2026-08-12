@@ -3,7 +3,7 @@
 import { useCallback, useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Chat from '@/components/Chat';
-import ArticlePanel from '@/components/ArticlePanel';
+import ReaderLabWorkspace from '@/components/ReaderLabWorkspace';
 import FlashcardReview from '@/components/FlashcardReview';
 import CodeEditor from '@/components/CodeEditor';
 import ConfigManager from '@/components/ConfigManager';
@@ -17,7 +17,7 @@ import { getConfig, isConfigValid } from '@/lib/config';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { optimizeExcalidrawCode } from '@/lib/optimizeArrows';
 import { historyManager } from '@/lib/history-manager';
-import { createExplanationCacheKey, explanationStore } from '@/lib/explanation-store';
+import { explanationStore } from '@/lib/explanation-store';
 import { repairJsonClosure } from '@/lib/json-repair';
 import MermaidCanvas from '@/components/MermaidCanvas';
 import LocalDataNotice from '@/components/LocalDataNotice';
@@ -51,10 +51,8 @@ export default function Home() {
   const [excalidrawSource, setExcalidrawSource] = useState('');
   const [localSaveStatus, setLocalSaveStatus] = useState('saved');
   const [workspaceReady, setWorkspaceReady] = useState(false);
-  const [articleSession, setArticleSession] = useState(null);
   // 工作模式：draw 图表绘制 | article 文章理解
   const [mode, setMode] = useState('article');
-  const [articleSessionKey, setArticleSessionKey] = useState(0);
   const [isFlashcardOpen, setIsFlashcardOpen] = useState(false);
   const [dueCount, setDueCount] = useState(0);
   const [usePassword, setUsePassword] = useState(false);
@@ -106,16 +104,11 @@ export default function Home() {
     let cancelled = false;
     async function restoreWorkspace() {
       try {
-        const [sessions, drawings, explanations] = await Promise.all([
-          workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
+        const [drawings, explanations] = await Promise.all([
           workspaceRepository.drawings.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
           workspaceRepository.explanations.list(),
         ]);
         if (cancelled) return;
-        if (sessions[0]) {
-          setArticleSession(sessions[0]);
-          setArticleSessionKey((current) => current + 1);
-        }
         if (drawings[0]) {
           setDrawingEngine(drawings[0].engine || 'excalidraw');
           setGeneratedCode(drawings[0].source || '');
@@ -159,31 +152,6 @@ export default function Home() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [currentChartType, drawingEngine, generatedCode, workspaceReady]);
-
-  const saveArticleSession = useCallback(async (session) => {
-    setArticleSession(session);
-    if (!workspaceReady) return;
-    setLocalSaveStatus('saving');
-    try {
-      const now = Date.now();
-      await workspaceRepository.documents.save({
-        id: 'current-document',
-        title: session.articleTitle,
-        content: session.articleText,
-        updatedAt: now,
-      });
-      await workspaceRepository.readSessions.save({
-        id: 'current-session',
-        documentId: 'current-document',
-        ...session,
-        updatedAt: now,
-      });
-      setLocalSaveStatus('saved');
-    } catch (error) {
-      console.error('Failed to save reading session locally:', error);
-      setLocalSaveStatus('error');
-    }
-  }, [workspaceReady]);
 
   // 跟踪闪卡到期数量，监听卡片库变化（同页签自定义事件）
   useEffect(() => {
@@ -602,14 +570,11 @@ export default function Home() {
       try {
         setLocalSaveStatus('saving');
         await importWorkspace(workspaceRepository, await file.text(), { replace: true });
-        const [sessions, drawings] = await Promise.all([
-          workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
-          workspaceRepository.drawings.list({ index: 'updatedAt', direction: 'prev', limit: 1 }),
-        ]);
-        if (sessions[0]) {
-          setArticleSession(sessions[0]);
-          setArticleSessionKey((current) => current + 1);
-        }
+        const drawings = await workspaceRepository.drawings.list({
+          index: 'updatedAt',
+          direction: 'prev',
+          limit: 1,
+        });
         if (drawings[0]) {
           setDrawingEngine(drawings[0].engine || 'excalidraw');
           setCurrentChartType(drawings[0].chartType || 'auto');
@@ -639,11 +604,7 @@ export default function Home() {
   };
 
   const handleNewArticle = () => {
-    if (mode === 'article' && !window.confirm('新建文章会清空当前工作区，是否继续？')) {
-      return;
-    }
     setMode('article');
-    setArticleSessionKey((current) => current + 1);
   };
 
   // Handle horizontal resizing (left panel vs right panel)
@@ -692,56 +653,60 @@ export default function Home() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 md:px-7">
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold text-gray-950">ANCHOR READ</h1>
-            <p className="truncate text-xs text-gray-500">专业文档阅读与概念理解工作台</p>
-          </div>
-
-          <div className="flex min-w-0 items-center gap-2">
-            {(usePassword || (config && isConfigValid(config))) && (
-              <div className="hidden max-w-64 items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 sm:flex">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
-                <span className="truncate text-xs font-medium text-emerald-900">
-                  {usePassword ? '密码访问已启用' : `${config.name || config.type} · ${config.model}`}
-                </span>
+        {mode === 'draw' && (
+          <>
+            <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 md:px-7">
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-semibold text-gray-950">ANCHOR READ</h1>
+                <p className="truncate text-xs text-gray-500">专业文档阅读与概念理解工作台</p>
               </div>
-            )}
-            <a
-              href="https://github.com/xujinhuan675-cloud/smart-excalidraw-next"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="项目代码"
-              aria-label="项目代码"
-              className="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-            >
-              <Code2 size={18} strokeWidth={1.8} aria-hidden="true" />
-            </a>
-            <LocalDataNotice status={localSaveStatus} onSave={saveWorkspaceFile} onOpen={openWorkspaceFile} />
-            <button
-              type="button"
-              onClick={() => setIsAccessPasswordModalOpen(true)}
-              className="hidden h-9 items-center gap-2 rounded border border-gray-200 px-3 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 sm:flex md:hidden lg:flex"
-            >
-              <KeyRound size={16} strokeWidth={1.8} aria-hidden="true" />
-              访问密码
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsConfigManagerOpen(true)}
-              aria-label="管理配置"
-              className="flex h-9 items-center gap-2 rounded bg-gray-900 px-3 text-xs font-medium text-white transition-colors hover:bg-gray-700"
-            >
-              <Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
-              <span className="hidden sm:inline">管理配置</span>
-              <span className="sm:hidden">配置</span>
-            </button>
-          </div>
-        </header>
 
-        <div className="flex min-h-8 shrink-0 items-center border-b border-gray-200 bg-gray-50 px-4 text-[11px] leading-4 text-gray-500 md:px-7">
-          数据默认保存在此浏览器，由您自行控制。浏览器数据可能被意外清除，请定期保存工作区文件；调用 AI 时，相关内容会发送给您配置的模型服务。
-        </div>
+              <div className="flex min-w-0 items-center gap-2">
+                {(usePassword || (config && isConfigValid(config))) && (
+                  <div className="hidden max-w-64 items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 sm:flex">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                    <span className="truncate text-xs font-medium text-emerald-900">
+                      {usePassword ? '密码访问已启用' : `${config.name || config.type} · ${config.model}`}
+                    </span>
+                  </div>
+                )}
+                <a
+                  href="https://github.com/xujinhuan675-cloud/smart-excalidraw-next"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="项目代码"
+                  aria-label="项目代码"
+                  className="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                >
+                  <Code2 size={18} strokeWidth={1.8} aria-hidden="true" />
+                </a>
+                <LocalDataNotice status={localSaveStatus} onSave={saveWorkspaceFile} onOpen={openWorkspaceFile} />
+                <button
+                  type="button"
+                  onClick={() => setIsAccessPasswordModalOpen(true)}
+                  className="hidden h-9 items-center gap-2 rounded border border-gray-200 px-3 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 sm:flex md:hidden lg:flex"
+                >
+                  <KeyRound size={16} strokeWidth={1.8} aria-hidden="true" />
+                  访问密码
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsConfigManagerOpen(true)}
+                  aria-label="管理配置"
+                  className="flex h-9 items-center gap-2 rounded bg-gray-900 px-3 text-xs font-medium text-white transition-colors hover:bg-gray-700"
+                >
+                  <Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
+                  <span className="hidden sm:inline">管理配置</span>
+                  <span className="sm:hidden">配置</span>
+                </button>
+              </div>
+            </header>
+
+            <div className="flex min-h-8 shrink-0 items-center border-b border-gray-200 bg-gray-50 px-4 text-[11px] leading-4 text-gray-500 md:px-7">
+              数据默认保存在此浏览器，由您自行控制。浏览器数据可能被意外清除，请定期保存工作区文件；调用 AI 时，相关内容会发送给您配置的模型服务。
+            </div>
+          </>
+        )}
 
         <WorkspaceNav
           mobile
@@ -756,41 +721,10 @@ export default function Home() {
           onAbout={() => setIsContactModalOpen(true)}
         />
 
-      {/* Article reading owns the workspace; drawing keeps the original split view. */}
+      {/* Reader Lab owns the reading DOM; drawing keeps the original split view. */}
       {mode === 'article' ? (
         <main className="min-h-0 flex-1 overflow-hidden">
-          <ArticlePanel
-            key={articleSessionKey}
-            config={config}
-            graphElements={elements}
-            onShowGraph={handleShowGraph}
-            onCardsChanged={handleCardsChanged}
-            notify={(title, message, type) =>
-              setNotification({ isOpen: true, title, message, type })
-            }
-            onRequireConfig={() => setIsConfigManagerOpen(true)}
-            initialSession={articleSession}
-            onSessionChange={saveArticleSession}
-            onExplanationSave={(item) => {
-              const article = item.article.trim();
-              const selectedText = item.selectedText.trim();
-              const key = createExplanationCacheKey(article, selectedText);
-              const now = Date.now();
-              workspaceRepository.explanations.save({
-                id: key,
-                key,
-                documentId: 'current-document',
-                articleLength: article.length,
-                selectedText,
-                explanation: item.explanation,
-                accessedAt: now,
-                updatedAt: now,
-              }).catch((error) => {
-                console.error('Failed to save explanation locally:', error);
-                setLocalSaveStatus('error');
-              });
-            }}
-          />
+          <ReaderLabWorkspace embedded />
         </main>
       ) : (
       <main className="flex min-h-0 flex-1 overflow-hidden pb-1">

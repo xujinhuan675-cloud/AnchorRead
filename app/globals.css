@@ -22,3 +22,195 @@ body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+.reader-lab-prosemirror,
+.reader-lab-derived-source {
+  color: #27272a;
+  font-size: 16px;
+  line-height: 1.9;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.reader-lab-prosemirror > :first-child,
+.reader-lab-derived-source > :first-child {
+  margin-top: 0;
+}
+
+.reader-lab-prosemirror p,
+.reader-lab-derived-source p {
+  margin: 0 0 1.1em;
+}
+
+.reader-lab-prosemirror h1,
+.reader-lab-prosemirror h2,
+.reader-lab-prosemirror h3,
+.reader-lab-derived-source h1,
+.reader-lab-derived-source h2,
+.reader-lab-derived-source h3 {
+  color: #18181b;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0;
+  scroll-margin-top: 24px;
+}
+
+.reader-lab-prosemirror h1,
+.reader-lab-derived-source h1 {
+  margin: 0 0 1em;
+  font-size: 1.875rem;
+}
+
+.reader-lab-prosemirror h2,
+.reader-lab-derived-source h2 {
+  margin: 1.9em 0 0.7em;
+  font-size: 1.45rem;
+}
+
+.reader-lab-prosemirror h3,
+.reader-lab-derived-source h3 {
+  margin: 1.6em 0 0.6em;
+  font-size: 1.2rem;
+}
+
+.reader-lab-prosemirror ul,
+.reader-lab-prosemirror ol,
+.reader-lab-derived-source ul,
+.reader-lab-derived-source ol {
+  margin: 0.6em 0 1.2em;
+  padding-left: 1.55em;
+}
+
+.reader-lab-prosemirror ul,
+.reader-lab-derived-source ul {
+  list-style: disc;
+}
+
+.reader-lab-prosemirror ol,
+.reader-lab-derived-source ol {
+  list-style: decimal;
+}
+
+.reader-lab-prosemirror li,
+.reader-lab-derived-source li {
+  margin: 0.35em 0;
+  padding-left: 0.2em;
+}
+
+.reader-lab-prosemirror blockquote,
+.reader-lab-derived-source blockquote {
+  margin: 1.5em 0;
+  border-left: 3px solid #0f766e;
+  background: #f0fdfa;
+  color: #3f3f46;
+  padding: 0.7em 1em;
+}
+
+.reader-lab-prosemirror blockquote p,
+.reader-lab-derived-source blockquote p {
+  margin: 0;
+}
+
+.reader-lab-prosemirror code,
+.reader-lab-derived-source code {
+  border-radius: 4px;
+  background: #f4f4f5;
+  color: #9f1239;
+  padding: 0.12em 0.35em;
+  font-size: 0.9em;
+}
+
+.reader-lab-prosemirror pre,
+.reader-lab-derived-source pre {
+  margin: 1.5em 0;
+  overflow-x: auto;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  background: #18181b;
+  color: #f4f4f5;
+  padding: 1em;
+  font-size: 0.85rem;
+  line-height: 1.65;
+}
+
+.reader-lab-prosemirror pre code,
+.reader-lab-derived-source pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.reader-lab-prosemirror table,
+.reader-lab-derived-source table {
+  display: block;
+  width: 100%;
+  margin: 1.5em 0;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.reader-lab-prosemirror th,
+.reader-lab-prosemirror td,
+.reader-lab-derived-source th,
+.reader-lab-derived-source td {
+  min-width: 7rem;
+  border: 1px solid #d4d4d8;
+  padding: 0.6em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.reader-lab-prosemirror th,
+.reader-lab-derived-source th {
+  background: #f4f4f5;
+  color: #18181b;
+  font-weight: 650;
+}
+
+.reader-lab-highlight {
+  border-bottom: 2px solid #0d9488;
+  background: #ccfbf1;
+  color: inherit;
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.reader-lab-highlight:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+
+.reader-lab-widget {
+  display: block;
+  width: 100%;
+}
+
+.reader-lab-inline-note {
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+.reader-lab-derived-source h1 {
+  font-size: 1.25rem;
+}
+
+@media (max-width: 639px) {
+  .reader-lab-prosemirror,
+  .reader-lab-derived-source {
+    font-size: 15px;
+    line-height: 1.8;
+  }
+
+  .reader-lab-prosemirror h1 {
+    font-size: 1.55rem;
+  }
+
+  .reader-lab-prosemirror h2,
+  .reader-lab-derived-source h2 {
+    font-size: 1.25rem;
+  }
+}
