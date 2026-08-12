@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Highlight from '@tiptap/extension-highlight';
@@ -205,7 +205,10 @@ export default function DocumentReader({
   highlights = [],
   onHighlightSelect,
   onSelectHighlight,
+  onTextSelect,
 }) {
+  const surfaceRef = useRef(null);
+  const [selectionAction, setSelectionAction] = useState(null);
   const safeHtml = useMemo(() => markdownToSafeHtml(content), [content]);
   const preparedHighlights = useMemo(
     () => prepareDocumentHighlights(content, highlights),
@@ -267,8 +270,48 @@ export default function DocumentReader({
   }, [onHighlightSelect, onSelectHighlight, preparedHighlights]);
 
   const handleClick = useCallback((event) => {
-    selectHighlightFromTarget(event.target);
+    if (selectHighlightFromTarget(event.target)) setSelectionAction(null);
   }, [selectHighlightFromTarget]);
+
+  const handlePointerUp = useCallback(() => {
+    if (!onTextSelect || typeof window === 'undefined') return;
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().trim() || '';
+    if (!selectedText || selection.rangeCount === 0) {
+      setSelectionAction(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const surface = surfaceRef.current;
+    if (!surface || !surface.contains(range.commonAncestorContainer)) return;
+
+    const rect = range.getBoundingClientRect();
+    const surfaceRect = surface.getBoundingClientRect();
+    setSelectionAction({
+      text: selectedText,
+      left: Math.min(
+        Math.max(rect.left - surfaceRect.left + rect.width / 2, 60),
+        Math.max(surface.clientWidth - 60, 60)
+      ),
+      top: Math.max(rect.bottom - surfaceRect.top + surface.scrollTop + 8, 8),
+    });
+  }, [onTextSelect]);
+
+  const handleKeyUp = useCallback((event) => {
+    if (event.key === 'Escape') {
+      setSelectionAction(null);
+      return;
+    }
+    handlePointerUp();
+  }, [handlePointerUp]);
+
+  const explainSelection = useCallback(() => {
+    if (!selectionAction?.text) return;
+    onTextSelect?.(selectionAction.text);
+    setSelectionAction(null);
+    if (typeof window !== 'undefined') window.getSelection()?.removeAllRanges();
+  }, [onTextSelect, selectionAction]);
 
   const handleKeyDown = useCallback((event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -277,11 +320,25 @@ export default function DocumentReader({
 
   return (
     <div
+      ref={surfaceRef}
       className="anchor-read-document h-full min-h-0 overflow-y-auto bg-white"
       onClick={handleClick}
+      onMouseUp={handlePointerUp}
       onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
       aria-busy={!editor}
     >
+      {selectionAction && (
+        <button
+          type="button"
+          onClick={explainSelection}
+          className="absolute z-20 -translate-x-1/2 rounded bg-gray-900 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+          style={{ left: selectionAction.left, top: selectionAction.top }}
+          aria-label={`解释选中的文字：${selectionAction.text}`}
+        >
+          解释选句
+        </button>
+      )}
       <div className="mx-auto w-full max-w-[860px] px-5 py-8 sm:px-8 lg:px-12 lg:py-12">
         <EditorContent editor={editor} />
       </div>
@@ -296,6 +353,7 @@ export default function DocumentReader({
           overflow-wrap: anywhere;
           outline: none;
         }
+        .anchor-read-document { position: relative; }
 
         .anchor-read-prosemirror > :first-child { margin-top: 0; }
         .anchor-read-prosemirror > :last-child { margin-bottom: 0; }

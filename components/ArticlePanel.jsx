@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DocumentReader from '@/components/DocumentReader';
 import ExcalidrawCanvas from '@/components/ExcalidrawCanvas';
 import MermaidConceptView from '@/components/MermaidConceptView';
@@ -9,14 +9,17 @@ import { HIGHLIGHT_LEVELS } from '@/lib/article-prompts';
 import { locateHighlights } from '@/lib/highlight-matcher';
 import { buildConceptGraph } from '@/lib/concept-graph';
 import { flashcardStore } from '@/lib/flashcard-store';
+import { explanationStore } from '@/lib/explanation-store';
 import { SAMPLE_ARTICLES } from '@/lib/sample-articles';
 import {
   ArrowRight,
   Brain,
+  CircleAlert,
   FileText,
   FileUp,
   GitBranch,
   Pencil,
+  RotateCcw,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -35,17 +38,25 @@ export default function ArticlePanel({
   notify,
   onRequireConfig,
   graphElements = [],
+  initialSession = null,
+  onSessionChange,
+  onExplanationSave,
 }) {
-  const [articleTitle, setArticleTitle] = useState('');
-  const [articleText, setArticleText] = useState('');
-  const [summary, setSummary] = useState('');
-  const [highlights, setHighlights] = useState([]);
+  const [articleTitle, setArticleTitle] = useState(initialSession?.articleTitle || '');
+  const [articleText, setArticleText] = useState(initialSession?.articleText || '');
+  const [summary, setSummary] = useState(initialSession?.summary || '');
+  const [highlights, setHighlights] = useState(initialSession?.highlights || []);
   const [selectedHighlight, setSelectedHighlight] = useState(null);
-  const [conceptData, setConceptData] = useState(EMPTY_CONCEPT_DATA);
-  const [activeTab, setActiveTab] = useState('reader');
+  const [selectedText, setSelectedText] = useState('');
+  const [explanation, setExplanation] = useState(null);
+  const [explanationStatus, setExplanationStatus] = useState('idle');
+  const [explanationError, setExplanationError] = useState('');
+  const [conceptData, setConceptData] = useState(initialSession?.conceptData || EMPTY_CONCEPT_DATA);
+  const [activeTab, setActiveTab] = useState(initialSession?.activeTab || 'reader');
   const [busyAction, setBusyAction] = useState(null);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
+  const explanationRequestRef = useRef(0);
 
   const located = useMemo(
     () => locateHighlights(articleText, highlights),
@@ -55,10 +66,29 @@ export default function ArticlePanel({
   const hasConceptGraph = conceptData.concepts.length > 0;
   const isBusy = busyAction !== null;
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      onSessionChange?.({
+        articleTitle,
+        articleText,
+        summary,
+        highlights,
+        conceptData,
+        activeTab,
+      });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, articleText, articleTitle, conceptData, highlights, onSessionChange, summary]);
+
   const resetDerivedContent = () => {
+    explanationRequestRef.current += 1;
     setHighlights([]);
     setSummary('');
     setSelectedHighlight(null);
+    setSelectedText('');
+    setExplanation(null);
+    setExplanationStatus('idle');
+    setExplanationError('');
     setConceptData(EMPTY_CONCEPT_DATA);
     setActiveTab('reader');
     setError(null);
@@ -120,7 +150,9 @@ export default function ArticlePanel({
 
   const handleArticleChange = (event) => {
     setArticleText(event.target.value);
-    if (hasAnalysis || hasConceptGraph) resetDerivedContent();
+    if (hasAnalysis || hasConceptGraph || selectedText || explanation) {
+      resetDerivedContent();
+    }
   };
 
   const handleFileChange = async (event) => {
@@ -195,6 +227,71 @@ export default function ArticlePanel({
     } finally {
       setBusyAction(null);
     }
+  };
+
+  const requestExplanation = async (text, { refresh = false } = {}) => {
+    const nextText = typeof text === 'string' ? text.trim() : '';
+    const sourceArticle = articleText.trim();
+    if (!nextText) return;
+
+    const requestId = explanationRequestRef.current + 1;
+    explanationRequestRef.current = requestId;
+
+    setSelectedText(nextText);
+    setExplanationError('');
+    const cached = !refresh
+      ? explanationStore.get(sourceArticle, nextText)
+      : null;
+    if (cached) {
+      setExplanation(cached);
+      setExplanationStatus('success');
+      return;
+    }
+
+    if (!checkReady()) {
+      setExplanation(null);
+      setExplanationStatus('idle');
+      return;
+    }
+
+    setExplanation(null);
+    setExplanationStatus('loading');
+    try {
+      const result = await callArticleApi('/api/explain', {
+        article: sourceArticle,
+        selectedText: nextText,
+      });
+      explanationStore.set(sourceArticle, nextText, result);
+      onExplanationSave?.({
+        article: sourceArticle,
+        selectedText: nextText,
+        explanation: result,
+      });
+      if (requestId !== explanationRequestRef.current) return;
+      setExplanation(result);
+      setExplanationStatus('success');
+    } catch (caughtError) {
+      if (requestId !== explanationRequestRef.current) return;
+      setExplanationStatus('error');
+      setExplanationError(caughtError.message);
+    }
+  };
+
+  const selectHighlight = (item) => {
+    explanationRequestRef.current += 1;
+    setSelectedHighlight(item);
+    setSelectedText(item?.text || '');
+    setExplanationError('');
+    const cached = item?.text
+      ? explanationStore.get(articleText, item.text)
+      : null;
+    setExplanation(cached);
+    setExplanationStatus(cached ? 'success' : 'idle');
+  };
+
+  const selectReaderText = (text) => {
+    setSelectedHighlight(null);
+    requestExplanation(text);
   };
 
   const handleConceptGraph = async () => {
@@ -366,7 +463,8 @@ export default function ArticlePanel({
                 <DocumentReader
                   content={articleText}
                   highlights={located}
-                  onSelectHighlight={setSelectedHighlight}
+                  onSelectHighlight={selectHighlight}
+                  onTextSelect={selectReaderText}
                 />
               </section>
 
@@ -379,27 +477,124 @@ export default function ArticlePanel({
                 </section>
 
                 <section className="border-b border-gray-200 px-4 py-4">
-                  <h2 className="text-xs font-semibold text-gray-500">当前高亮</h2>
-                  {selectedHighlight ? (
+                  <h2 className="text-xs font-semibold text-gray-500">
+                    {selectedHighlight ? '当前高亮' : '当前选句'}
+                  </h2>
+                  {selectedText ? (
                     <div className="mt-2">
-                      <span
-                        className={`inline-block rounded px-1.5 py-0.5 text-xs ${
-                          (HIGHLIGHT_LEVELS[selectedHighlight.level] || HIGHLIGHT_LEVELS.core)
-                            .badgeClass
-                        }`}
-                      >
-                        {(HIGHLIGHT_LEVELS[selectedHighlight.level] || HIGHLIGHT_LEVELS.core).name}
-                      </span>
+                      {selectedHighlight && (
+                        <span
+                          className={`inline-block rounded px-1.5 py-0.5 text-xs ${
+                            (HIGHLIGHT_LEVELS[selectedHighlight.level] || HIGHLIGHT_LEVELS.core)
+                              .badgeClass
+                          }`}
+                        >
+                          {(HIGHLIGHT_LEVELS[selectedHighlight.level] || HIGHLIGHT_LEVELS.core).name}
+                        </span>
+                      )}
                       <p className="mt-2 text-sm leading-6 text-gray-800">
-                        {selectedHighlight.text}
+                        {selectedText}
                       </p>
-                      <p className="mt-2 text-xs leading-5 text-gray-500">
-                        {selectedHighlight.reason || '暂无选择理由'}
-                      </p>
+                      {selectedHighlight?.reason && (
+                        <p className="mt-2 text-xs leading-5 text-gray-500">
+                          {selectedHighlight.reason}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => requestExplanation(selectedText)}
+                        disabled={explanationStatus === 'loading'}
+                        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded bg-gray-900 px-3 text-xs font-medium text-white transition-colors hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        <Sparkles size={15} strokeWidth={1.8} aria-hidden="true" />
+                        {explanationStatus === 'loading'
+                          ? '正在解释...'
+                          : explanationStatus === 'success'
+                            ? '查看已有解释'
+                            : '用白话解释'}
+                      </button>
                     </div>
                   ) : (
                     <p className="mt-2 text-xs leading-5 text-gray-500">
-                      点击正文中的高亮片段查看选择理由。
+                      点击高亮，或在正文中选择任意句子生成白话解释。
+                    </p>
+                  )}
+                </section>
+
+                <section
+                  className="border-b border-gray-200 px-4 py-4"
+                  aria-labelledby="explanation-title"
+                  aria-live="polite"
+                  aria-busy={explanationStatus === 'loading'}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 id="explanation-title" className="text-xs font-semibold text-gray-500">
+                      白话解释
+                    </h2>
+                    {explanationStatus === 'success' && selectedText && (
+                      <button
+                        type="button"
+                        onClick={() => requestExplanation(selectedText, { refresh: true })}
+                        className="flex h-7 items-center gap-1.5 rounded px-2 text-xs text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                        title="重新生成解释"
+                      >
+                        <RotateCcw size={13} aria-hidden="true" />
+                        重新生成
+                      </button>
+                    )}
+                  </div>
+
+                  {explanationStatus === 'loading' && (
+                    <div className="mt-3 space-y-2" role="status">
+                      <div className="h-3 w-full animate-pulse rounded bg-gray-200" />
+                      <div className="h-3 w-4/5 animate-pulse rounded bg-gray-200" />
+                      <span className="sr-only">正在生成白话解释</span>
+                    </div>
+                  )}
+
+                  {explanationStatus === 'error' && (
+                    <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-xs text-red-700" role="alert">
+                      <div className="flex items-start gap-2">
+                        <CircleAlert size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+                        <p className="leading-5">{explanationError || '解释生成失败，请重试。'}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => requestExplanation(selectedText, { refresh: true })}
+                        className="mt-2 font-medium underline underline-offset-2"
+                      >
+                        重试
+                      </button>
+                    </div>
+                  )}
+
+                  {explanationStatus === 'success' && explanation && (
+                    <div className="mt-3 space-y-4">
+                      <p className="text-sm leading-6 text-gray-800">
+                        {explanation.plainExplanation}
+                      </p>
+                      {explanation.terms?.length > 0 && (
+                        <dl className="space-y-2">
+                          {explanation.terms.map((term) => (
+                            <div key={`${term.source}-${term.explanation}`} className="border-l-2 border-blue-300 pl-3">
+                              <dt className="text-xs font-semibold text-gray-800">{term.source}</dt>
+                              <dd className="mt-0.5 text-xs leading-5 text-gray-600">{term.explanation}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
+                      {explanation.context && (
+                        <div>
+                          <h3 className="text-xs font-semibold text-gray-500">上下文作用</h3>
+                          <p className="mt-1 text-xs leading-5 text-gray-600">{explanation.context}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {explanationStatus === 'idle' && (
+                    <p className="mt-2 text-xs leading-5 text-gray-500">
+                      选择原文后生成解释。结果只叠加在辅助层，不会修改正文。
                     </p>
                   )}
                 </section>
@@ -431,7 +626,7 @@ export default function ArticlePanel({
                         <button
                           key={`${item.start}-${item.end}-${index}`}
                           type="button"
-                          onClick={() => setSelectedHighlight(item)}
+                          onClick={() => selectHighlight(item)}
                           className={`w-full py-3 text-left transition-colors ${
                             isSelected ? 'bg-gray-100' : 'hover:bg-white'
                           }`}
