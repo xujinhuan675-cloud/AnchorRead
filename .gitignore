@@ -43,3 +43,7 @@ next-env.d.ts
 
 # graphify 自动生成的图谱产物
 graphify-out/
+
+# 本地临时产物（提交拆分工件、调试输出、代码评审图谱）
+tmp-*
+.code-review-graph/
