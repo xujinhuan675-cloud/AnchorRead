@@ -1,20 +1,37 @@
 {
-  "name": "smart-excalidraw-next",
+  "name": "anchor-read",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:llm": "node --experimental-default-type=module --test tests/llm-client.test.js",
+    "test:document": "node --experimental-default-type=module --test tests/document-content.test.js",
+    "test:parse-e2e": "node --experimental-default-type=module tests/parse-api.e2e.js"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
     "@monaco-editor/react": "^4.7.0",
+    "@tiptap/extension-highlight": "^3.30.0",
+    "@tiptap/extension-table": "^3.30.0",
+    "@tiptap/extension-unique-id": "^3.30.0",
+    "@tiptap/pm": "^3.30.0",
+    "@tiptap/react": "^3.30.0",
+    "@tiptap/starter-kit": "^3.30.0",
     "@vercel/analytics": "^1.5.0",
+    "lucide-react": "^1.31.0",
+    "mermaid": "^11.16.1",
     "next": "16.0.1",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "rehype-sanitize": "^6.0.0",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
