@@ -13,13 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Smart Excalidraw",
-  description: "AI 驱动的图表生成",
+  title: "Anchor Read",
+  description: "AI 驱动的专业文档阅读、概念理解与闪卡记忆工具",
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

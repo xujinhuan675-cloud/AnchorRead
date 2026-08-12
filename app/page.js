@@ -3,13 +3,18 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Chat from '@/components/Chat';
+import ArticlePanel from '@/components/ArticlePanel';
+import FlashcardReview from '@/components/FlashcardReview';
 import CodeEditor from '@/components/CodeEditor';
 import ConfigManager from '@/components/ConfigManager';
 import ContactModal from '@/components/ContactModal';
 import HistoryModal from '@/components/HistoryModal';
 import AccessPasswordModal from '@/components/AccessPasswordModal';
 import Notification from '@/components/Notification';
+import WorkspaceNav from '@/components/WorkspaceNav';
+import { Code2, KeyRound, Settings2 } from 'lucide-react';
 import { getConfig, isConfigValid } from '@/lib/config';
+import { flashcardStore } from '@/lib/flashcard-store';
 import { optimizeExcalidrawCode } from '@/lib/optimizeArrows';
 import { historyManager } from '@/lib/history-manager';
 import { repairJsonClosure } from '@/lib/json-repair';
@@ -25,7 +30,6 @@ export default function Home() {
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isAccessPasswordModalOpen, setIsAccessPasswordModalOpen] = useState(false);
-  const [isAnnouncementModalOpen, setIsAnnouncementModalOpen] = useState(true);
   const [generatedCode, setGeneratedCode] = useState('');
   const [elements, setElements] = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -37,6 +41,11 @@ export default function Home() {
   const [jsonError, setJsonError] = useState(null);
   const [currentInput, setCurrentInput] = useState('');
   const [currentChartType, setCurrentChartType] = useState('auto');
+  // 工作模式：draw 图表绘制 | article 文章理解
+  const [mode, setMode] = useState('article');
+  const [articleSessionKey, setArticleSessionKey] = useState(0);
+  const [isFlashcardOpen, setIsFlashcardOpen] = useState(false);
+  const [dueCount, setDueCount] = useState(0);
   const [usePassword, setUsePassword] = useState(false);
   const [notification, setNotification] = useState({
     isOpen: false,
@@ -80,6 +89,14 @@ export default function Home() {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('password-settings-changed', handlePasswordSettingsChanged);
     };
+  }, []);
+
+  // 跟踪闪卡到期数量，监听卡片库变化（同页签自定义事件）
+  useEffect(() => {
+    const refreshDueCount = () => setDueCount(flashcardStore.getDueCount());
+    refreshDueCount();
+    window.addEventListener('flashcards-changed', refreshDueCount);
+    return () => window.removeEventListener('flashcards-changed', refreshDueCount);
   }, []);
 
   // Post-process Excalidraw code: remove markdown wrappers, repair closures, and fix unescaped quotes
@@ -398,6 +415,27 @@ export default function Home() {
     setCurrentChartType(history.chartType);
     setGeneratedCode(history.generatedCode);
     tryParseAndApply(history.generatedCode);
+    setMode('draw');
+  };
+
+  // 处理概念图：骨架元素直接交给画布组件转换渲染
+  const handleShowGraph = (elements) => {
+    setGeneratedCode(JSON.stringify(elements, null, 2));
+    setJsonError(null);
+    setElements(elements);
+  };
+
+  // 闪卡库变化后刷新到期徽标
+  const handleCardsChanged = () => {
+    setDueCount(flashcardStore.getDueCount());
+  };
+
+  const handleNewArticle = () => {
+    if (mode === 'article' && !window.confirm('新建文章会清空当前工作区，是否继续？')) {
+      return;
+    }
+    setMode('article');
+    setArticleSessionKey((current) => current + 1);
   };
 
   // Handle horizontal resizing (left panel vs right panel)
@@ -432,49 +470,97 @@ export default function Home() {
   }, [isResizingHorizontal]);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">Smart Excalidraw</h1>
-          <p className="text-xs text-gray-500">AI 驱动的图表生成</p>
-        </div>
-        <div className="flex items-center space-x-3">
-          {(usePassword || (config && isConfigValid(config))) && (
-            <div className="flex items-center space-x-2 px-3 py-1.5 bg-green-50 rounded border border-green-300">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-xs text-green-900 font-medium">
-                {usePassword ? '密码访问' : `${config.name || config.type} - ${config.model}`}
-              </span>
-            </div>
-          )}
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setIsHistoryModalOpen(true)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors duration-200"
+    <div className="flex h-screen overflow-hidden bg-[#f5f7f6] text-gray-900">
+      <WorkspaceNav
+        mode={mode}
+        dueCount={dueCount}
+        onNewArticle={handleNewArticle}
+        onModeChange={setMode}
+        onFlashcards={() => setIsFlashcardOpen(true)}
+        onHistory={() => setIsHistoryModalOpen(true)}
+        onConfig={() => setIsConfigManagerOpen(true)}
+        onPassword={() => setIsAccessPasswordModalOpen(true)}
+        onAbout={() => setIsContactModalOpen(true)}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 md:px-7">
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-gray-950">ANCHOR READ</h1>
+            <p className="truncate text-xs text-gray-500">专业文档阅读与概念理解工作台</p>
+          </div>
+
+          <div className="flex min-w-0 items-center gap-2">
+            {(usePassword || (config && isConfigValid(config))) && (
+              <div className="hidden max-w-64 items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 sm:flex">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+                <span className="truncate text-xs font-medium text-emerald-900">
+                  {usePassword ? '密码访问已启用' : `${config.name || config.type} · ${config.model}`}
+                </span>
+              </div>
+            )}
+            <a
+              href="https://github.com/xujinhuan675-cloud/smart-excalidraw-next"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="项目代码"
+              aria-label="项目代码"
+              className="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
             >
-              历史记录
-            </button>
+              <Code2 size={18} strokeWidth={1.8} aria-hidden="true" />
+            </a>
             <button
+              type="button"
               onClick={() => setIsAccessPasswordModalOpen(true)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors duration-200"
+              className="hidden h-9 items-center gap-2 rounded border border-gray-200 px-3 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 sm:flex md:hidden lg:flex"
             >
+              <KeyRound size={16} strokeWidth={1.8} aria-hidden="true" />
               访问密码
             </button>
             <button
+              type="button"
               onClick={() => setIsConfigManagerOpen(true)}
-              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 border border-gray-900 rounded hover:bg-gray-800 transition-colors duration-200"
+              aria-label="管理配置"
+              className="flex h-9 items-center gap-2 rounded bg-gray-900 px-3 text-xs font-medium text-white transition-colors hover:bg-gray-700"
             >
-              管理配置
+              <Settings2 size={16} strokeWidth={1.8} aria-hidden="true" />
+              <span className="hidden sm:inline">管理配置</span>
+              <span className="sm:hidden">配置</span>
             </button>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main Content - Two Column Layout */}
-      <div className="flex flex-1 overflow-hidden pb-1">
-        {/* Left Panel - Chat and Code Editor */}
-        <div id="left-panel" style={{ width: `${leftPanelWidth}%` }} className="flex flex-col border-r border-gray-200 bg-white">
+        <WorkspaceNav
+          mobile
+          mode={mode}
+          dueCount={dueCount}
+          onNewArticle={handleNewArticle}
+          onModeChange={setMode}
+          onFlashcards={() => setIsFlashcardOpen(true)}
+          onHistory={() => setIsHistoryModalOpen(true)}
+          onConfig={() => setIsConfigManagerOpen(true)}
+          onPassword={() => setIsAccessPasswordModalOpen(true)}
+          onAbout={() => setIsContactModalOpen(true)}
+        />
+
+      {/* Article reading owns the workspace; drawing keeps the original split view. */}
+      {mode === 'article' ? (
+        <main className="min-h-0 flex-1 overflow-hidden">
+          <ArticlePanel
+            key={articleSessionKey}
+            config={config}
+            graphElements={elements}
+            onShowGraph={handleShowGraph}
+            onCardsChanged={handleCardsChanged}
+            notify={(title, message, type) =>
+              setNotification({ isOpen: true, title, message, type })
+            }
+            onRequireConfig={() => setIsConfigManagerOpen(true)}
+          />
+        </main>
+      ) : (
+      <main className="flex min-h-0 flex-1 overflow-hidden pb-1">
+        <div id="left-panel" style={{ width: `${leftPanelWidth}%` }} className="flex min-w-0 flex-col border-r border-gray-200 bg-white">
           {/* API Error Banner */}
           {apiError && (
             <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-start justify-between">
@@ -498,7 +584,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Input Section */}
           <div style={{ height: '50%' }} className="overflow-auto">
             <Chat
               onSendMessage={handleSendMessage}
@@ -508,7 +593,6 @@ export default function Home() {
             />
           </div>
 
-          {/* Code Editor Section */}
           <div style={{ height: '50%' }} className="overflow-hidden">
             <CodeEditor
               code={generatedCode}
@@ -535,6 +619,8 @@ export default function Home() {
         <div style={{ width: `${100 - leftPanelWidth}%` }} className="bg-gray-50">
           <ExcalidrawCanvas elements={elements} />
         </div>
+        </main>
+        )}
       </div>
 
       {/* Config Manager Modal */}
@@ -544,45 +630,21 @@ export default function Home() {
         onConfigSelect={handleConfigSelect}
       />
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 px-6 py-3">
-        <div className="flex items-center justify-center space-x-4 text-sm text-gray-600">
-          <span>Smart Excalidraw v0.1.0</span>
-          <span className="text-gray-400">|</span>
-          <span>AI 驱动的智能图表生成工具</span>
-          <span className="text-gray-400">|</span>
-          <a
-            href="https://github.com/liujuntao123/smart-excalidraw-next"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center space-x-1 hover:text-gray-900 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
-            </svg>
-            <span>GitHub</span>
-          </a>
-          <span className="text-gray-400">|</span>
-          <button
-            onClick={() => setIsContactModalOpen(true)}
-            className="flex items-center space-x-1 hover:text-gray-900 transition-colors text-blue-600 hover:text-blue-700"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-            <span>联系作者</span>
-          </button>
-          {/* <button onClick={() => setIsContactModalOpen(true)} >
-          <span className="text-orange-500 font-medium">🎁 进群限时领取免费 claude-4.5-sonnet key</span>
-          </button> */}
-        </div>
-      </footer>
-
       {/* History Modal */}
       <HistoryModal
         isOpen={isHistoryModalOpen}
         onClose={() => setIsHistoryModalOpen(false)}
         onApply={handleApplyHistory}
+      />
+
+      {/* Flashcard Review Modal */}
+      <FlashcardReview
+        isOpen={isFlashcardOpen}
+        onClose={() => {
+          setIsFlashcardOpen(false);
+          handleCardsChanged();
+        }}
+        onStatsChanged={handleCardsChanged}
       />
 
       {/* Access Password Modal */}
@@ -606,37 +668,6 @@ export default function Home() {
         type={notification.type}
       />
 
-      {/* Announcement Modal */}
-      {isAnnouncementModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden">
-            <div className="px-6 py-4 bg-blue-600">
-              <h2 className="text-xl font-semibold text-white">公告</h2>
-            </div>
-            <div className="px-6 py-6">
-              <p className="text-gray-700 text-base leading-relaxed">
-                本网站将迁移至更全面强大的新版本：
-                <a
-                  href="https://ai-draw-nexus.aizhi.site/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 font-medium underline ml-1"
-                >
-                  AI-Draw-Nexus
-                </a>
-              </p>
-            </div>
-            <div className="px-6 py-4 bg-gray-50 flex justify-end">
-              <button
-                onClick={() => setIsAnnouncementModalOpen(false)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-              >
-                我知道了
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

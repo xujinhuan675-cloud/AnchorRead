@@ -1,24 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { historyManager } from '../lib/history-manager.js';
 import { CHART_TYPES } from '../lib/constants.js';
 import ConfirmDialog from './ConfirmDialog';
 
 export default function HistoryModal({ isOpen, onClose, onApply }) {
-  const [histories, setHistories] = useState([]);
+  if (!isOpen) return null;
+
+  return <HistoryModalContent onClose={onClose} onApply={onApply} />;
+}
+
+function HistoryModalContent({ onClose, onApply }) {
+  const [histories, setHistories] = useState(() => historyManager.getHistories());
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     title: '',
     message: '',
     onConfirm: null
   });
-
-  useEffect(() => {
-    if (isOpen) {
-      loadHistories();
-    }
-  }, [isOpen]);
 
   const loadHistories = () => {
     const allHistories = historyManager.getHistories();
@@ -62,8 +62,6 @@ export default function HistoryModal({ isOpen, onClose, onApply }) {
     }
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
   };
-
-  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
