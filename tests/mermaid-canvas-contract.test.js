@@ -21,9 +21,10 @@ test('locks Mermaid into strict, non-interactive rendering', () => {
   assert.equal(config.securityLevel, 'strict');
   assert.equal(config.startOnLoad, false);
   assert.equal(config.suppressErrorRendering, true);
-  assert.equal(config.flowchart.htmlLabels, false);
+  assert.equal(config.htmlLabels, false);
   assert.equal(config.maxTextSize, MERMAID_MAX_SOURCE_LENGTH);
   assert.ok(config.secure.includes('securityLevel'));
+  assert.ok(config.secure.includes('htmlLabels'));
   assert.ok(config.secure.includes('themeCSS'));
 });
 

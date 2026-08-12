@@ -3,40 +3,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 import { buildMermaidConceptGraph } from '@/lib/mermaid-graph';
+import {
+  createStrictMermaidConfig,
+  sanitizeMermaidSvg,
+} from '@/lib/mermaid-render';
 
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 2;
 const ZOOM_STEP = 0.2;
-
-function sanitizeSvg(svgText) {
-  const parsed = new DOMParser().parseFromString(svgText, 'image/svg+xml');
-  const parserError = parsed.querySelector('parsererror');
-  if (parserError) throw new Error('概念图 SVG 解析失败');
-
-  const svg = parsed.documentElement;
-  if (svg.localName !== 'svg') throw new Error('概念图输出格式无效');
-
-  svg
-    .querySelectorAll('script, foreignObject, iframe, object, embed')
-    .forEach((node) => node.remove());
-
-  [svg, ...svg.querySelectorAll('*')].forEach((node) => {
-    [...node.attributes].forEach((attribute) => {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value.trim().toLowerCase();
-      if (
-        name.startsWith('on') ||
-        ((name === 'href' || name === 'xlink:href') &&
-          value &&
-          !value.startsWith('#'))
-      ) {
-        node.removeAttribute(attribute.name);
-      }
-    });
-  });
-
-  return svg;
-}
 
 export default function MermaidConceptView({
   concepts = [],
@@ -70,12 +44,9 @@ export default function MermaidConceptView({
       setError('');
       try {
         mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: 'neutral',
-          fontFamily: 'Arial, Helvetica, sans-serif',
+          ...createStrictMermaidConfig(),
           flowchart: {
-            htmlLabels: false,
+            useMaxWidth: true,
             curve: 'basis',
             nodeSpacing: 36,
             rankSpacing: 52,
@@ -85,7 +56,7 @@ export default function MermaidConceptView({
         const { svg } = await mermaid.render(renderId, definition);
         if (cancelled) return;
 
-        const safeSvg = sanitizeSvg(svg);
+        const safeSvg = sanitizeMermaidSvg(svg);
         const mountedSvg = document.importNode(safeSvg, true);
         mountedSvg.removeAttribute('height');
         mountedSvg.style.display = 'block';
