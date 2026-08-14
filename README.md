@@ -1,54 +1,40 @@
 # Anchor Read
-> **用自然语言，绘制专业图表**
 
+> **本地优先的深度阅读工作台：读懂一篇文档，并真正记住它**
 
-🚀🚀🚀全面升级的新版本，更强大好用的绘图平台
+Anchor Read（原 smart-excalidraw-next）把"阅读专业文章"变成一条完整的知识内化链路：**读 → 懂 → 选 → 记**。你的文档、解读、图表与学习记录全部保存在浏览器本地，不上传云端；AI 请求只发送到你配置的模型服务。
 
-https://ai-draw-nexus.aizhi.site
-
-🚀🚀🚀新版本github地址：
-
-https://github.com/liujuntao123/ai-draw-nexus
-
-
-一图介绍
-![generated-image-1766739999192](https://github.com/user-attachments/assets/6438a45f-1eba-4b63-a4fa-50cd45b718fc)
-
-
-![generated-image-1766740104116](https://github.com/user-attachments/assets/f94e0702-6442-40f7-8b4a-ff4aabe68d5b)
-
-
-## English Version
-Read the English version: [README_EN.md](README_EN.md)
-
-## 效果预览
-操作界面
-<img width="2330" height="1255" alt="PixPin_2025-10-31_17-14-27" src="https://github.com/user-attachments/assets/5319ad5c-c507-42e0-b67a-e9dfb2d7ecfa" />
-技术架构图
-<img width="1920" height="1134" alt="Untitled-2025-11-03-1105" src="https://github.com/user-attachments/assets/d2e01c4e-d300-4c20-bd98-d056e4f02102" />
-信息图
-<img width="2183" height="828" alt="Untitled-2025-11-03-1054" src="https://github.com/user-attachments/assets/0e46e8da-fe64-40a9-911b-f6c0e5589bae" />
-
-
+阅读英文版本：[README_EN.md](README_EN.md)
 
 ## ✨ 核心特性
 
-### 🎯 AI 驱动，效果出众
-通过先进的大语言模型理解你的需求，生成结构清晰、布局合理的专业级图表。
+### 📖 原文阅读器：事实源永远不被修改
+- 三种阅读模式：**原文**（纯净事实源）/ **对照**（原文与派生解读并排）/ **精准替代**（用易懂表述替换原文难点，并保留来源映射标记）
+- Markdown 全文渲染，支持表格、代码块，阅读进度自动保存
 
-### 🔗 独创连接算法
-采用独创的智能箭头优化算法，自动计算最佳连接点，确保图表井然有序、逻辑清晰，告别混乱的线条交叉。
+### 🧠 AI 行间解读与术语识别
+- 选中任意句子"解释这段"，解读卡片贴着原文行内展开，可标记"懂了"或删除
+- 选中术语"识别术语"，生成术语卡并可一键定位回原文锚点
+- 全文重点分析：一次定位为整篇文章生成贴行辅助
 
-### 📊 丰富图表类型
-支持 20+ 种图表类型，包括流程图、架构图、时序图、ER 图、思维导图等。也可以让AI根据你的描述自动选择最合适的图表类型。
+### 🗺️ 文档关系图（Mermaid / Excalidraw）
+- 选中原文锚定后生成文档关系图，**内联嵌入对应原文下方**，不再跳转
+- 卡片内可切换 Mermaid / Excalidraw 双引擎，支持"查看源码"折叠、AI 优化图表代码
+- 图表历史可回溯复用
 
-### 🎨 完美 Excalidraw 集成
-生成的图表完全基于 Excalidraw 格式，可以在画布上自由编辑、调整样式、添加细节，实现 AI 生成与手动精修的完美结合。
+### 🎯 按需辅助：你来决定页面铺什么
+- 工具栏提供**解读 / 图表**显示开关，可逐项选择或全部打开
+- 所有功能围绕"快速理解这篇文档"服务，不把内容一股脑铺在页面上
 
-### ⚡ 开箱即用
-只需配置一个 AI API 密钥即可开始使用，无需复杂的环境搭建。所有配置保存在本地浏览器，隐私安全有保障。
+### 🃏 闪卡复习（FSRS 间隔重复）
+- 工具栏一键为当前文档生成闪卡，直接进入知识面板的"闪卡复习"
+- FSRS-5 算法自动安排下次复习时间，支持翻卡评分（忘记/困难/记得/轻松）与跳过
+- 卡片库按文档归档，可逐张删除；到期数量实时角标提醒
 
-
+### 🔒 本地优先，数据自主
+- 文档、解读、术语、图表、闪卡全部存于浏览器（IndexedDB / localStorage）
+- 支持导出 / 导入 `.anchorread` 工作区文件备份
+- 未配置模型时自动降级为明确标注的 Demo 演示，不产生静默联网
 
 ## 🚀 快速开始
 
@@ -61,30 +47,25 @@ Read the English version: [README_EN.md](README_EN.md)
 3. 点击 **"验证密码"** 测试连接
 4. 勾选 **"启用访问密码"** 并保存
 
-启用后，应用将优先使用服务器端配置，你无需配置自己的 API Key 即可开始创作！
+启用后，应用将优先使用服务器端配置，你无需配置自己的 API Key 即可开始阅读！
 
 ### 方式二：配置自己的 AI
 
-1. 点击右上角的 **"配置 LLM"** 按钮
+1. 点击右上角的 **"配置"** 按钮
 2. 选择提供商类型（OpenAI 或 Anthropic）
-3. 填入你的 API Key
-4. 选择模型（**推荐使用 claude-sonnet-4.5**，效果最佳）
-5. 保存配置
+3. 填入你的 API Key 与模型
+4. 保存配置
 
-就这么简单！现在你可以开始创作了。
+之后即可在阅读中生成解读、术语、关系图与闪卡。
 
-### 第二步：创建图表
+### 阅读工作流
 
-在输入框中用自然语言描述你的需求，例如：
-- "画一个用户登录的流程图"
-- "创建一个微服务架构图，包含网关、认证服务和业务服务"
-- "设计一个电商系统的数据库 ER 图"
-
-AI 会自动生成图表，你可以在画布上直接编辑和调整。
+1. **导入文档**：粘贴正文或上传 `.md/.txt` 文件，解析并进入阅读
+2. **读与懂**：选中句子"解释这段"、"识别术语"、"图表"锚定生成关系图
+3. **选**：用工具栏开关决定显示哪些内联辅助
+4. **记**：点击"生成闪卡"，在知识面板"闪卡复习"里按间隔重复巩固
 
 ## 💻 本地部署
-
-如果你想在本地运行项目：
 
 ```bash
 # 克隆项目
@@ -96,6 +77,9 @@ pnpm install
 
 # 启动开发服务器
 pnpm dev
+
+# 运行契约测试
+pnpm test:reader-lab
 ```
 
 访问 http://localhost:3000 即可使用。
@@ -106,7 +90,7 @@ pnpm dev
 
 1. 复制环境变量示例文件：
 ```bash
-cp .env.example 
+cp .env.example .env
 ```
 
 2. 在 `.env` 中配置以下变量：
@@ -133,37 +117,31 @@ SERVER_LLM_MODEL=claude-sonnet-4-5-20250929
 - 用户无需自己申请和配置 API Key
 - 统一管理 API 使用和成本
 - 适合团队或组织内部使用
-- 提供免费体验给用户
 
 ## ❓ 常见问题
 
-**Q: 推荐使用哪个 AI 模型？**
-A: 强烈推荐使用 **claude-sonnet-4.5**，它在理解需求和生成图表方面表现最佳。
-
 **Q: 数据安全吗？**
-A: 所有配置信息仅保存在你的浏览器本地，不会上传到任何服务器。
+A: 所有文档与学习记录仅保存在你的浏览器本地，不会上传到任何服务器。浏览器数据可能被清除，请定期使用"导出"备份工作区。
 
-**Q: 支持哪些图表类型？**
-A: 支持流程图、架构图、时序图、ER 图、思维导图、网络拓扑图等 20+ 种类型，AI 会自动选择最合适的类型。
+**Q: 解读会修改我的原文吗？**
+A: 不会。解读、术语、图表、闪卡都是派生内容，随时可开关与删除，源文档保持不变。"精准替代"模式也只是生成替换视图，不改写原文。
 
-**Q: 生成的图表可以修改吗？**
-A: 当然可以！生成后可以在 Excalidraw 画布上自由编辑，包括调整位置、修改样式、添加元素等。
+**Q: 闪卡复习的调度算法是什么？**
+A: FSRS-5 间隔重复算法，根据每次评分（忘记/困难/记得/轻松）更新卡片稳定性与难度，自动计算下次到期时间。
 
 **Q: 什么是访问密码功能？**
 A: 访问密码功能允许服务器管理员配置统一的 LLM，用户只需输入密码即可使用，无需自己申请 API Key。启用访问密码后，将优先使用服务器端配置，忽略本地配置。
 
-**Q: 访问密码和本地配置的优先级是什么？**
-A: 如果启用了访问密码，系统将优先使用服务器端的 LLM 配置。只有在未启用访问密码时，才会使用本地配置的 API Key。
-
 ## 🛠️ 技术栈
 
-Next.js 16 · React 19 · Excalidraw · Tailwind CSS 4 · Monaco Editor
+Next.js 16 · React 19 · Tiptap v3（ProseMirror）· Excalidraw · Mermaid · Monaco Editor · Tailwind CSS 4 · FSRS-5 · IndexedDB
 
 ## 📄 许可证
 
-MIT License
+MIT License（本项目基于 MIT 许可的 smart-excalidraw-next 演进而来，感谢原项目作者）
 
 ## 联系作者
+
 微信号： liujuntaoljt
 
 <img width="200"  alt="微信图片_20251103110224_44_85" src="https://github.com/user-attachments/assets/6d8c4da2-af27-4213-b929-0d47fa51e9b5" />
@@ -186,8 +164,4 @@ MIT License
 
 ---
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=liujuntao123/smart-excalidraw-next&type=date&legend=top-left)](https://www.star-history.com/#liujuntao123/smart-excalidraw-next&type=date&legend=top-left)
-
-**用自然语言，绘制专业图表** - 让可视化创作回归简单
+**Anchor Read** — 让每一篇难懂的文档，都变成你记得住的知识

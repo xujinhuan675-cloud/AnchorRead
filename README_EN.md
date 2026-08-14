@@ -1,77 +1,75 @@
 # Anchor Read
 
-> **Draw Professional Charts with Natural Language**
+> **A local-first deep reading workbench: truly understand a document, and actually remember it**
 
-## 🌐 Online Website
-Visit our online website to use directly: https://smart-excalidraw.aizhi.site/
+Anchor Read (formerly smart-excalidraw-next) turns "reading a professional article" into a complete knowledge pipeline: **Read → Understand → Choose → Remember**. Your documents, explanations, diagrams, and learning records all stay in your browser — nothing is uploaded to the cloud; AI requests are only sent to the model service you configure yourself.
 
-## 📸 Preview
-Operation Interface
-<img width="2330" height="1255" alt="Smart Excalidraw Preview" src="https://github.com/user-attachments/assets/5319ad5c-c507-42e0-b67a-e9dfb2d7ecfa" />
-Technical Architecture Diagram
-<img width="1920" height="1134" alt="Untitled-2025-11-03-1105" src="https://github.com/user-attachments/assets/d2e01c4e-d300-4c20-bd98-d056e4f02102" />
-Infographic
-<img width="2183" height="828" alt="Untitled-2025-11-03-1054" src="https://github.com/user-attachments/assets/0e46e8da-fe64-40a9-911b-f6c0e5589bae" />
+Read the Chinese version: [README.md](README.md)
 
 ## ✨ Core Features
 
-### 🎯 AI-Powered, Outstanding Results
-Powered by advanced large language models to understand your requirements and generate professional-grade charts with clear structure and logical layout.
+### 📖 Source Reader: the original text is never modified
+- Three reading modes: **Original** (clean source of truth) / **Comparison** (source side by side with derived explanations) / **Precision Replacement** (hard passages replaced with plain-language rewrites, with source-mapping markers preserved)
+- Full Markdown rendering with tables and code blocks; reading progress saved automatically
 
-### 🔗 Innovative Connection Algorithm
-Featuring a proprietary intelligent arrow optimization algorithm that automatically calculates optimal connection points, ensuring charts are well-organized and logically clear, eliminating messy line crossings.
+### 🧠 Inline AI explanations & term recognition
+- Select any sentence and "Explain this" — an explanation card unfolds inline, right next to the source line; mark it "Got it" or delete it
+- Select a term and "Recognize terms" — term cards are created and can jump back to the exact source anchor
+- Whole-document analysis: locate key points across the article in one pass
 
-### 📊 Rich Chart Types
-Supports 20+ chart types, including flowcharts, architecture diagrams, sequence diagrams, ER diagrams, mind maps, and more. AI can also automatically select the most suitable chart type based on your description.
+### 🗺️ Document relationship diagrams (Mermaid / Excalidraw)
+- Anchor a diagram to a selection in the source; the diagram is **embedded inline right below the corresponding text** — no navigation away
+- Switch between Mermaid and Excalidraw engines inside the card; collapsible source-code view; AI-powered diagram code optimization
+- Diagram history for reuse and rollback
 
-### 🎨 Perfect Excalidraw Integration
-Generated charts are fully based on Excalidraw format, allowing free editing, style adjustments, and detail additions on the canvas—achieving the perfect combination of AI generation and manual refinement.
+### 🎯 Aids on demand: you decide what the page shows
+- Toolbar toggles for **Explanations / Diagrams** — enable them one by one, or all at once
+- Every feature serves one goal: understanding this document faster. Nothing is dumped onto the page by force
 
-### ⚡ Ready to Use
-Simply configure an AI API key to get started, no complex environment setup required. All configurations are stored locally in your browser for privacy and security.
+### 🃏 Flashcard review (FSRS spaced repetition)
+- Generate flashcards for the current document with one click, landing directly in the "Flashcard Review" tab of the knowledge panel
+- FSRS-5 scheduling with flip-to-reveal rating (Again / Hard / Good / Easy) and skip support
+- Per-document card library with deletion; live due-count badge
 
-### 🌍 Multi-Language Support
-Now supports both Chinese and English interfaces, making it accessible to a global audience.
+### 🔒 Local-first, data under your control
+- Documents, explanations, terms, diagrams, and flashcards all live in the browser (IndexedDB / localStorage)
+- Export / import `.anchorread` workspace files for backup
+- Without a configured model, the app falls back to clearly labelled Demo content — no silent network calls
 
 ## 🚀 Quick Start
 
-### Option 1: Use Access Password
+### Option 1: Use an Access Password
 
-If the server administrator has configured an access password, you can directly use the server-side LLM configuration without providing your own API Key:
+If the server administrator has configured an access password, you can use the server-side LLM configuration without providing your own API Key:
 
 1. Click the **"Access Password"** button in the top right corner
 2. Enter the access password provided by the administrator
 3. Click **"Validate Password"** to test the connection
 4. Check **"Enable Access Password"** and save
 
-Once enabled, the application will prioritize the server-side configuration, and you can start creating without configuring your own API Key!
+Once enabled, the application prioritizes the server-side configuration — you can start reading without configuring your own API Key!
 
 ### Option 2: Configure Your Own AI
 
-1. Click the **"Configure LLM"** button in the top right corner
+1. Click the **"Config"** button in the top right corner
 2. Select provider type (OpenAI or Anthropic)
-3. Enter your API Key
-4. Select model (**Highly recommend claude-sonnet-4.5** for best results)
-5. Save configuration
+3. Enter your API Key and model
+4. Save the configuration
 
-That's it! You're ready to start creating.
+You can then generate explanations, terms, relationship diagrams, and flashcards while reading.
 
-### Step 2: Create Charts
+### Reading Workflow
 
-Describe your needs in natural language in the input box, for example:
-- "Draw a user login flowchart"
-- "Create a microservices architecture diagram including gateway, authentication service, and business services"
-- "Design a database ER diagram for an e-commerce system"
-
-AI will automatically generate the chart, which you can directly edit and adjust on the canvas.
+1. **Import a document**: paste the content or upload a `.md/.txt` file, parse it, and enter the reader
+2. **Read & understand**: select text to "Explain this", "Recognize terms", or anchor a diagram
+3. **Choose**: use the toolbar toggles to decide which inline aids to show
+4. **Remember**: click "Generate flashcards" and consolidate knowledge in the "Flashcard Review" tab
 
 ## 💻 Local Deployment
 
-If you want to run the project locally:
-
 ```bash
 # Clone the project
-git clone https://github.com/liujuntao123/smart-excalidraw-next.git
+git clone <your-repo-url>
 cd AnchorRead
 
 # Install dependencies
@@ -79,13 +77,16 @@ pnpm install
 
 # Start development server
 pnpm dev
+
+# Run contract tests
+pnpm test:reader-lab
 ```
 
-Visit http://localhost:3000 to start using.
+Visit http://localhost:3000 to start.
 
 ### Configure Server-Side LLM (Optional)
 
-If you want to provide a unified LLM configuration for users and avoid requiring them to obtain their own API Keys, you can configure the server-side access password feature:
+To provide a unified LLM configuration so users don't need their own API Keys, configure the server-side access password feature:
 
 1. Copy the environment variables example file:
 ```bash
@@ -94,7 +95,7 @@ cp .env.example .env
 
 2. Configure the following variables in `.env`:
 ```bash
-# Access password (users need to enter this password to use server-side LLM)
+# Access password (users must enter this password to use the server-side LLM)
 ACCESS_PASSWORD=your-secure-password
 
 # LLM provider type (openai or anthropic)
@@ -110,67 +111,35 @@ SERVER_LLM_API_KEY=sk-ant-your-key-here
 SERVER_LLM_MODEL=claude-sonnet-4-5-20250929
 ```
 
-3. Restart the development server, and users can use the server-configured LLM through the access password.
+3. Restart the development server; users can then use the server-configured LLM via the access password.
 
 **Benefits:**
 - Users don't need to apply for and configure their own API Keys
 - Centralized management of API usage and costs
 - Suitable for team or organizational internal use
-- Provide free trial experience to users
-
-## 🔧 Configuration
-
-### Supported LLM Providers
-- **OpenAI**: GPT-4, GPT-3.5 and other compatible models
-- **Anthropic**: Claude-3.5-Sonnet, Claude-3-Opus and other compatible models
-
-### API Configuration
-1. Get API keys from your chosen provider
-2. Configure base URL (use default or custom endpoint)
-3. Select appropriate model
-4. All configurations are stored locally and securely
 
 ## ❓ Frequently Asked Questions
 
-**Q: Which AI model is recommended?**
-A: **claude-sonnet-4.5** is highly recommended for best performance in understanding requirements and generating charts.
+**Q: Is my data secure?**
+A: All documents and learning records are stored only in your local browser and never uploaded to any server. Browser data can be cleared, so export your workspace regularly for backup.
 
-**Q: Is data secure?**
-A: All configuration information is stored only in your local browser and never uploaded to any servers.
+**Q: Do explanations modify my source text?**
+A: No. Explanations, terms, diagrams, and flashcards are all derived content — toggle or delete them anytime; the source document stays untouched. "Precision Replacement" mode only generates a replacement view and never rewrites the source.
 
-**Q: What chart types are supported?**
-A: Supports 20+ types including flowcharts, architecture diagrams, sequence diagrams, ER diagrams, mind maps, network topology diagrams, etc. AI will automatically select the most suitable type.
-
-**Q: Can generated charts be modified?**
-A: Absolutely! After generation, you can freely edit on the Excalidraw canvas, including adjusting positions, modifying styles, adding elements, and more.
+**Q: What scheduling algorithm does flashcard review use?**
+A: The FSRS-5 spaced repetition algorithm. Each rating (Again / Hard / Good / Easy) updates the card's stability and difficulty, automatically computing the next due date.
 
 **Q: What is the access password feature?**
-A: The access password feature allows server administrators to configure a unified LLM. Users only need to enter the password to use it, without needing to apply for their own API Key. When access password is enabled, the server-side configuration takes priority over local configuration.
-
-**Q: What is the priority between access password and local configuration?**
-A: If access password is enabled, the system will prioritize the server-side LLM configuration. Local configured API Keys will only be used when access password is not enabled.
-
-**Q: Does it support multiple languages?**
-A: Yes! The interface now supports both Chinese and English, with automatic language detection based on browser settings.
+A: It allows server administrators to configure a unified LLM; users only need to enter the password to use it, without applying for their own API Key. When enabled, the server-side configuration takes priority over local configuration.
 
 ## 🛠️ Tech Stack
 
-Next.js 16 · React 19 · Excalidraw · Tailwind CSS 4 · Monaco Editor · next-intl
-
-## 🌐 Internationalization
-
-This project supports multiple languages:
-- 🇨🇳 Chinese (Simplified) - Default
-- 🇺🇸 English
-
-Language is automatically detected based on your browser settings, or you can access different language versions:
-- Chinese: `http://localhost:3000/zh`
-- English: `http://localhost:3000/en`
+Next.js 16 · React 19 · Tiptap v3 (ProseMirror) · Excalidraw · Mermaid · Monaco Editor · Tailwind CSS 4 · FSRS-5 · IndexedDB
 
 ## 📄 License
 
-MIT License
+MIT License (this project evolved from smart-excalidraw-next, which is also MIT licensed — thanks to the original author)
 
 ---
 
-**Draw Professional Charts with Natural Language** - Making visual creation simple again
+**Anchor Read** — turn every hard-to-read document into knowledge you actually remember
