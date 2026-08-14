@@ -3,41 +3,67 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
+  Brain,
   CheckCircle2,
   Download,
   EyeOff,
   Library,
+  LoaderCircle,
   Menu,
   PanelRight,
+  PenTool,
   ShieldCheck,
   Sparkles,
   TriangleAlert,
 } from 'lucide-react';
 import DocumentLibrary from '@/components/reader-lab/DocumentLibrary';
-import DerivedDraft from '@/components/reader-lab/DerivedDraft';
+import DocumentDiagramPanel from '@/components/reader-lab/DocumentDiagramPanel';
+import DocumentDiagramCanvas from '@/components/reader-lab/DocumentDiagramCanvas';
+import { useDocumentDiagram } from '@/components/reader-lab/use-document-diagram';
+import ReaderQuickImport from '@/components/reader-lab/ReaderQuickImport';
 import KnowledgePanel from '@/components/reader-lab/KnowledgePanel';
 import ReaderSurface from '@/components/reader-lab/ReaderSurface';
+import HistoryModal from '@/components/HistoryModal';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { getConfig, isConfigValid } from '@/lib/config';
+import { createDemoReaderAnalysis } from '@/lib/reader-analysis';
+import {
+  createReaderDocumentFromFile,
+  createReaderDocumentFromPaste,
+  normalizeReaderDocumentContent,
+} from '@/lib/reader-document';
 import {
   calculateReadingProgress,
   createDemoExplanation,
+  createReaderLabAnalysisRecords,
   createReaderLabExplanation,
   createReaderLabSeedDocuments,
   createReaderLabTerms,
   createReviewState,
+  listExplainedTerms,
+  listMasteredTerms,
+  mergeKnownTerm,
   recordsForDocument,
 } from '@/lib/reader-lab';
 import { workspaceRepository } from '@/lib/local-workspace-db';
+import { isDerivationStale } from '@/lib/provenance';
+import { flashcardStore } from '@/lib/flashcard-store';
+import { historyManager } from '@/lib/history-manager';
 import { downloadWorkspaceFile, exportWorkspace } from '@/lib/workspace-file';
 
 const MODES = Object.freeze([
   { id: 'original', label: '原文' },
   { id: 'comparison', label: '对照' },
-  { id: 'interpretation', label: '解读稿' },
+  { id: 'interpretation', label: '精准替代' },
+]);
+
+// 内联辅助可逐项开关：用户可按需选择理解方式，而不是一次性全部铺在原文上
+const AID_OPTIONS = Object.freeze([
+  { id: 'explanations', label: '解读' },
+  { id: 'diagrams', label: '图表' },
 ]);
 
 function sessionId(documentId) {
@@ -62,7 +88,17 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
-export default function ReaderLabWorkspace({ embedded = false }) {
+export default function ReaderLabWorkspace({
+  layout = 'reader-lab',
+  started = false,
+  requestedTool = 'read',
+  onToolChange,
+  onOpenHistory,
+  onCurrentDocumentChange,
+  historyDrawing,
+}) {
+  const isHomeLayout = layout === 'home';
+  const [homeStarted, setHomeStarted] = useState(!isHomeLayout || started);
   const [ready, setReady] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [currentDocumentId, setCurrentDocumentId] = useState('');
@@ -78,12 +114,33 @@ export default function ReaderLabWorkspace({ embedded = false }) {
   const [notice, setNotice] = useState(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [focusRange, setFocusRange] = useState(null);
+  const [rightPanelView, setRightPanelView] = useState(requestedTool === 'diagram' ? 'diagram' : 'knowledge');
+  const [drawings, setDrawings] = useState([]);
+  const [activeDrawingId, setActiveDrawingId] = useState('');
+  const [diagramAnchor, setDiagramAnchor] = useState(null);
+  const [flashcardPanelSignal, setFlashcardPanelSignal] = useState(0);
+  const [aidVisibility, setAidVisibility] = useState({ explanations: true, diagrams: true });
+  const [internalHistoryOpen, setInternalHistoryOpen] = useState(false);
+  const [activePromptPresetId, setActivePromptPresetId] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('anchor-read-prompt-preset') || '';
+  });
   const saveProgressTimerRef = useRef(null);
   const sessionsRef = useRef({});
+  const appliedHistoryRef = useRef('');
 
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+  useEffect(() => {
+    setRightPanelView(requestedTool === 'diagram' ? 'diagram' : 'knowledge');
+  }, [requestedTool]);
+
+  // 首页侧边导航切到图表时由外部驱动进入工作区
+  useEffect(() => {
+    if (started) setHomeStarted(true);
+  }, [started]);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)');
@@ -108,17 +165,25 @@ export default function ReaderLabWorkspace({ embedded = false }) {
           }
         }
 
-        const [storedSessions, storedExplanations, storedTerms, storedReviews] = await Promise.all([
+        const [storedSessions, storedExplanations, storedTerms, storedReviews, storedDrawings] = await Promise.all([
           workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev' }),
           workspaceRepository.explanations.list(),
           workspaceRepository.terms.list(),
           workspaceRepository.reviewStates.list(),
+          workspaceRepository.drawings.list({ index: 'updatedAt', direction: 'prev' }),
         ]);
         if (cancelled) return;
 
         const readerSessions = storedSessions.filter((session) => session.readerLab);
         const sessionMap = Object.fromEntries(readerSessions.map((session) => [session.documentId, session]));
-        const nextDocuments = seedDocuments.map((seed) => byId.get(seed.id));
+        const seedIds = new Set(seedDocuments.map((seed) => seed.id));
+        const importedDocuments = [...byId.values()]
+          .filter((document) => !seedIds.has(document.id) && document.status !== 'archived')
+          .sort((left, right) => right.updatedAt - left.updatedAt);
+        const nextDocuments = [
+          ...importedDocuments,
+          ...seedDocuments.map((seed) => byId.get(seed.id)),
+        ];
         const initialId = readerSessions[0]?.documentId && byId.has(readerSessions[0].documentId)
           ? readerSessions[0].documentId
           : nextDocuments[0].id;
@@ -127,7 +192,13 @@ export default function ReaderLabWorkspace({ embedded = false }) {
         setSessions(sessionMap);
         setExplanations(storedExplanations.filter((record) => record.readerLab || record.id?.startsWith('reader-lab-')));
         setTerms(storedTerms.filter((term) => term.readerLab || term.id?.startsWith('reader-lab-')));
-        setReviewStates(storedReviews.filter((state) => state.id?.startsWith('reader-lab-review-')));
+        setReviewStates(storedReviews.filter((state) => (
+          (state.itemType === 'explanation' || state.id?.startsWith('reader-lab-review-')) &&
+          byId.has(state.documentId)
+        )));
+        setDrawings(storedDrawings.filter((drawing) => seedIds.has(drawing.documentId) || byId.has(drawing.documentId)));
+        const initialDrawing = storedDrawings.find((drawing) => drawing.documentId === initialId);
+        setActiveDrawingId(sessionMap[initialId]?.activeDrawingId || initialDrawing?.id || '');
         setCurrentDocumentId(initialId);
         setMode(sessionMap[initialId]?.mode || 'comparison');
       } catch (error) {
@@ -145,6 +216,9 @@ export default function ReaderLabWorkspace({ embedded = false }) {
   }, []);
 
   const currentDocument = documents.find((document) => document.id === currentDocumentId) || documents[0];
+  useEffect(() => {
+    onCurrentDocumentChange?.(currentDocument || null);
+  }, [currentDocument, onCurrentDocumentChange]);
   const currentExplanations = useMemo(
     () => recordsForDocument(explanations, currentDocumentId),
     [currentDocumentId, explanations]
@@ -154,8 +228,10 @@ export default function ReaderLabWorkspace({ embedded = false }) {
     [currentDocumentId, terms]
   );
   const mastery = useMemo(() => Object.fromEntries(
-    reviewStates.map((state) => [state.itemId, Boolean(state.mastered)])
-  ), [reviewStates]);
+    reviewStates
+      .filter((state) => state.documentId === currentDocumentId && (state.itemType === 'explanation' || state.id?.startsWith('reader-lab-review-')))
+      .map((state) => [state.itemId, Boolean(state.mastered)])
+  ), [currentDocumentId, reviewStates]);
 
   const saveSession = useCallback(async (documentId, changes) => {
     if (!documentId) return;
@@ -182,8 +258,10 @@ export default function ReaderLabWorkspace({ embedded = false }) {
     setMode(sessions[documentId]?.mode || 'comparison');
     setLibraryOpen(false);
     setNotice(null);
+    const nextDrawing = drawings.find((drawing) => drawing.documentId === documentId);
+    setActiveDrawingId(sessions[documentId]?.activeDrawingId || nextDrawing?.id || '');
     saveSession(documentId, {}).catch(console.error);
-  }, [saveSession, sessions]);
+  }, [drawings, saveSession, sessions]);
 
   const changeMode = useCallback((nextMode) => {
     if (!nextMode || !currentDocumentId) return;
@@ -201,6 +279,49 @@ export default function ReaderLabWorkspace({ embedded = false }) {
       }).catch(console.error);
     }, 250);
   }, [currentDocumentId, saveSession]);
+
+  const persistImportedDocument = useCallback(async (document, analysisRecords = []) => {
+    await workspaceRepository.documents.save(document);
+    for (const record of analysisRecords) await workspaceRepository.explanations.save(record);
+    setDocuments((current) => [document, ...current.filter((item) => item.id !== document.id)]);
+    setExplanations((current) => [
+      ...current.filter((record) => record.documentId !== document.id || !record.batchAnalysis),
+      ...analysisRecords,
+    ]);
+    setCurrentDocumentId(document.id);
+    setMode('comparison');
+    setLibraryOpen(false);
+    setHomeStarted(true);
+    await saveSession(document.id, { mode: 'comparison', progress: 0, scrollTop: 0 });
+    setNotice({ type: 'success', message: `已导入「${document.title}」，原文保存在此浏览器。` });
+  }, [saveSession]);
+
+  const importDocumentFile = useCallback(async (file) => {
+    try {
+      const content = await file.text();
+      const document = createReaderDocumentFromFile(
+        { content, name: file.name, type: file.type, size: file.size },
+        { existingIds: documents.map((item) => item.id) }
+      );
+      await persistImportedDocument(document);
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+      throw error;
+    }
+  }, [documents, persistImportedDocument]);
+
+  const createPastedDocument = useCallback(async ({ title, content }) => {
+    try {
+      const document = createReaderDocumentFromPaste(
+        { title, content },
+        { existingIds: documents.map((item) => item.id) }
+      );
+      await persistImportedDocument(document);
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+      throw error;
+    }
+  }, [documents, persistImportedDocument]);
 
   const callExplainApi = useCallback(async (selectedText) => {
     const config = getConfig();
@@ -228,6 +349,280 @@ export default function ReaderLabWorkspace({ embedded = false }) {
     }
     return { result: await response.json(), isDemo: false };
   }, [currentDocument]);
+
+  const callReaderAnalysisApi = useCallback(async (document = currentDocument) => {
+    if (!document) throw new Error('请先导入一篇文档。');
+    const config = getConfig();
+    const usePassword = hasPasswordMode();
+    // 收集已掌握术语（排除当前文档），告知 AI 不再解释，驱动"越用越准确"
+    const knownMasteredTerms = listMasteredTerms(terms, { excludeDocumentId: document.id });
+    // 收集已接触未掌握术语（第二条回灌通道）：告知 AI 仍生成但更简练，不跳过
+    const knownExplainedTerms = listExplainedTerms(terms, { excludeDocumentId: document.id });
+    // 提示词预设：从当前配置的预设里按选中 id 取正文，未选或缺失则为空
+    const promptPresets = Array.isArray(config?.promptPresets) ? config.promptPresets : [];
+    const selectedPreset = activePromptPresetId
+      ? promptPresets.find((preset) => preset.id === activePromptPresetId)
+      : null;
+    const promptPreset = selectedPreset ? selectedPreset.body : '';
+    const payload = {
+      title: document.title,
+      content: document.content,
+      mode: 'plain',
+      knownMasteredTerms,
+      knownExplainedTerms,
+      userContext: config?.userContext || '',
+      promptPreset,
+    };
+    if (!usePassword && !isConfigValid(config)) {
+      return { result: createDemoReaderAnalysis(payload), isDemo: true };
+    }
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (usePassword) {
+      headers['x-access-password'] = localStorage.getItem('smart-excalidraw-access-password');
+    }
+    const response = await fetch('/api/reader-analysis', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...payload, config: usePassword ? null : config }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `全文分析失败 (${response.status})`);
+    }
+    return { result: await response.json(), isDemo: false };
+  }, [currentDocument, terms, activePromptPresetId]);
+
+  const parseAndOpenDocument = useCallback(async ({ title, content, file }) => {
+    setBusyAction('parse');
+    setNotice(null);
+    try {
+      // 正文与已有文档完全一致时直接打开旧文档，避免示例/重复导入产生副本，
+      // 也让图表、解读等派生数据始终附着在同一篇文档上
+      const normalizedContent = normalizeReaderDocumentContent(content);
+      const existing = documents.find((item) => item.content === normalizedContent);
+      if (existing) {
+        selectDocument(existing.id);
+        setHomeStarted(true);
+        setNotice({ type: 'success', message: '检测到相同正文，已直接打开已有文档。' });
+        return;
+      }
+      const options = { existingIds: documents.map((item) => item.id) };
+      const document = file
+        ? createReaderDocumentFromFile(
+          { content, name: file.name, type: file.type, size: file.size, title },
+          options
+        )
+        : createReaderDocumentFromPaste({ title, content }, options);
+      const { result, isDemo } = await callReaderAnalysisApi(document);
+      const records = createReaderLabAnalysisRecords({
+        document,
+        analysis: result,
+        isDemo,
+        knownMasteredTerms: listMasteredTerms(terms, { excludeDocumentId: document.id }),
+      });
+      await persistImportedDocument(document, records);
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setBusyAction('');
+    }
+  }, [callReaderAnalysisApi, documents, persistImportedDocument, selectDocument]);
+
+  const analyzeDocument = useCallback(async () => {
+    if (!currentDocument || busyAction) return;
+    setBusyAction('analysis');
+    setNotice(null);
+    try {
+      const { result, isDemo } = await callReaderAnalysisApi();
+      const nextRecords = createReaderLabAnalysisRecords({
+        document: currentDocument,
+        analysis: result,
+        isDemo,
+        knownMasteredTerms: listMasteredTerms(terms, { excludeDocumentId: currentDocument.id }),
+      });
+      if (nextRecords.length === 0) throw new Error('全文分析没有产生可定位的辅助结果。');
+
+      const previousBatchRecords = explanations.filter(
+        (record) => record.documentId === currentDocument.id && record.batchAnalysis
+      );
+      const previousBatchTerms = terms.filter(
+        (term) => term.documentId === currentDocument.id && term.batchAnalysis
+      );
+      for (const record of previousBatchRecords) {
+        await Promise.all([
+          workspaceRepository.explanations.remove(record.id),
+          workspaceRepository.reviewStates.remove(reviewId(record.id)),
+        ]);
+      }
+      for (const term of previousBatchTerms) await workspaceRepository.terms.remove(term.id);
+      for (const record of nextRecords) await workspaceRepository.explanations.save(record);
+
+      setExplanations((current) => [
+        ...current.filter((record) => !(record.documentId === currentDocument.id && record.batchAnalysis)),
+        ...nextRecords,
+      ]);
+      setReviewStates((current) => current.filter(
+        (state) => !previousBatchRecords.some((record) => record.id === state.itemId)
+      ));
+      setTerms((current) => [
+        ...current.filter((term) => !(term.documentId === currentDocument.id && term.batchAnalysis)),
+      ]);
+      setMode('comparison');
+      await saveSession(currentDocument.id, { mode: 'comparison' });
+      setNotice({
+        type: isDemo ? 'demo' : 'success',
+        message: isDemo
+          ? `已生成 ${nextRecords.length} 条明确标识的本地 Demo 重点与贴行辅助。`
+          : `已定位 ${result.anchors.length} 个原文重点，并保存 ${nextRecords.length} 条贴行辅助。`,
+      });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setBusyAction('');
+    }
+  }, [busyAction, callReaderAnalysisApi, currentDocument, explanations, saveSession, terms]);
+
+  const generateFlashcards = useCallback(async () => {
+    if (!currentDocument || busyAction) return;
+    setBusyAction('flashcards');
+    setNotice(null);
+    try {
+      const config = getConfig();
+      const usePassword = hasPasswordMode();
+      if (!usePassword && !isConfigValid(config)) throw new Error('请先配置 LLM 提供商，或启用访问密码。');
+      const headers = { 'Content-Type': 'application/json' };
+      if (usePassword) headers['x-access-password'] = localStorage.getItem('smart-excalidraw-access-password');
+      const response = await fetch('/api/flashcards', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          article: currentDocument.content,
+          highlights: currentExplanations.map((record) => ({
+            text: record.selectedText,
+            level: record.role || 'core',
+          })),
+          config: usePassword ? null : config,
+        }),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `闪卡生成失败 (${response.status})`);
+      const result = await response.json();
+      const cards = flashcardStore.addCards(result.cards, currentDocument.title, currentDocument.id);
+      setNotice({ type: 'success', message: `已为当前文档生成 ${cards.length} 张闪卡。` });
+      // 生成后直接切到知识面板的闪卡复习 tab，不再弹独立窗口
+      setRightPanelView('knowledge');
+      setFlashcardPanelSignal((signal) => signal + 1);
+      onToolChange?.('read');
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    } finally {
+      setBusyAction('');
+    }
+  }, [busyAction, currentDocument, currentExplanations, onToolChange]);
+
+  // 切换文档时清除未消费的图表锚点，避免错锚到其他文档
+  useEffect(() => {
+    setDiagramAnchor(null);
+  }, [currentDocumentId]);
+
+  const currentDrawings = useMemo(
+    () => drawings.filter((drawing) => drawing.documentId === currentDocumentId),
+    [currentDocumentId, drawings]
+  );
+  const activeDrawing = currentDrawings.find((drawing) => drawing.id === activeDrawingId) || currentDrawings[0] || null;
+
+  const selectDrawing = useCallback((drawingId) => {
+    setActiveDrawingId(drawingId);
+    saveSession(currentDocumentId, { activeDrawingId: drawingId }).catch(console.error);
+  }, [currentDocumentId, saveSession]);
+
+  const createDrawing = useCallback(async (drawing) => {
+    await workspaceRepository.drawings.save(drawing);
+    setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
+    setActiveDrawingId(drawing.id);
+    setRightPanelView('diagram');
+    await saveSession(drawing.documentId, { activeDrawingId: drawing.id });
+  }, [saveSession]);
+
+  const applyHistoryDrawing = useCallback((history) => {
+    if (!currentDocument || !history?.generatedCode) return;
+    createDrawing({
+      id: `reader-drawing-${currentDocument.id}-${Date.now()}-history`,
+      documentId: currentDocument.id,
+      title: `历史图表 · ${new Date(history.timestamp || Date.now()).toLocaleString('zh-CN')}`,
+      engine: history.engine || 'excalidraw',
+      chartType: history.chartType || 'auto',
+      source: history.generatedCode,
+      prompt: history.userInput || '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }).catch((error) => setNotice({ type: 'error', message: error.message }));
+    setInternalHistoryOpen(false);
+  }, [createDrawing, currentDocument]);
+
+  useEffect(() => {
+    if (!historyDrawing || !currentDocument) return;
+    const requestKey = `${historyDrawing.id || ''}:${historyDrawing.nonce || ''}`;
+    if (!requestKey || appliedHistoryRef.current === requestKey) return;
+    appliedHistoryRef.current = requestKey;
+    createDrawing({
+      id: `reader-drawing-${currentDocument.id}-${Date.now()}-history`,
+      documentId: currentDocument.id,
+      title: `历史图表 · ${new Date(historyDrawing.timestamp || Date.now()).toLocaleString('zh-CN')}`,
+      engine: historyDrawing.engine || 'excalidraw',
+      chartType: historyDrawing.chartType || 'auto',
+      source: historyDrawing.generatedCode || '',
+      prompt: historyDrawing.userInput || '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }).catch((error) => setNotice({ type: 'error', message: error.message }));
+  }, [createDrawing, currentDocument, historyDrawing]);
+
+  const persistDrawing = useCallback(async (drawing) => {
+    await workspaceRepository.drawings.save(drawing);
+    setDrawings((current) => current.map((item) => item.id === drawing.id ? drawing : item));
+  }, []);
+
+  const deleteDrawing = useCallback(async (drawingId) => {
+    await workspaceRepository.drawings.remove(drawingId);
+    const remaining = currentDrawings.filter((drawing) => drawing.id !== drawingId);
+    setDrawings((current) => current.filter((drawing) => drawing.id !== drawingId));
+    setActiveDrawingId(remaining[0]?.id || '');
+    await saveSession(currentDocumentId, { activeDrawingId: remaining[0]?.id || '' });
+  }, [currentDocumentId, currentDrawings, saveSession]);
+
+  const handleDiagramSelection = useCallback((selection) => {
+    if (!currentDocument) return;
+    setDiagramAnchor({
+      documentId: currentDocument.id,
+      from: selection.from,
+      to: selection.to,
+      source: selection.text,
+    });
+    setRightPanelView('diagram');
+    onToolChange?.('diagram');
+    setNotice({ type: 'success', message: '图表已锚定到选区，生成后将插入到对应原文下方。' });
+  }, [currentDocument, onToolChange]);
+
+  const openDiagram = useCallback((drawingId) => {
+    setActiveDrawingId(drawingId);
+    saveSession(currentDocumentId, { activeDrawingId: drawingId }).catch(console.error);
+    setRightPanelView('diagram');
+    onToolChange?.('diagram');
+  }, [currentDocumentId, onToolChange, saveSession]);
+
+  const clearDiagramAnchor = useCallback(() => setDiagramAnchor(null), []);
+
+  // 图表状态在画布区与对话区之间共享，只实例化一次
+  const diagramState = useDocumentDiagram({
+    document: currentDocument,
+    activeDrawing,
+    anchor: diagramAnchor?.documentId === currentDocument?.id ? diagramAnchor : null,
+    onCreateDrawing: createDrawing,
+    onPersistDrawing: persistDrawing,
+    onClearAnchor: clearDiagramAnchor,
+    onNotice: setNotice,
+  });
 
   const handleSelectionAction = useCallback(async (selection) => {
     if (!currentDocument || busyAction) return;
@@ -264,11 +659,24 @@ export default function ReaderLabWorkspace({ embedded = false }) {
           selectedText: selection.text,
           range: { from: selection.from, to: selection.to },
           terms: result.terms,
+          content: currentDocument.content,
           isDemo,
           now,
         }).map((term) => ({ ...term, readerLab: true }));
-        for (const term of nextTerms) await workspaceRepository.terms.save(term);
-        setTerms((current) => [...current, ...nextTerms]);
+        // 命中既有同义术语时累积别名而非重复建档，让术语库越用越准
+        const mergedTerms = nextTerms.map((term) => {
+          const existing = terms.find((item) =>
+            item.documentId !== term.documentId
+            && item.normalizedTerm === term.normalizedTerm
+          );
+          return existing ? mergeKnownTerm(existing, term) : term;
+        });
+        for (const term of mergedTerms) await workspaceRepository.terms.save(term);
+        setTerms((current) => {
+          const byId = new Map(current.map((item) => [item.id, item]));
+          for (const term of mergedTerms) byId.set(term.id, term);
+          return [...byId.values()];
+        });
         setKnowledgeOpen(true);
         setNotice({
           type: isDemo ? 'demo' : 'success',
@@ -289,7 +697,24 @@ export default function ReaderLabWorkspace({ embedded = false }) {
       ...current.filter((state) => state.id !== nextState.id),
       nextState,
     ]);
+    if (!nextState.mastered || !Array.isArray(record.terms)) return;
+
+    for (const term of record.terms) await workspaceRepository.terms.save(term);
+    setTerms((current) => {
+      const byId = new Map(current.map((term) => [term.id, term]));
+      for (const term of record.terms) byId.set(term.id, term);
+      return [...byId.values()];
+    });
   }, [mastery]);
+
+  // 术语"懂了"开关：切换 mastered 状态，已掌握的术语跨文档再次出现时不再解释
+  const toggleTermMastery = useCallback(async (term) => {
+    if (!term) return;
+    const nextStatus = term.status === 'mastered' ? 'learning' : 'mastered';
+    const nextTerm = { ...term, status: nextStatus, updatedAt: Date.now() };
+    await workspaceRepository.terms.save(nextTerm);
+    setTerms((current) => current.map((item) => (item.id === term.id ? nextTerm : item)));
+  }, []);
 
   const deleteExplanation = useCallback(async (record) => {
     await Promise.all([
@@ -318,15 +743,22 @@ export default function ReaderLabWorkspace({ embedded = false }) {
   }, [changeMode, mode]);
 
   const focusTerm = useCallback((term) => {
-    if (!term?.range) return;
+    const record = term?.explanationId
+      ? explanations.find((item) => item.id === term.explanationId)
+      : null;
+    if (!term?.range && !record) return;
     if (mode === 'interpretation') changeMode('comparison');
-    setFocusRange({ ...term.range, nonce: Date.now() });
+    if (term.range) setFocusRange({ ...term.range, nonce: Date.now() });
+    else if (record) focusExplanation(record.id);
     setKnowledgeOpen(false);
-  }, [changeMode, mode]);
+  }, [changeMode, explanations, focusExplanation, mode]);
 
   const exportBackup = useCallback(async () => {
     try {
-      const payload = await exportWorkspace(workspaceRepository);
+      const payload = await exportWorkspace(workspaceRepository, {
+        flashcards: flashcardStore.getAll(),
+        diagramHistory: historyManager.getHistories(),
+      });
       downloadWorkspaceFile(payload, `anchor-read-backup-${new Date().toISOString().slice(0, 10)}.anchorread`);
       setNotice({ type: 'success', message: 'JSON 备份已开始下载。' });
     } catch (error) {
@@ -334,9 +766,51 @@ export default function ReaderLabWorkspace({ embedded = false }) {
     }
   }, []);
 
-  if (!ready || !currentDocument) {
+  // 首页「最近文档」：按会话/文档更新时间倒序取最近几篇，点击直接续读
+  const recentDocuments = useMemo(
+    () => [...documents]
+      .sort((left, right) =>
+        (sessions[right.id]?.updatedAt || right.updatedAt) -
+        (sessions[left.id]?.updatedAt || left.updatedAt))
+      .slice(0, 4),
+    [documents, sessions]
+  );
+
+  const openRecentDocument = useCallback((documentId) => {
+    setCurrentDocumentId(documentId);
+    setHomeStarted(true);
+  }, []);
+
+  if (!ready) {
     return (
-      <main className={`flex items-center justify-center bg-[#f5f6f6] text-sm text-gray-500 ${embedded ? 'h-full min-h-0' : 'min-h-screen'}`}>
+      <main className="flex h-full min-h-0 items-center justify-center bg-[#f5f6f6] text-sm text-gray-500">
+        <Sparkles size={17} className="mr-2 animate-pulse text-teal-700" />
+        正在打开本地阅读工作区...
+      </main>
+    );
+  }
+
+  if (isHomeLayout && !homeStarted) {
+    return (
+      <TooltipProvider>
+        <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f3f5f4] text-gray-950">
+          <ReaderQuickImport
+            recentDocuments={recentDocuments}
+            hasExistingDocuments={documents.length > 0}
+            busy={busyAction === 'parse'}
+            error={notice?.type === 'error' ? notice.message : ''}
+            onSubmit={parseAndOpenDocument}
+            onOpenExisting={() => setHomeStarted(true)}
+            onOpenDocument={openRecentDocument}
+          />
+        </main>
+      </TooltipProvider>
+    );
+  }
+
+  if (!currentDocument) {
+    return (
+      <main className="flex h-full min-h-0 items-center justify-center bg-[#f5f6f6] text-sm text-gray-500">
         <Sparkles size={17} className="mr-2 animate-pulse text-teal-700" />
         正在打开本地阅读工作区...
       </main>
@@ -352,6 +826,11 @@ export default function ReaderLabWorkspace({ embedded = false }) {
       onQueryChange={setQuery}
       onSelect={selectDocument}
       onExport={exportBackup}
+      onImportFile={importDocumentFile}
+      onCreateDocument={createPastedDocument}
+      onAnalyzeDocument={analyzeDocument}
+      analysisBusy={busyAction === 'analysis'}
+      analysisDisabled={Boolean(busyAction && busyAction !== 'analysis')}
     />
   );
   const knowledge = mode === 'original' ? (
@@ -362,6 +841,8 @@ export default function ReaderLabWorkspace({ embedded = false }) {
     </div>
   ) : (
     <KnowledgePanel
+      documentId={currentDocument.id}
+      document={currentDocument}
       explanations={currentExplanations}
       terms={currentTerms}
       mastery={mastery}
@@ -369,16 +850,12 @@ export default function ReaderLabWorkspace({ embedded = false }) {
       onMaster={toggleMastery}
       onDelete={deleteExplanation}
       onFocusTerm={focusTerm}
+      onMasterTerm={toggleTermMastery}
+      isStale={isDerivationStale}
+      flashcardSignal={flashcardPanelSignal}
     />
   );
-  const readingSurface = mode === 'interpretation' ? (
-    <DerivedDraft
-      document={currentDocument}
-      explanations={currentExplanations}
-      mastery={mastery}
-      onFocus={focusExplanation}
-    />
-  ) : (
+  const readingSurface = (
     <ReaderSurface
       document={currentDocument}
       mode={mode}
@@ -386,6 +863,13 @@ export default function ReaderLabWorkspace({ embedded = false }) {
       mastery={mastery}
       busyAction={busyAction}
       onSelectionAction={handleSelectionAction}
+      onDiagramSelection={handleDiagramSelection}
+      onOpenDiagram={openDiagram}
+      onCreateDrawing={createDrawing}
+      onPersistDrawing={persistDrawing}
+      onNotice={setNotice}
+      drawings={currentDrawings}
+      aidVisibility={aidVisibility}
       onMaster={toggleMastery}
       onDelete={deleteExplanation}
       onFocus={focusExplanation}
@@ -394,11 +878,31 @@ export default function ReaderLabWorkspace({ embedded = false }) {
       focusRange={focusRange}
     />
   );
+  const diagram = (
+    <DocumentDiagramPanel
+      document={currentDocument}
+      drawings={currentDrawings}
+      activeDrawing={activeDrawing}
+      onSelectDrawing={selectDrawing}
+      onCreateDrawing={createDrawing}
+      onDeleteDrawing={deleteDrawing}
+      onNotice={setNotice}
+      anchor={diagramAnchor?.documentId === currentDocument.id ? diagramAnchor : null}
+      onClearAnchor={clearDiagramAnchor}
+      diagram={diagramState}
+      onOpenHistory={() => {
+        if (onOpenHistory) onOpenHistory(currentDocument.id);
+        else setInternalHistoryOpen(true);
+      }}
+    />
+  );
+    const diagramCanvas = <DocumentDiagramCanvas diagram={diagramState} />;
+    const rightPanel = rightPanelView === 'diagram' ? diagram : knowledge;
 
   return (
     <TooltipProvider>
-      <main className={`flex min-h-0 flex-col overflow-hidden bg-[#f3f5f4] text-gray-950 ${embedded ? 'h-full' : 'h-dvh min-h-[520px]'}`}>
-        <div className="flex min-h-8 shrink-0 items-center gap-2 border-b border-gray-200 bg-[#eef5f2] px-3 text-[11px] leading-4 text-gray-600 sm:px-4">
+      <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f3f5f4] text-gray-950">
+        {!isHomeLayout && <div className="flex min-h-8 shrink-0 items-center gap-2 border-b border-gray-200 bg-[#eef5f2] px-3 text-[11px] leading-4 text-gray-600 sm:px-4">
           <ShieldCheck size={13} className="shrink-0 text-teal-700" aria-hidden="true" />
           <span className="line-clamp-2">
             你的文档、解读与学习记录保存在此浏览器本地。浏览器数据可能被清除，请定期导出备份。数据由你掌控，当前不会上传到云端。仅当你主动生成 AI 解读时，相关内容会发送到所配置模型服务。
@@ -410,7 +914,7 @@ export default function ReaderLabWorkspace({ embedded = false }) {
           >
             <Download size={12} /> 导出
           </button>
-        </div>
+        </div>}
 
         <header className="z-20 flex min-h-[62px] shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-3 sm:px-4 lg:px-6">
           <Tooltip content="打开文档库">
@@ -418,7 +922,7 @@ export default function ReaderLabWorkspace({ embedded = false }) {
               type="button"
               onClick={() => setLibraryOpen(true)}
               aria-label="打开文档库"
-              className={`h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 ${embedded ? 'flex' : 'flex lg:hidden'}`}
+              className={`h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 ${isHomeLayout ? 'flex' : 'flex lg:hidden'}`}
             >
               <Menu size={18} />
             </button>
@@ -446,6 +950,71 @@ export default function ReaderLabWorkspace({ embedded = false }) {
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
+          <ToggleGroup
+            type="multiple"
+            value={AID_OPTIONS.filter((option) => aidVisibility[option.id]).map((option) => option.id)}
+            onValueChange={(value) => setAidVisibility({
+              explanations: value.includes('explanations'),
+              diagrams: value.includes('diagrams'),
+            })}
+            aria-label="内联辅助显示"
+            title="选择要在原文中显示的理解辅助"
+            className="shrink-0"
+          >
+            {AID_OPTIONS.map((option) => (
+              <ToggleGroupItem key={option.id} value={option.id} aria-label={`显示${option.label}辅助`} className="px-2 sm:px-3">
+                {option.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <div className="flex shrink-0 items-center rounded border border-gray-200 bg-gray-50 p-0.5" aria-label="理解工具">
+            <button type="button" title="知识" onClick={() => { setRightPanelView('knowledge'); onToolChange?.('read'); }} aria-pressed={rightPanelView === 'knowledge'} className={`flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium ${rightPanelView === 'knowledge' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}><BookOpen size={14} /><span className="hidden xl:inline">知识</span></button>
+            <button type="button" title="图表" onClick={() => { setRightPanelView('diagram'); onToolChange?.('diagram'); }} aria-pressed={rightPanelView === 'diagram'} className={`flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium ${rightPanelView === 'diagram' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}><PenTool size={14} /><span className="hidden xl:inline">图表</span></button>
+          </div>
+          {(() => {
+            const presets = getConfig()?.promptPresets || [];
+            if (presets.length === 0) return null;
+            return (
+              <Tooltip content="选择提示词预设（视角/身份），与输出形态正交">
+                <select
+                  value={activePromptPresetId && presets.some((p) => p.id === activePromptPresetId) ? activePromptPresetId : ''}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setActivePromptPresetId(next);
+                    if (typeof window !== 'undefined') {
+                      if (next) localStorage.setItem('anchor-read-prompt-preset', next);
+                      else localStorage.removeItem('anchor-read-prompt-preset');
+                    }
+                  }}
+                  aria-label="选择提示词预设"
+                  className="h-9 max-w-[9rem] shrink-0 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                >
+                  <option value="">无预设</option>
+                  {presets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.name || '未命名预设'}</option>
+                  ))}
+                </select>
+              </Tooltip>
+            );
+          })()}
+          <Tooltip content="为当前文档生成全文重点和贴行辅助">
+            <button
+              type="button"
+              onClick={analyzeDocument}
+              disabled={Boolean(busyAction)}
+              aria-label="分析当前文档"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-teal-700 outline-none hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:text-gray-300"
+            >
+              {busyAction === 'analysis'
+                ? <LoaderCircle size={17} className="animate-spin" />
+                : <Sparkles size={17} />}
+            </button>
+          </Tooltip>
+          <Tooltip content="为当前文档生成闪卡">
+            <button type="button" onClick={generateFlashcards} disabled={Boolean(busyAction)} aria-label="为当前文档生成闪卡" className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:text-gray-300">
+              {busyAction === 'flashcards' ? <LoaderCircle size={17} className="animate-spin" /> : <Brain size={17} />}
+            </button>
+          </Tooltip>
           <Tooltip content="打开知识面板">
             <button
               type="button"
@@ -469,7 +1038,7 @@ export default function ReaderLabWorkspace({ embedded = false }) {
         <div className="min-h-0 flex-1">
           {isDesktop ? (
             <ResizablePanelGroup orientation="horizontal" id="reader-lab-layout">
-              {!embedded && (
+              {!isHomeLayout && (
                 <>
                   <ResizablePanel id="reader-library" defaultSize="20%" minSize="220px" maxSize="320px">
                     {library}
@@ -477,16 +1046,22 @@ export default function ReaderLabWorkspace({ embedded = false }) {
                   <ResizableHandle />
                 </>
               )}
-              <ResizablePanel id="reader-content" defaultSize={embedded ? '72%' : '57%'} minSize="420px">
-                <section className="h-full min-h-0" aria-label="阅读区">{readingSurface}</section>
+              <ResizablePanel id="reader-content" defaultSize={isHomeLayout ? '72%' : '57%'} minSize="420px">
+                {rightPanelView === 'diagram' ? (
+                  diagramCanvas
+                ) : (
+                  <section className="h-full min-h-0" aria-label="阅读区">{readingSurface}</section>
+                )}
               </ResizablePanel>
               <ResizableHandle withHandle />
-              <ResizablePanel id="reader-knowledge" defaultSize={embedded ? '28%' : '23%'} minSize="260px" maxSize="440px">
-                {knowledge}
+              <ResizablePanel id="reader-knowledge" defaultSize={isHomeLayout ? '28%' : '23%'} minSize="260px" maxSize="440px">
+                {rightPanel}
               </ResizablePanel>
             </ResizablePanelGroup>
           ) : (
-            <section className="h-full min-h-0" aria-label="阅读区">{readingSurface}</section>
+            <section className="h-full min-h-0" aria-label={rightPanelView === 'diagram' ? '当前文档关系图' : '阅读区'}>
+              {rightPanelView === 'diagram' ? diagramCanvas : readingSurface}
+            </section>
           )}
         </div>
 
@@ -504,8 +1079,16 @@ export default function ReaderLabWorkspace({ embedded = false }) {
           <SheetContent title="文档库" side="left">{library}</SheetContent>
         </Sheet>
         <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
-          <SheetContent title="知识面板" side="right">{knowledge}</SheetContent>
+          <SheetContent title={rightPanelView === 'diagram' ? '文档关系图' : '知识面板'} side="right">{rightPanel}</SheetContent>
         </Sheet>
+        {!onOpenHistory && (
+          <HistoryModal
+            isOpen={internalHistoryOpen}
+            onClose={() => setInternalHistoryOpen(false)}
+            onApply={applyHistoryDrawing}
+            documentId={currentDocument.id}
+          />
+        )}
       </main>
     </TooltipProvider>
   );

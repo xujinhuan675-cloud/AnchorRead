@@ -5,14 +5,14 @@ import { historyManager } from '../lib/history-manager.js';
 import { CHART_TYPES } from '../lib/constants.js';
 import ConfirmDialog from './ConfirmDialog';
 
-export default function HistoryModal({ isOpen, onClose, onApply }) {
+export default function HistoryModal({ isOpen, onClose, onApply, documentId = '' }) {
   if (!isOpen) return null;
 
-  return <HistoryModalContent onClose={onClose} onApply={onApply} />;
+  return <HistoryModalContent onClose={onClose} onApply={onApply} documentId={documentId} />;
 }
 
-function HistoryModalContent({ onClose, onApply }) {
-  const [histories, setHistories] = useState(() => historyManager.getHistories());
+function HistoryModalContent({ onClose, onApply, documentId }) {
+  const [histories, setHistories] = useState(() => documentId ? historyManager.getForDocument(documentId) : historyManager.getHistories());
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     title: '',
@@ -21,7 +21,7 @@ function HistoryModalContent({ onClose, onApply }) {
   });
 
   const loadHistories = () => {
-    const allHistories = historyManager.getHistories();
+    const allHistories = documentId ? historyManager.getForDocument(documentId) : historyManager.getHistories();
     setHistories(allHistories);
   };
 

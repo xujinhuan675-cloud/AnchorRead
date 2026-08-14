@@ -2,60 +2,61 @@
 
 import {
   BookOpen,
-  Brain,
-  CircleHelp,
-  Clock3,
+  Code2,
   FilePlus2,
   KeyRound,
   PenTool,
   Settings2,
 } from 'lucide-react';
 
-function NavItem({ icon: Icon, label, active = false, badge = 0, onClick, compact = false }) {
+const REPO_URL = 'https://github.com/xujinhuan675-cloud/smart-excalidraw-next';
+
+function NavItem({ icon: Icon, label, active = false, onClick, href, compact = false }) {
+  const className = `relative flex shrink-0 items-center justify-center transition-colors ${
+    compact
+      ? 'h-12 min-w-14 flex-1 gap-1.5 px-2 text-xs'
+      : 'h-14 w-16 flex-col gap-1 text-[11px]'
+  } ${
+    active
+      ? 'bg-gray-900 text-white'
+      : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+  }`;
+  const icon = <Icon size={compact ? 18 : 19} strokeWidth={1.8} aria-hidden="true" />;
+
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" title={label} className={className}>
+        {icon}
+        <span>{label}</span>
+      </a>
+    );
+  }
+
   return (
     <button
       type="button"
       onClick={onClick}
       title={label}
       aria-current={active ? 'page' : undefined}
-      className={`relative flex shrink-0 items-center justify-center transition-colors ${
-        compact
-          ? 'h-12 min-w-14 flex-1 gap-1.5 px-2 text-xs'
-          : 'h-14 w-16 flex-col gap-1 text-[11px]'
-      } ${
-        active
-          ? 'bg-gray-900 text-white'
-          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-      }`}
+      className={className}
     >
-      <Icon size={compact ? 18 : 19} strokeWidth={1.8} aria-hidden="true" />
+      {icon}
       <span>{label}</span>
-      {badge > 0 && (
-        <span className="absolute right-1.5 top-1 min-w-[17px] rounded-full bg-red-500 px-1 text-center text-[10px] leading-[17px] text-white">
-          {badge > 99 ? '99+' : badge}
-        </span>
-      )}
     </button>
   );
 }
 
 export default function WorkspaceNav({
   mode,
-  dueCount,
   onNewArticle,
   onModeChange,
-  onFlashcards,
-  onHistory,
   onConfig,
   onPassword,
-  onAbout,
   mobile = false,
 }) {
   const primaryItems = [
     { icon: BookOpen, label: '阅读', active: mode === 'article', onClick: () => onModeChange('article') },
-    { icon: PenTool, label: '绘图', active: mode === 'draw', onClick: () => onModeChange('draw') },
-    { icon: Brain, label: '闪卡', badge: dueCount, onClick: onFlashcards },
-    { icon: Clock3, label: '历史', onClick: onHistory },
+    { icon: PenTool, label: '图表', active: mode === 'diagram', onClick: () => onModeChange('diagram') },
     { icon: Settings2, label: '配置', onClick: onConfig },
   ];
 
@@ -65,6 +66,7 @@ export default function WorkspaceNav({
         {primaryItems.map((item) => (
           <NavItem key={item.label} {...item} compact />
         ))}
+        <NavItem icon={KeyRound} label="密码" onClick={onPassword} compact />
       </nav>
     );
   }
@@ -89,7 +91,7 @@ export default function WorkspaceNav({
 
       <div className="mt-auto flex flex-col items-center gap-1 border-t border-gray-200 pt-3">
         <NavItem icon={KeyRound} label="密码" onClick={onPassword} />
-        <NavItem icon={CircleHelp} label="关于" onClick={onAbout} />
+        <NavItem icon={Code2} label="代码" href={REPO_URL} />
       </div>
     </aside>
   );

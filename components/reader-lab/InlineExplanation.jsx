@@ -1,8 +1,19 @@
 'use client';
 
-import { Check, Trash2 } from 'lucide-react';
+import { Check, GitCompareArrows, Trash2 } from 'lucide-react';
+
+const ROLE_LABELS = Object.freeze({
+  core: '核心观点',
+  concept: '概念定义',
+  evidence: '关键论据',
+  conclusion: '结论推断',
+});
 
 export default function InlineExplanation({ record, mastered, onMaster, onDelete }) {
+  const explanation = record.explanation || {};
+  const display = explanation.display || explanation.plainExplanation;
+  const mappings = Array.isArray(explanation.mappings) ? explanation.mappings : [];
+
   return (
     <aside
       id={`reader-note-${record.id}`}
@@ -13,15 +24,17 @@ export default function InlineExplanation({ record, mastered, onMaster, onDelete
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-semibold text-teal-800">行间解读</span>
+            {ROLE_LABELS[record.role] && (
+              <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                {ROLE_LABELS[record.role]}
+              </span>
+            )}
             {record.isDemo && (
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
                 Demo
               </span>
             )}
           </div>
-          <p className="mt-1 break-words text-xs leading-5 text-gray-500">
-            原文范围：{record.selectedText}
-          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
@@ -45,12 +58,31 @@ export default function InlineExplanation({ record, mastered, onMaster, onDelete
         </div>
       </div>
       <p className="mt-3 text-sm leading-7 text-gray-800">
-        {record.explanation.plainExplanation}
+        {display}
       </p>
-      {record.explanation.context && (
+      {explanation.context && (
         <p className="mt-2 text-xs leading-5 text-gray-500">
-          {record.explanation.context}
+          {explanation.context}
         </p>
+      )}
+      {mappings.length > 0 && (
+        <div className="mt-3 border-t border-teal-100 pt-2.5">
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold text-teal-800">
+            <GitCompareArrows size={12} aria-hidden="true" />
+            原文映射
+          </p>
+          <dl className="mt-2 space-y-2">
+            {mappings.map((mapping, index) => (
+              <div key={`${mapping.source}-${index}`} className="grid gap-0.5 text-xs sm:grid-cols-[minmax(80px,0.7fr)_1fr] sm:gap-3">
+                <dt className="break-words font-medium text-gray-700">{mapping.source}</dt>
+                <dd className="break-words text-gray-600">
+                  {mapping.target}
+                  {mapping.note ? <span className="ml-1 text-gray-400">· {mapping.note}</span> : null}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       )}
     </aside>
   );

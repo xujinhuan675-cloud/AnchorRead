@@ -184,9 +184,40 @@ body {
   outline-offset: 2px;
 }
 
+.reader-lab-inline-source-mapping {
+  background: transparent;
+  color: inherit;
+  text-decoration: underline dotted #0f766e;
+  text-decoration-thickness: 1px;
+}
+
+.reader-lab-inline-source-mapping::before,
+.reader-lab-inline-source-mapping::after {
+  color: #0f766e;
+  font-weight: 650;
+}
+
+.reader-lab-inline-source-mapping::before {
+  content: '⌜';
+}
+
+.reader-lab-inline-source-mapping::after {
+  content: '⌝';
+}
+
 .reader-lab-widget {
   display: block;
   width: 100%;
+}
+
+/* 内联辅助开关：widget 保持挂载，仅用 CSS 隐藏，避免销毁重建 React 根带来的
+   DOM 复用失效与 flushSync 生命周期警告 */
+.reader-lab-hide-explanations .reader-lab-explanation-widget {
+  display: none;
+}
+
+.reader-lab-hide-diagrams .reader-lab-diagram-widget {
+  display: none;
 }
 
 .reader-lab-inline-note {

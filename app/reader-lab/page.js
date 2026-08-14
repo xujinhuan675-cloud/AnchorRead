@@ -6,5 +6,9 @@ export const metadata = {
 };
 
 export default function ReaderLabPage() {
-  return <ReaderLabWorkspace />;
+  return (
+    <main className="h-dvh min-h-[520px] overflow-hidden bg-[#f3f5f4]">
+      <ReaderLabWorkspace layout="reader-lab" />
+    </main>
+  );
 }
