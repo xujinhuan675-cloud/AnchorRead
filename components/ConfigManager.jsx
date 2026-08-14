@@ -52,7 +52,9 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
       baseUrl: '',
       apiKey: '',
       model: '',
-      description: ''
+      description: '',
+      userContext: '',
+      promptPresets: [],
     });
   };
 
@@ -450,6 +452,32 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
     }
   };
 
+  const handleAddPreset = () => {
+    setFormData((prev) => ({
+      ...prev,
+      promptPresets: [
+        ...(Array.isArray(prev.promptPresets) ? prev.promptPresets : []),
+        { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: '', body: '' },
+      ],
+    }));
+  };
+
+  const handleUpdatePreset = (id, field, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      promptPresets: (Array.isArray(prev.promptPresets) ? prev.promptPresets : [])
+        .map((preset) => (preset.id === id ? { ...preset, [field]: value } : preset)),
+    }));
+  };
+
+  const handleRemovePreset = (id) => {
+    setFormData((prev) => ({
+      ...prev,
+      promptPresets: (Array.isArray(prev.promptPresets) ? prev.promptPresets : [])
+        .filter((preset) => preset.id !== id),
+    }));
+  };
+
   const handleSave = () => {
     if (!formData.name || !formData.type || !formData.baseUrl || !formData.apiKey || !formData.model) {
       setError('请填写所有必填字段');
@@ -511,6 +539,69 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
               rows={2}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              用户背景
+            </label>
+            <textarea
+              value={formData.userContext || ''}
+              onChange={(e) => setFormData({ ...formData, userContext: e.target.value })}
+              placeholder="例如：我是后端工程师，请用分布式系统类比解释概念。留空则不注入。"
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              会作为偏好注入阅读分析提示词，每次请求都计 token，建议精简。
+            </p>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-gray-700">
+                提示词预设
+              </label>
+              <button
+                type="button"
+                onClick={handleAddPreset}
+                className="px-2 py-1 text-xs bg-gray-100 border border-gray-300 text-gray-700 rounded hover:bg-gray-200 transition-colors duration-200"
+              >
+                添加预设
+              </button>
+            </div>
+            <p className="mb-2 text-xs text-gray-500">
+              预设定位为「视角/身份」，与输出形态（mode）正交；分析时可在工作区下拉选用其一。
+            </p>
+            <div className="space-y-3">
+              {(Array.isArray(formData.promptPresets) ? formData.promptPresets : []).map((preset) => (
+                <div key={preset.id} className="border border-gray-200 rounded p-2 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={preset.name || ''}
+                      onChange={(e) => handleUpdatePreset(preset.id, 'name', e.target.value)}
+                      placeholder="预设名称，如：后端视角"
+                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePreset(preset.id)}
+                      className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors duration-200"
+                    >
+                      删除
+                    </button>
+                  </div>
+                  <textarea
+                    value={preset.body || ''}
+                    onChange={(e) => handleUpdatePreset(preset.id, 'body', e.target.value)}
+                    placeholder="预设正文，如：用后端工程师熟悉的概念类比解释，避免泛泛而谈。"
+                    rows={2}
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
 
           <div>
