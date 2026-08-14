@@ -1,6 +1,17 @@
 'use client';
 
-import { Clock3, Download, FileText, Search } from 'lucide-react';
+import { useRef, useState } from 'react';
+import {
+  ClipboardPaste,
+  Clock3,
+  Download,
+  FileText,
+  FileUp,
+  LoaderCircle,
+  Search,
+  Sparkles,
+} from 'lucide-react';
+import DocumentImportDialog from '@/components/reader-lab/DocumentImportDialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 function formatUpdatedAt(value) {
@@ -50,7 +61,16 @@ export default function DocumentLibrary({
   onQueryChange,
   onSelect,
   onExport,
+  onImportFile,
+  onCreateDocument,
+  onAnalyzeDocument,
+  analysisBusy = false,
+  analysisDisabled = false,
 }) {
+  const fileInputRef = useRef(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState('');
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
   const filtered = documents.filter((document) =>
     !normalizedQuery || document.title.toLocaleLowerCase('zh-CN').includes(normalizedQuery)
@@ -61,6 +81,22 @@ export default function DocumentLibrary({
       (sessions[left.id]?.updatedAt || left.updatedAt)
     )
     .slice(0, 2);
+
+  const importFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !onImportFile) return;
+
+    setImportBusy(true);
+    setImportError('');
+    try {
+      await onImportFile(file);
+    } catch (error) {
+      setImportError(error?.message || '文件导入失败，请检查格式后重试。');
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f7f8f8]">
@@ -80,6 +116,45 @@ export default function DocumentLibrary({
             <Download size={15} aria-hidden="true" />
           </button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".md,.markdown,.txt,text/markdown,text/plain"
+          onChange={importFile}
+          className="sr-only"
+          tabIndex={-1}
+        />
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!onImportFile || importBusy}
+            className="flex h-9 items-center justify-center gap-2 rounded border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {importBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <FileUp size={15} aria-hidden="true" />}
+            {importBusy ? '导入中' : '导入文件'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPasteOpen(true)}
+            disabled={!onCreateDocument}
+            className="flex h-9 items-center justify-center gap-2 rounded border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <ClipboardPaste size={15} aria-hidden="true" />
+            粘贴文本
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onAnalyzeDocument}
+          disabled={!onAnalyzeDocument || analysisBusy || analysisDisabled || !currentDocumentId}
+          className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded bg-teal-700 px-3 text-xs font-medium text-white outline-none hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+          title="为当前文档生成重点和贴行辅助"
+        >
+          {analysisBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
+          {analysisBusy ? '正在分析全文' : '分析当前文档'}
+        </button>
+        {importError ? <p role="alert" className="mt-2 text-xs leading-5 text-red-700">{importError}</p> : null}
         <label className="relative mt-4 block">
           <span className="sr-only">搜索文档</span>
           <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-gray-400" />
@@ -130,6 +205,11 @@ export default function DocumentLibrary({
           </section>
         </div>
       </ScrollArea>
+      <DocumentImportDialog
+        open={pasteOpen}
+        onClose={() => setPasteOpen(false)}
+        onCreateDocument={onCreateDocument}
+      />
     </div>
   );
 }
