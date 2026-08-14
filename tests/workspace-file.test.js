@@ -31,13 +31,30 @@ test('exports and imports all browser workspace collections', async () => {
     source: 'flowchart LR\n  A --> B',
   });
 
-  const payload = await exportWorkspace(source);
+  const payload = await exportWorkspace(source, {
+    flashcards: [{ id: 'card-1', documentId: 'doc-1', front: 'Q', back: 'A' }],
+    diagramHistory: [{ id: 'history-1', documentId: 'doc-1', drawingId: 'drawing-1' }],
+  });
   const target = createWorkspaceRepository(createMemoryWorkspaceAdapter());
   const result = await importWorkspace(target, JSON.stringify(payload));
 
   assert.equal(result.count, 2);
   assert.equal((await target.documents.get('doc-1')).title, 'Document');
   assert.equal((await target.drawings.get('drawing-1')).engine, 'mermaid');
+  assert.equal(result.payload.data.flashcards[0].documentId, 'doc-1');
+  assert.equal(result.payload.data.diagramHistory[0].drawingId, 'drawing-1');
+  assert.equal('flashcards' in target, false);
+});
+
+test('older workspace files default document-scoped extras to empty arrays', () => {
+  const payload = parseWorkspaceFile({
+    type: 'anchor-read-workspace',
+    version: 1,
+    data: { documents: [{ id: 'doc-1' }] },
+  });
+
+  assert.deepEqual(payload.data.flashcards, []);
+  assert.deepEqual(payload.data.diagramHistory, []);
 });
 
 test('rejects invalid or unsupported workspace files', () => {
