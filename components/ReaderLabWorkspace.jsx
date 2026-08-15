@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Sparkles,
   TriangleAlert,
+  WandSparkles,
 } from 'lucide-react';
 import DocumentLibrary from '@/components/reader-lab/DocumentLibrary';
 import DocumentDiagramPanel from '@/components/reader-lab/DocumentDiagramPanel';
@@ -33,8 +34,14 @@ import { createDemoReaderAnalysis } from '@/lib/reader-analysis';
 import {
   createReaderDocumentFromFile,
   createReaderDocumentFromPaste,
+  createReaderDocumentFromUrl,
   normalizeReaderDocumentContent,
 } from '@/lib/reader-document';
+import { isEpubFile, parseEpubFile } from '@/lib/epub-import';
+import { createCustomAction } from '@/lib/custom-actions';
+import CustomActionsManager from '@/components/reader-lab/CustomActionsManager';
+import WorkspaceSyncPanel from '@/components/reader-lab/WorkspaceSyncPanel';
+import Modal from '@/components/ui/Modal';
 import {
   calculateReadingProgress,
   createDemoExplanation,
@@ -53,6 +60,8 @@ import { isDerivationStale } from '@/lib/provenance';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { historyManager } from '@/lib/history-manager';
 import { downloadWorkspaceFile, exportWorkspace } from '@/lib/workspace-file';
+import { buildAnkiText, downloadAnkiFile } from '@/lib/anki-export';
+import { buildObsidianVaultNotes, downloadObsidianZip } from '@/lib/obsidian-export';
 
 const MODES = Object.freeze([
   { id: 'original', label: '原文' },
@@ -121,6 +130,10 @@ export default function ReaderLabWorkspace({
   const [flashcardPanelSignal, setFlashcardPanelSignal] = useState(0);
   const [aidVisibility, setAidVisibility] = useState({ explanations: true, diagrams: true });
   const [internalHistoryOpen, setInternalHistoryOpen] = useState(false);
+  const [customActions, setCustomActions] = useState([]);
+  const [customActionsOpen, setCustomActionsOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [customActionResult, setCustomActionResult] = useState(null);
   const [activePromptPresetId, setActivePromptPresetId] = useState(() => {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('anchor-read-prompt-preset') || '';
@@ -165,12 +178,13 @@ export default function ReaderLabWorkspace({
           }
         }
 
-        const [storedSessions, storedExplanations, storedTerms, storedReviews, storedDrawings] = await Promise.all([
+        const [storedSessions, storedExplanations, storedTerms, storedReviews, storedDrawings, storedCustomActions] = await Promise.all([
           workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev' }),
           workspaceRepository.explanations.list(),
           workspaceRepository.terms.list(),
           workspaceRepository.reviewStates.list(),
           workspaceRepository.drawings.list({ index: 'updatedAt', direction: 'prev' }),
+          workspaceRepository.customActions.list(),
         ]);
         if (cancelled) return;
 
@@ -197,6 +211,7 @@ export default function ReaderLabWorkspace({
           byId.has(state.documentId)
         )));
         setDrawings(storedDrawings.filter((drawing) => seedIds.has(drawing.documentId) || byId.has(drawing.documentId)));
+        setCustomActions(storedCustomActions.sort((left, right) => left.createdAt - right.createdAt));
         const initialDrawing = storedDrawings.find((drawing) => drawing.documentId === initialId);
         setActiveDrawingId(sessionMap[initialId]?.activeDrawingId || initialDrawing?.id || '');
         setCurrentDocumentId(initialId);
@@ -296,8 +311,61 @@ export default function ReaderLabWorkspace({
     setNotice({ type: 'success', message: `已导入「${document.title}」，原文保存在此浏览器。` });
   }, [saveSession]);
 
+  // 浏览器扩展深链导入：/?import=<url>，由扩展把网页发送到本实例自动抽取正文
+  useEffect(() => {
+    if (!ready) return undefined;
+    const params = new URLSearchParams(window.location.search);
+    const importUrl = params.get('import');
+    if (!importUrl || !/^https?:\/\//i.test(importUrl)) return undefined;
+    params.delete('import');
+    const nextSearch = params.toString();
+    window.history.replaceState(null, '', nextSearch ? `?${nextSearch}` : window.location.pathname);
+
+    let cancelled = false;
+    (async () => {
+      setBusyAction('parse');
+      try {
+        const response = await fetch('/api/import-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: importUrl }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.content) {
+          throw new Error(payload.error || '网页正文抽取失败，请稍后重试。');
+        }
+        if (cancelled) return;
+        const document = createReaderDocumentFromUrl(
+          { title: payload.title || '', content: payload.content, url: payload.sourceUrl || importUrl },
+          { existingIds: documents.map((item) => item.id) }
+        );
+        await persistImportedDocument(document);
+        if (cancelled) return;
+        setCurrentDocumentId(document.id);
+        setNotice({ type: 'success', message: `已从扩展导入：${document.title}` });
+      } catch (error) {
+        if (!cancelled) setNotice({ type: 'error', message: error.message || '网页导入失败。' });
+      } finally {
+        if (!cancelled) setBusyAction('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, documents, persistImportedDocument]);
+
   const importDocumentFile = useCallback(async (file) => {
     try {
+      if (isEpubFile(file)) {
+        const { title: epubTitle, content: epubContent } = await parseEpubFile(file);
+        const baseTitle = epubTitle || file.name.replace(/\.epub$/iu, '');
+        const document = createReaderDocumentFromFile(
+          { content: epubContent, name: `${baseTitle}.md`, type: 'text/markdown', title: baseTitle },
+          { existingIds: documents.map((item) => item.id) }
+        );
+        await persistImportedDocument(document);
+        return;
+      }
       const content = await file.text();
       const document = createReaderDocumentFromFile(
         { content, name: file.name, type: file.type, size: file.size },
@@ -310,12 +378,17 @@ export default function ReaderLabWorkspace({
     }
   }, [documents, persistImportedDocument]);
 
-  const createPastedDocument = useCallback(async ({ title, content }) => {
+  const createPastedDocument = useCallback(async ({ title, content, sourceType, sourceUrl }) => {
     try {
-      const document = createReaderDocumentFromPaste(
-        { title, content },
-        { existingIds: documents.map((item) => item.id) }
-      );
+      const document = sourceType === 'url'
+        ? createReaderDocumentFromUrl(
+          { title, content, url: sourceUrl },
+          { existingIds: documents.map((item) => item.id) }
+        )
+        : createReaderDocumentFromPaste(
+          { title, content },
+          { existingIds: documents.map((item) => item.id) }
+        );
       await persistImportedDocument(document);
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
@@ -397,9 +470,28 @@ export default function ReaderLabWorkspace({
     setBusyAction('parse');
     setNotice(null);
     try {
+      let finalTitle = title;
+      let finalContent = content;
+      let sourceUrl = '';
+      const trimmedContent = String(content || '').trim();
+      // 首页直接粘贴单行网页链接时自动抽取正文，与文档库「网页网址」导入一致
+      if (!file && /^https?:\/\/\S+$/i.test(trimmedContent)) {
+        const response = await fetch('/api/import-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: trimmedContent }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.content) {
+          throw new Error(payload.error || '网页正文抽取失败，请稍后重试。');
+        }
+        sourceUrl = payload.sourceUrl || trimmedContent;
+        finalContent = payload.content;
+        if (!String(finalTitle || '').trim()) finalTitle = payload.title || '';
+      }
       // 正文与已有文档完全一致时直接打开旧文档，避免示例/重复导入产生副本，
       // 也让图表、解读等派生数据始终附着在同一篇文档上
-      const normalizedContent = normalizeReaderDocumentContent(content);
+      const normalizedContent = normalizeReaderDocumentContent(finalContent);
       const existing = documents.find((item) => item.content === normalizedContent);
       if (existing) {
         selectDocument(existing.id);
@@ -410,10 +502,12 @@ export default function ReaderLabWorkspace({
       const options = { existingIds: documents.map((item) => item.id) };
       const document = file
         ? createReaderDocumentFromFile(
-          { content, name: file.name, type: file.type, size: file.size, title },
+          { content: finalContent, name: file.name, type: file.type, size: file.size, title: finalTitle },
           options
         )
-        : createReaderDocumentFromPaste({ title, content }, options);
+        : sourceUrl
+          ? createReaderDocumentFromUrl({ title: finalTitle, content: finalContent, url: sourceUrl }, options)
+          : createReaderDocumentFromPaste({ title: finalTitle, content: finalContent }, options);
       const { result, isDemo } = await callReaderAnalysisApi(document);
       const records = createReaderLabAnalysisRecords({
         document,
@@ -629,6 +723,39 @@ export default function ReaderLabWorkspace({
     setBusyAction(selection.action);
     setNotice(null);
     try {
+      // 自定义动作：代入模板调用 /api/custom-action，结果弹窗展示
+      if (typeof selection.action === 'string' && selection.action.startsWith('custom:')) {
+        const actionId = selection.action.slice('custom:'.length);
+        const action = customActions.find((item) => item.id === actionId);
+        if (!action) throw new Error('自定义动作不存在，请刷新后重试。');
+        const config = getConfig();
+        const usePassword = hasPasswordMode();
+        if (!usePassword && !isConfigValid(config)) {
+          setNotice({ type: 'error', message: '未检测到可用模型配置，请先在设置中配置模型。' });
+          return;
+        }
+        const headers = { 'Content-Type': 'application/json' };
+        if (usePassword) {
+          headers['x-access-password'] = localStorage.getItem('smart-excalidraw-access-password');
+        }
+        const response = await fetch('/api/custom-action', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            config: usePassword ? null : config,
+            action,
+            selection: selection.text,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || `自定义动作执行失败 (${response.status})`);
+        }
+        const payload = await response.json();
+        setCustomActionResult({ name: action.name, selection: selection.text, result: payload.result });
+        return;
+      }
+
       const { result, isDemo } = await callExplainApi(selection.text);
       const now = Date.now();
       const explanation = createReaderLabExplanation({
@@ -688,7 +815,7 @@ export default function ReaderLabWorkspace({
     } finally {
       setBusyAction('');
     }
-  }, [busyAction, callExplainApi, currentDocument, saveSession]);
+  }, [busyAction, callExplainApi, currentDocument, customActions, saveSession]);
 
   const toggleMastery = useCallback(async (record) => {
     const nextState = createReviewState(record, !mastery[record.id]);
@@ -766,6 +893,68 @@ export default function ReaderLabWorkspace({
     }
   }, []);
 
+  // 自定义动作：保存（新建/更新）与删除，持久化到本地工作区
+  const saveCustomAction = useCallback(async (input) => {
+    const existing = input.id ? customActions.find((item) => item.id === input.id) : null;
+    const action = createCustomAction({
+      ...input,
+      id: input.id || undefined,
+      createdAt: existing?.createdAt,
+    });
+    await workspaceRepository.customActions.save(action);
+    setCustomActions((current) => {
+      const others = current.filter((item) => item.id !== action.id);
+      return [...others, action].sort((left, right) => left.createdAt - right.createdAt);
+    });
+    setNotice({ type: 'success', message: `自定义动作「${action.name}」已保存。` });
+  }, [customActions]);
+
+  const removeCustomAction = useCallback(async (id) => {
+    await workspaceRepository.customActions.remove(id);
+    setCustomActions((current) => current.filter((item) => item.id !== id));
+    setNotice({ type: 'success', message: '自定义动作已删除。' });
+  }, []);
+
+  // 生态导出：闪卡 → Anki 文本导入文件
+  const exportAnki = useCallback(() => {
+    try {
+      const cards = flashcardStore.getAll();
+      if (cards.length === 0) {
+        setNotice({ type: 'error', message: '还没有闪卡，先在文档中生成闪卡再导出。' });
+        return;
+      }
+      downloadAnkiFile(buildAnkiText(cards), `anchor-read-flashcards-${new Date().toISOString().slice(0, 10)}.txt`);
+      setNotice({ type: 'success', message: `已导出 ${cards.length} 张闪卡，用 Anki「文件 → 导入」打开。` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    }
+  }, []);
+
+  // 生态导出：解读/术语/闪卡 → Obsidian 笔记 zip（术语带双链）
+  const exportObsidian = useCallback(async () => {
+    try {
+      const [documents, explanations, terms] = await Promise.all([
+        workspaceRepository.list('documents'),
+        workspaceRepository.list('explanations'),
+        workspaceRepository.list('terms'),
+      ]);
+      const notes = buildObsidianVaultNotes({
+        documents,
+        explanations,
+        terms,
+        flashcards: flashcardStore.getAll(),
+      });
+      if (notes.length === 0) {
+        setNotice({ type: 'error', message: '还没有解读、术语或闪卡，先产生派生内容再导出。' });
+        return;
+      }
+      await downloadObsidianZip(notes, `anchor-read-obsidian-${new Date().toISOString().slice(0, 10)}.zip`);
+      setNotice({ type: 'success', message: `已打包 ${notes.length} 篇 Obsidian 笔记，解压后放入你的 vault 即可。` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error.message });
+    }
+  }, []);
+
   // 首页「最近文档」：按会话/文档更新时间倒序取最近几篇，点击直接续读
   const recentDocuments = useMemo(
     () => [...documents]
@@ -807,7 +996,6 @@ export default function ReaderLabWorkspace({
       </TooltipProvider>
     );
   }
-
   if (!currentDocument) {
     return (
       <main className="flex h-full min-h-0 items-center justify-center bg-[#f5f6f6] text-sm text-gray-500">
@@ -826,6 +1014,9 @@ export default function ReaderLabWorkspace({
       onQueryChange={setQuery}
       onSelect={selectDocument}
       onExport={exportBackup}
+      onExportAnki={exportAnki}
+      onExportObsidian={exportObsidian}
+      onOpenSync={() => setSyncOpen(true)}
       onImportFile={importDocumentFile}
       onCreateDocument={createPastedDocument}
       onAnalyzeDocument={analyzeDocument}
@@ -862,6 +1053,7 @@ export default function ReaderLabWorkspace({
       explanations={currentExplanations}
       mastery={mastery}
       busyAction={busyAction}
+      customActions={customActions}
       onSelectionAction={handleSelectionAction}
       onDiagramSelection={handleDiagramSelection}
       onOpenDiagram={openDiagram}
@@ -1015,6 +1207,16 @@ export default function ReaderLabWorkspace({
               {busyAction === 'flashcards' ? <LoaderCircle size={17} className="animate-spin" /> : <Brain size={17} />}
             </button>
           </Tooltip>
+          <Tooltip content="管理选区自定义动作">
+            <button
+              type="button"
+              onClick={() => setCustomActionsOpen(true)}
+              aria-label="管理选区自定义动作"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
+            >
+              <WandSparkles size={17} />
+            </button>
+          </Tooltip>
           <Tooltip content="打开知识面板">
             <button
               type="button"
@@ -1070,9 +1272,14 @@ export default function ReaderLabWorkspace({
             <BookOpen size={13} className="shrink-0" />
             {sessions[currentDocument.id]?.progress || 0}% · {currentExplanations.length} 条解读
           </span>
-          <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setSyncOpen(true)}
+            title="打开工作区备份与同步"
+            className="flex items-center gap-1.5 transition-colors hover:text-gray-900"
+          >
             <Library size={13} /> 本地工作区
-          </span>
+          </button>
         </footer>
 
         <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>
@@ -1089,6 +1296,32 @@ export default function ReaderLabWorkspace({
             documentId={currentDocument.id}
           />
         )}
+        <WorkspaceSyncPanel isOpen={syncOpen} onClose={() => setSyncOpen(false)} />
+        <CustomActionsManager
+          isOpen={customActionsOpen}
+          onClose={() => setCustomActionsOpen(false)}
+          actions={customActions}
+          onSave={saveCustomAction}
+          onRemove={removeCustomAction}
+        />
+        <Modal
+          isOpen={Boolean(customActionResult)}
+          onClose={() => setCustomActionResult(null)}
+          title={customActionResult ? `自定义动作 · ${customActionResult.name}` : '自定义动作结果'}
+        >
+          {customActionResult && (
+            <div className="space-y-4 text-sm text-gray-800">
+              <div className="rounded border border-gray-200 bg-gray-50 p-3">
+                <p className="mb-1 text-[11px] font-medium text-gray-500">选区</p>
+                <p className="max-h-24 overflow-auto whitespace-pre-wrap text-xs text-gray-600">{customActionResult.selection}</p>
+              </div>
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-gray-500">结果</p>
+                <p className="whitespace-pre-wrap leading-6">{customActionResult.result}</p>
+              </div>
+            </div>
+          )}
+        </Modal>
       </main>
     </TooltipProvider>
   );

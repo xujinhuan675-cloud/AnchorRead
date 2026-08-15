@@ -258,9 +258,8 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
             </div>
           )}
 
-          <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded">
-            <p className="text-sm text-blue-800">提示：如果启用了访问密码，将优先使用服务器端配置，此处配置将被忽略</p>
-          </div>
+          {/* 访问密码（原独立弹窗，收敛进配置管理） */}
+          <AccessPasswordSection />
 
           {/* Actions Bar */}
           <div className="mb-6 flex flex-wrap gap-2">
@@ -397,6 +396,120 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
         message={confirmDialog.message}
         type="danger"
       />
+    </div>
+  );
+}
+
+// 访问密码设置：随配置管理面板打开时加载本地已存设置
+function AccessPasswordSection() {
+  const [password, setPassword] = useState('');
+  const [usePassword, setUsePassword] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setPassword(localStorage.getItem('smart-excalidraw-access-password') || '');
+      setUsePassword(localStorage.getItem('smart-excalidraw-use-password') === 'true');
+    }
+  }, []);
+
+  const handleValidate = async () => {
+    if (!password) {
+      setMessage('请输入访问密码');
+      setMessageType('error');
+      return;
+    }
+
+    setIsValidating(true);
+    setMessage('');
+
+    try {
+      const response = await fetch('/api/auth/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await response.json();
+      if (data.valid) {
+        setMessage('密码验证成功');
+        setMessageType('success');
+      } else {
+        setMessage(data.message || '密码验证失败');
+        setMessageType('error');
+      }
+    } catch (error) {
+      setMessage('验证请求失败');
+      setMessageType('error');
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const handleSave = () => {
+    localStorage.setItem('smart-excalidraw-access-password', password);
+    localStorage.setItem('smart-excalidraw-use-password', usePassword.toString());
+    // 通知同页其他组件（如首页状态徽标、阅读工作区请求头）
+    window.dispatchEvent(new CustomEvent('password-settings-changed', {
+      detail: { usePassword },
+    }));
+    setMessage('设置已保存');
+    setMessageType('success');
+  };
+
+  return (
+    <div className="mb-6 border border-gray-200 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="font-medium text-gray-900">访问密码</h3>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleValidate}
+            disabled={isValidating}
+            className="px-3 py-1 text-xs bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:bg-gray-50 disabled:text-gray-400 transition-colors duration-200"
+          >
+            {isValidating ? '验证中...' : '验证密码'}
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-3 py-1 text-xs bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors duration-200"
+          >
+            保存密码设置
+          </button>
+        </div>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">
+        用于连接部署在服务器上的共享 LLM（对应服务端 ACCESS_PASSWORD）；启用后下方本地配置将被忽略。本地自用无需开启。
+      </p>
+
+      {message && (
+        <div className={`mb-3 px-4 py-2 border rounded ${
+          messageType === 'success'
+            ? 'bg-green-50 border-green-200'
+            : 'bg-red-50 border-red-200'
+        }`}>
+          <p className={`text-sm ${messageType === 'success' ? 'text-green-800' : 'text-red-800'}`}>{message}</p>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="访问密码"
+          className="flex-1 min-w-48 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+        />
+        <label className="flex items-center cursor-pointer">
+          <input
+            type="checkbox"
+            checked={usePassword}
+            onChange={(e) => setUsePassword(e.target.checked)}
+            className="mr-2"
+          />
+          <span className="text-sm text-gray-700">启用访问密码</span>
+        </label>
+      </div>
     </div>
   );
 }

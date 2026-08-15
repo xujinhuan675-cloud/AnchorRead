@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import ReaderLabWorkspace from '@/components/ReaderLabWorkspace';
 import ConfigManager from '@/components/ConfigManager';
 import HistoryModal from '@/components/HistoryModal';
-import AccessPasswordModal from '@/components/AccessPasswordModal';
 import Notification from '@/components/Notification';
 import WorkspaceNav from '@/components/WorkspaceNav';
 import { getConfig, isConfigValid } from '@/lib/config';
@@ -13,7 +12,6 @@ export default function Home() {
   const [config, setConfig] = useState(null);
   const [isConfigManagerOpen, setIsConfigManagerOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [isAccessPasswordModalOpen, setIsAccessPasswordModalOpen] = useState(false);
   const [mode, setMode] = useState('article');
   const [homeEntered, setHomeEntered] = useState(false);
   const [readerWorkspaceVersion, setReaderWorkspaceVersion] = useState(0);
@@ -84,7 +82,6 @@ export default function Home() {
         onNewArticle={handleNewArticle}
         onModeChange={handleModeChange}
         onConfig={() => setIsConfigManagerOpen(true)}
-        onPassword={() => setIsAccessPasswordModalOpen(true)}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -115,7 +112,6 @@ export default function Home() {
           onNewArticle={handleNewArticle}
           onModeChange={handleModeChange}
           onConfig={() => setIsConfigManagerOpen(true)}
-          onPassword={() => setIsAccessPasswordModalOpen(true)}
         />
 
         <main className="min-h-0 flex-1 overflow-hidden">
@@ -134,7 +130,6 @@ export default function Home() {
 
       <ConfigManager isOpen={isConfigManagerOpen} onClose={() => setIsConfigManagerOpen(false)} onConfigSelect={handleConfigSelect} />
       <HistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} onApply={handleApplyHistory} documentId={currentDocument?.id || ''} />
-      <AccessPasswordModal isOpen={isAccessPasswordModalOpen} onClose={() => setIsAccessPasswordModalOpen(false)} />
       <Notification isOpen={notification.isOpen} onClose={() => setNotification({ ...notification, isOpen: false })} title={notification.title} message={notification.message} type={notification.type} />
     </div>
   );

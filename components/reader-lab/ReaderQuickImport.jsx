@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { Anchor, ChevronRight, Clock3, FileText, FileUp, LoaderCircle, Sparkles, TrendingUp, EyeOff } from 'lucide-react';
+import { isEpubFile, parseEpubFile } from '@/lib/epub-import';
 
 const SELLING_POINTS = Object.freeze([
   {
@@ -45,13 +46,20 @@ export default function ReaderQuickImport({
     setFileName(file.name);
     setReadError('');
     try {
+      if (isEpubFile(file)) {
+        const { title: epubTitle, content: epubContent } = await parseEpubFile(file);
+        setContent(epubContent);
+        setSelectedFile(file);
+        if (!title.trim()) setTitle(epubTitle || file.name.replace(/\.epub$/iu, ''));
+        return;
+      }
       setContent(await file.text());
       setSelectedFile(file);
       if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/u, ''));
-    } catch {
+    } catch (readFailure) {
       setFileName('');
       setSelectedFile(null);
-      setReadError('无法读取该文件，请确认它是 UTF-8 编码的 Markdown 或 TXT 文件。');
+      setReadError(readFailure?.message || '无法读取该文件，请确认它是 UTF-8 编码的 Markdown/TXT 或有效的 EPUB 文件。');
     }
   };
 
@@ -101,14 +109,14 @@ export default function ReaderQuickImport({
               setFileName('');
               setReadError('');
             }}
-            placeholder="在这里粘贴 Markdown 或 TXT 正文..."
+            placeholder="在这里粘贴 Markdown、TXT 正文或网页链接..."
             className="block min-h-[240px] w-full resize-y border-0 px-5 py-4 text-sm leading-7 text-gray-800 outline-none placeholder:text-gray-400 md:min-h-[280px]"
           />
           <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center">
             <input
               ref={fileInputRef}
               type="file"
-              accept=".md,.markdown,.txt,text/markdown,text/plain"
+              accept=".md,.markdown,.txt,.epub,text/markdown,text/plain,application/epub+zip"
               onChange={importFile}
               className="sr-only"
               tabIndex={-1}
@@ -120,7 +128,7 @@ export default function ReaderQuickImport({
               className="flex h-9 items-center justify-center gap-2 rounded border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
             >
               <FileUp size={16} aria-hidden="true" />
-              导入 Markdown / TXT
+              导入 Markdown / TXT / EPUB
             </button>
             <span className="min-w-0 truncate text-xs tabular-nums text-gray-400">
               {fileName || (content ? `${content.length.toLocaleString()} 字符` : '等待输入')}

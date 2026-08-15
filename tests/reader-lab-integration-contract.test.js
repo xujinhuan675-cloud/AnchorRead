@@ -87,7 +87,7 @@ test('the home route keeps the quick import and parse gate before the shared rea
   assert.match(readerLabWorkspace, /persistImportedDocument\(document, records\)/);
   assert.match(readerQuickImport, /快速导入一篇文档/);
   assert.match(readerQuickImport, /解析并进入阅读/);
-  assert.match(readerQuickImport, /accept="\.md,\.markdown,\.txt,text\/markdown,text\/plain"/);
+  assert.match(readerQuickImport, /accept="\.md,\.markdown,\.txt,\.epub,text\/markdown,text\/plain,application\/epub\+zip"/);
   assert.doesNotMatch(readerQuickImport, /useEditor\(/);
 });
 

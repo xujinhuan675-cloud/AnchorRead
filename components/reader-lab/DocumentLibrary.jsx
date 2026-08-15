@@ -4,15 +4,19 @@ import { useRef, useState } from 'react';
 import {
   ClipboardPaste,
   Clock3,
+  Cloud,
   Download,
   FileText,
   FileUp,
+  GraduationCap,
   LoaderCircle,
+  NotebookText,
   Search,
   Sparkles,
 } from 'lucide-react';
 import DocumentImportDialog from '@/components/reader-lab/DocumentImportDialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip } from '@/components/ui/tooltip';
 
 function formatUpdatedAt(value) {
   const date = new Date(value);
@@ -61,6 +65,9 @@ export default function DocumentLibrary({
   onQueryChange,
   onSelect,
   onExport,
+  onExportAnki,
+  onExportObsidian,
+  onOpenSync,
   onImportFile,
   onCreateDocument,
   onAnalyzeDocument,
@@ -106,20 +113,53 @@ export default function DocumentLibrary({
             <p className="text-sm font-semibold text-gray-950">AnchorRead</p>
             <p className="mt-0.5 text-[11px] text-gray-500">本地阅读工作区</p>
           </div>
-          <button
-            type="button"
-            onClick={onExport}
-            title="导出 JSON 备份"
-            aria-label="导出 JSON 备份"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
-          >
-            <Download size={15} aria-hidden="true" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Tooltip content="工作区同步（本地 / WebDAV）">
+              <button
+                type="button"
+                onClick={onOpenSync}
+                aria-label="工作区同步"
+                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
+              >
+                <Cloud size={15} aria-hidden="true" />
+              </button>
+            </Tooltip>
+            <Tooltip content="导出闪卡到 Anki">
+              <button
+                type="button"
+                onClick={onExportAnki}
+                aria-label="导出闪卡到 Anki"
+                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
+              >
+                <GraduationCap size={15} aria-hidden="true" />
+              </button>
+            </Tooltip>
+            <Tooltip content="导出解读与术语到 Obsidian">
+              <button
+                type="button"
+                onClick={onExportObsidian}
+                aria-label="导出解读与术语到 Obsidian 笔记"
+                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
+              >
+                <NotebookText size={15} aria-hidden="true" />
+              </button>
+            </Tooltip>
+            <Tooltip content="导出工作区备份（.anchorread）">
+              <button
+                type="button"
+                onClick={onExport}
+                aria-label="导出工作区备份"
+                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
+              >
+                <Download size={15} aria-hidden="true" />
+              </button>
+            </Tooltip>
+          </div>
         </div>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".md,.markdown,.txt,text/markdown,text/plain"
+          accept=".md,.markdown,.txt,.epub,text/markdown,text/plain,application/epub+zip"
           onChange={importFile}
           className="sr-only"
           tabIndex={-1}

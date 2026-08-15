@@ -9,7 +9,7 @@ import { TableKit } from '@tiptap/extension-table';
 import { UniqueID } from '@tiptap/extension-unique-id';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
-import { BookOpenCheck, LoaderCircle, PenTool, ScanText, Sparkles } from 'lucide-react';
+import { BookOpenCheck, LoaderCircle, PenTool, ScanText, Sparkles, WandSparkles } from 'lucide-react';
 import { markdownToSafeHtml } from '@/lib/document-content';
 import { createPrecisionReplacementMarkdown } from './DerivedDraft';
 import InlineExplanation from './InlineExplanation';
@@ -233,6 +233,7 @@ export default function ReaderSurface({
   onPersistDrawing,
   onNotice,
   drawings = [],
+  customActions = [],
   aidVisibility,
   onMaster,
   onDelete,
@@ -368,6 +369,10 @@ export default function ReaderSurface({
   // 原文模式不展示解读/图表内联卡，但保持挂载（用 CSS 隐藏），避免销毁重建触发 flushSync
   const hideExplanations = aidVisibility?.explanations === false || mode === 'original';
   const hideDiagrams = aidVisibility?.diagrams === false || mode === 'original';
+  const enabledCustomActions = useMemo(
+    () => customActions.filter((action) => action.enabled !== false),
+    [customActions]
+  );
 
   return (
     <div
@@ -414,6 +419,24 @@ export default function ReaderSurface({
             <PenTool size={14} />
             图表
           </button>
+          {enabledCustomActions.length > 0 && (
+            <>
+              <span className="h-5 w-px bg-gray-200" aria-hidden="true" />
+              {enabledCustomActions.map((action) => (
+                <button
+                  type="button"
+                  key={action.id}
+                  onClick={() => runSelectionAction(`custom:${action.id}`)}
+                  disabled={Boolean(busyAction)}
+                  className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
+                  title={action.description || action.name}
+                >
+                  {busyAction === `custom:${action.id}` ? <LoaderCircle size={14} className="animate-spin" /> : <WandSparkles size={14} />}
+                  {action.name}
+                </button>
+              ))}
+            </>
+          )}
         </BubbleMenu>
       )}
 
