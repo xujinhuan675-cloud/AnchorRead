@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+*.md
+tests
+extension
+docs
+mcp
+.tmp
+.env*
+Dockerfile
+.dockerignore
