@@ -10,8 +10,8 @@ import {
   normalizeWorkspaceRecord,
 } from '../lib/local-workspace-db.js';
 
-test('declares the complete v2 local workspace schema', () => {
-  assert.equal(WORKSPACE_DB_VERSION, 2);
+test('declares the complete v3 local workspace schema', () => {
+  assert.equal(WORKSPACE_DB_VERSION, 3);
   assert.deepEqual(WORKSPACE_STORE_NAMES, [
     'documents',
     'readSessions',
@@ -20,9 +20,11 @@ test('declares the complete v2 local workspace schema', () => {
     'terms',
     'reviewStates',
     'customActions',
+    'glossary',
   ]);
   assert.equal(WORKSPACE_SCHEMA.readSessions.indexes.documentId.unique, true);
   assert.equal(WORKSPACE_SCHEMA.drawings.indexes.engine.keyPath, 'engine');
+  assert.equal(WORKSPACE_SCHEMA.glossary.indexes.normalizedTerm.keyPath, 'normalizedTerm');
 });
 
 test('normalizes records without mutating caller data', () => {
@@ -54,6 +56,23 @@ test('validates drawing engines and derives normalized terms', () => {
       generateId: () => 'term-1',
     }).normalizedTerm,
     'fsrs'
+  );
+});
+
+test('normalizes glossary entries with required terms and deduped aliases', () => {
+  const normalized = normalizeWorkspaceRecord('glossary', {
+    term: '  幂等键  ',
+    aliases: ['Idempotency Key', '幂等键', ''],
+    explanation: '  同一意图只产生一次有效结果  ',
+  }, { now: 10, generateId: () => 'glossary-1' });
+
+  assert.equal(normalized.term, '幂等键');
+  assert.equal(normalized.normalizedTerm, '幂等键');
+  assert.deepEqual(normalized.aliases, ['idempotency key']);
+  assert.equal(normalized.explanation, '同一意图只产生一次有效结果');
+  assert.throws(
+    () => normalizeWorkspaceRecord('glossary', { term: '   ' }),
+    /主术语不能为空/
   );
 });
 

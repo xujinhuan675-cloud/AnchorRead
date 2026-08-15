@@ -15,7 +15,7 @@ test('workspace files contain local content but no application configuration', (
   }, { exportedAt: 1 });
 
   assert.equal(payload.type, 'anchor-read-workspace');
-  assert.equal(payload.version, 2);
+  assert.equal(payload.version, 3);
   assert.equal(payload.data.documents.length, 1);
   assert.equal('configs' in payload.data, false);
   assert.doesNotMatch(JSON.stringify(payload), /secret/);
@@ -64,10 +64,35 @@ test('migrates v1 workspace files to the current version', () => {
     data: { documents: [{ id: 'doc-1' }], terms: [{ id: 'term-1' }] },
   });
 
-  assert.equal(payload.version, 2);
+  assert.equal(payload.version, 3);
   assert.deepEqual(payload.data.customActions, []);
+  assert.deepEqual(payload.data.glossary, []);
   assert.equal(payload.data.documents.length, 1);
   assert.equal(payload.data.terms.length, 1);
+});
+
+test('migrates v2 workspace files by adding an empty glossary and imports glossary entries', async () => {
+  const payload = parseWorkspaceFile({
+    type: 'anchor-read-workspace',
+    version: 2,
+    data: { customActions: [{ id: 'action-1' }] },
+  });
+
+  assert.equal(payload.version, 3);
+  assert.deepEqual(payload.data.glossary, []);
+  assert.equal(payload.data.customActions.length, 1);
+
+  const source = createWorkspaceRepository(createMemoryWorkspaceAdapter());
+  await source.glossary.save({ term: '幂等键', aliases: ['idempotency key'], explanation: '同一意图只产生一次有效结果' });
+  const exported = await exportWorkspace(source);
+  assert.equal(exported.data.glossary.length, 1);
+  assert.equal(exported.data.glossary[0].normalizedTerm, '幂等键');
+
+  const target = createWorkspaceRepository(createMemoryWorkspaceAdapter());
+  const result = await importWorkspace(target, JSON.stringify(exported));
+  assert.equal(result.count, 1);
+  const restored = await target.glossary.list();
+  assert.equal(restored[0].explanation, '同一意图只产生一次有效结果');
 });
 
 test('rejects invalid or unsupported workspace files', () => {
