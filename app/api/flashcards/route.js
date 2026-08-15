@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
+import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildFlashcardsPrompt } from '@/lib/article-prompts';
 
 /**
@@ -9,8 +10,10 @@ import { buildFlashcardsPrompt } from '@/lib/article-prompts';
  * 出参：{ cards: [{ front, back, source }] }
  */
 export async function POST(request) {
+  const denied = authorizeApiRequest(request);
+  if (denied) return denied;
   try {
-    const { config, body } = await resolveLLMConfig(request);
+    const { config, body } = await resolveLLMConfig(request, 'flashcards');
     const { article, highlights } = body;
 
     if (!article || typeof article !== 'string' || !article.trim()) {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ApiError, callLLMForJson, resolveLLMConfig } from '@/lib/server-llm';
+import { authorizeApiRequest } from '@/lib/api-auth';
 import {
   ReaderAnalysisRequestError,
   ReaderAnalysisResponseError,
@@ -16,8 +17,10 @@ import {
  * exported createDemoReaderAnalysis pure function for a labelled local demo.
  */
 export async function POST(request) {
+  const denied = authorizeApiRequest(request);
+  if (denied) return denied;
   try {
-    const { config, body } = await resolveLLMConfig(request);
+    const { config, body } = await resolveLLMConfig(request, 'analysis');
     const source = normalizeReaderAnalysisRequest(body);
     const result = await callLLMForJson(config, [
       { role: 'user', content: buildReaderAnalysisPrompt(source) },

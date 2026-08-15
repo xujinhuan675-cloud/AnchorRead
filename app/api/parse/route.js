@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
+import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildParsePrompt, HIGHLIGHT_LEVELS } from '@/lib/article-prompts';
 
 /**
@@ -9,8 +10,10 @@ import { buildParsePrompt, HIGHLIGHT_LEVELS } from '@/lib/article-prompts';
  * 出参：{ summary, highlights: [{ text, level, reason }] }
  */
 export async function POST(request) {
+  const denied = authorizeApiRequest(request);
+  if (denied) return denied;
   try {
-    const { config, body } = await resolveLLMConfig(request);
+    const { config, body } = await resolveLLMConfig(request, 'parse');
     const { article } = body;
 
     if (!article || typeof article !== 'string' || !article.trim()) {

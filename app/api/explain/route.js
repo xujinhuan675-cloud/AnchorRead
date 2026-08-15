@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
+import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildExplainPrompt } from '@/lib/article-prompts';
 import {
   ExplainRequestError,
@@ -14,8 +15,10 @@ import {
  * 出参：{ plainExplanation, terms: [{ source, explanation }], context }
  */
 export async function POST(request) {
+  const denied = authorizeApiRequest(request);
+  if (denied) return denied;
   try {
-    const { config, body } = await resolveLLMConfig(request);
+    const { config, body } = await resolveLLMConfig(request, 'explain');
     const source = normalizeExplainRequest(body);
     const messages = [
       {

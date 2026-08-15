@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
+import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildConceptsPrompt } from '@/lib/article-prompts';
 
 /**
@@ -9,8 +10,10 @@ import { buildConceptsPrompt } from '@/lib/article-prompts';
  * 出参：{ concepts: [{ name, description }], relations: [{ from, to, type, label }] }
  */
 export async function POST(request) {
+  const denied = authorizeApiRequest(request);
+  if (denied) return denied;
   try {
-    const { config, body } = await resolveLLMConfig(request);
+    const { config, body } = await resolveLLMConfig(request, 'concepts');
     const { article } = body;
 
     if (!article || typeof article !== 'string' || !article.trim()) {
