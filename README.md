@@ -33,8 +33,19 @@ Anchor Read（原 smart-excalidraw-next）把"阅读专业文章"变成一条完
 
 ### 🔒 本地优先，数据自主
 - 文档、解读、术语、图表、闪卡全部存于浏览器（IndexedDB / localStorage）
-- 支持导出 / 导入 `.anchorread` 工作区文件备份
+- 支持导出 / 导入 `.anchorread` 工作区文件备份（带版本自动迁移）
 - 未配置模型时自动降级为明确标注的 Demo 演示，不产生静默联网
+
+### 🔌 生态与扩展性
+
+- **多种导入**：粘贴文本、`.md/.txt` 文件、**网页 URL**（服务端 Readability 抽取正文，带 SSRF 防护）、**EPUB**（客户端解析章节）
+- **多种导出**：`.anchorread` 工作区备份、**Anki** 闪卡文本、**Obsidian** Markdown 笔记包（解读/术语）
+- **自定义动作插件**：自定义"选区提示词模板"（`{{selection}}` / `{{context}}` 占位符），选中文本即可执行你的专属动作
+- **开放 API**：设置环境变量 `ANCHORREAD_API_KEY` 即启用 API Key 鉴权（`x-api-key` 或 `Authorization: Bearer`）；`/api/openapi` 提供 OpenAPI 3.0 文档
+- **MCP Server**：把导出的工作区只读暴露给 Claude 等 MCP 客户端（文档/术语/闪卡查询与全文搜索），详见 [docs/mcp-server.md](docs/mcp-server.md)
+- **工作区同步**：存储适配器抽象（`lib/sync-storage.js`），内置浏览器本地同步槽与 **WebDAV**（坚果云 / Alist / Nextcloud）推送与拉取
+- **浏览器扩展**：`extension/` 提供 MV3 Clipper，一键把当前网页发送到 AnchorRead 自动抽取正文入库，详见 [docs/browser-extension.md](docs/browser-extension.md)
+- **多语言基础**：`lib/i18n.js` 轻量 i18n 框架（zh-CN / en 词典与回退链），界面文案可渐进迁移
 
 ## 🚀 快速开始
 
@@ -60,10 +71,10 @@ Anchor Read（原 smart-excalidraw-next）把"阅读专业文章"变成一条完
 
 ### 阅读工作流
 
-1. **导入文档**：粘贴正文或上传 `.md/.txt` 文件，解析并进入阅读
-2. **读与懂**：选中句子"解释这段"、"识别术语"、"图表"锚定生成关系图
+1. **导入文档**：粘贴正文、上传 `.md/.txt/.epub` 文件、粘贴网页 URL，或用浏览器扩展一键剪藏，解析并进入阅读
+2. **读与懂**：选中句子"解释这段"、"识别术语"、"图表"锚定生成关系图，或执行你的自定义动作
 3. **选**：用工具栏开关决定显示哪些内联辅助
-4. **记**：点击"生成闪卡"，在知识面板"闪卡复习"里按间隔重复巩固
+4. **记**：点击"生成闪卡"，在知识面板"闪卡复习"里按间隔重复巩固；可导出 Anki / Obsidian 到外部生态
 
 ## 💻 本地部署
 
@@ -80,9 +91,27 @@ pnpm dev
 
 # 运行契约测试
 pnpm test:reader-lab
+
+# 运行全部单元测试
+pnpm test:all
 ```
 
 访问 http://localhost:3000 即可使用。
+
+### 方式二：Docker 部署
+
+```bash
+# 构建镜像（多阶段构建，产物为 Next.js standalone server）
+docker build -t anchorread .
+
+# 运行；可选设置 API Key 启用开放接口鉴权
+docker run -p 3000:3000 -e ANCHORREAD_API_KEY=your-key anchorread
+```
+
+### 方式三：浏览器扩展（剪藏）
+
+在 `chrome://extensions` 开启开发者模式，加载已解压的扩展程序，选择仓库内 `extension/` 目录。
+点击工具栏图标或右键「发送到 AnchorRead」，即可把当前网页发送过来自动抽取正文。详见 [docs/browser-extension.md](docs/browser-extension.md)。
 
 ### 配置服务器端 LLM（可选）
 
