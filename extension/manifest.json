@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "AnchorRead Clipper",
+  "version": "0.1.0",
+  "description": "把当前网页发送到自托管的 AnchorRead 阅读工作台，自动抽取正文并建立文档。",
+  "permissions": ["activeTab", "storage", "contextMenus", "tabs"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "发送到 AnchorRead"
+  }
+}

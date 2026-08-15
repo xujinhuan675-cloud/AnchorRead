@@ -1,0 +1,282 @@
+openapi: 3.0.3
+info:
+  title: AnchorRead API
+  description: |
+    AnchorRead 深度阅读工作台对外 API。
+
+    鉴权：设置环境变量 `ANCHORREAD_API_KEY` 后，所有请求需携带
+    `x-api-key` 头或 `Authorization: Bearer <key>`；未设置时本地免鉴权。
+  version: 0.1.0
+servers:
+  - url: http://localhost:3000
+    description: 本地开发服务器
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    LLMConfig:
+      type: object
+      required: [type, model]
+      properties:
+        type:
+          type: string
+          enum: [openai, anthropic, ollama]
+          description: LLM 提供商类型
+        baseUrl:
+          type: string
+          description: 自定义服务地址（可选，ollama 默认 http://127.0.0.1:11434/v1）
+        apiKey:
+          type: string
+          description: 提供商 API Key
+        model:
+          type: string
+          description: 模型名
+        taskModels:
+          type: object
+          description: 按任务覆盖模型。值为字符串（仅换 model）或对象（覆盖提供商配置）
+          additionalProperties:
+            oneOf:
+              - type: string
+              - $ref: '#/components/schemas/LLMConfig'
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+paths:
+  /api/parse:
+    post:
+      summary: 文章解析（重点高亮）
+      description: AI 挑选重点片段并分级高亮（core/important/reference）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config, article]
+              properties:
+                config:
+                  $ref: '#/components/schemas/LLMConfig'
+                article:
+                  type: string
+                  description: 文章正文（Markdown/TXT）
+      responses:
+        '200':
+          description: 解析成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                  highlights:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text: { type: string }
+                        level: { type: string, enum: [core, important, reference] }
+                        reason: { type: string }
+        '400': { description: 参数错误, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: API Key 无效或缺失, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '502': { description: AI 未返回有效结果, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/explain:
+    post:
+      summary: 选中文本解读
+      description: 对选中文本生成白话解释与术语表。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config, selectedText]
+              properties:
+                config:
+                  $ref: '#/components/schemas/LLMConfig'
+                article: { type: string, description: 全文（可选，提供上下文） }
+                articleContext: { type: string, description: 选区上下文（可选） }
+                selectedText: { type: string }
+      responses:
+        '200':
+          description: 解读成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plainExplanation: { type: string }
+                  terms:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source: { type: string }
+                        explanation: { type: string }
+                  context: { type: string }
+        '400': { description: 参数错误, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: API Key 无效或缺失, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/concepts:
+    post:
+      summary: 概念网络抽取
+      description: 从文章中提取概念与关系，用于绘制概念图。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config, article]
+              properties:
+                config:
+                  $ref: '#/components/schemas/LLMConfig'
+                article: { type: string }
+      responses:
+        '200':
+          description: 抽取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  concepts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        description: { type: string }
+                  relations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        from: { type: string }
+                        to: { type: string }
+                        type: { type: string }
+                        label: { type: string }
+        '400': { description: 参数错误, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: API Key 无效或缺失, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/flashcards:
+    post:
+      summary: 记忆卡片生成
+      description: 基于文章与重点高亮制作闪卡（可导出 Anki）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config, article]
+              properties:
+                config:
+                  $ref: '#/components/schemas/LLMConfig'
+                article: { type: string }
+                highlights:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      text: { type: string }
+                      level: { type: string }
+      responses:
+        '200':
+          description: 生成成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cards:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        front: { type: string }
+                        back: { type: string }
+                        source: { type: string }
+        '400': { description: 参数错误, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: API Key 无效或缺失, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/reader-analysis:
+    post:
+      summary: 整篇阅读分析
+      description: 生成锚定原文的解读与术语映射，供双栏阅读界面使用。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content]
+              properties:
+                config:
+                  $ref: '#/components/schemas/LLMConfig'
+                title: { type: string }
+                content: { type: string }
+                mode: { type: string }
+      responses:
+        '200':
+          description: 分析成功（结构见 lib/reader-analysis.js 契约）
+        '400': { description: 参数或 LLM 配置错误, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: API Key 无效或缺失, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/import-url:
+    post:
+      summary: URL 正文抽取
+      description: 服务端抓取网页并用 Readability 抽取正文，转换为 Markdown。拒绝内网地址（SSRF 防护）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri }
+      responses:
+        '200':
+          description: 抽取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  title: { type: string }
+                  content: { type: string }
+                  sourceUrl: { type: string }
+                  excerpt: { type: string }
+        '400': { description: URL 无效或被拒绝, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: API Key 无效或缺失, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '502': { description: 抓取或解析失败, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/openapi:
+    get:
+      summary: OpenAPI 规范
+      description: 返回本 OpenAPI YAML 文档。
+      security: []
+      responses:
+        '200':
+          description: YAML 文档
+          content:
+            text/yaml:
+              schema:
+                type: string

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>AnchorRead Clipper 设置</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      max-width: 480px;
+      margin: 40px auto;
+      padding: 0 16px;
+      color: #1f2937;
+    }
+    h1 { font-size: 18px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-top: 16px; }
+    input {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 16px;
+      padding: 8px 18px;
+      font-size: 13px;
+      border: none;
+      border-radius: 6px;
+      background: #0f766e;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:hover { background: #115e59; }
+    #status { margin-left: 10px; font-size: 12px; color: #0f766e; }
+    p.hint { font-size: 12px; color: #6b7280; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>AnchorRead Clipper 设置</h1>
+  <p class="hint">
+    填写你的 AnchorRead 实例地址（本地运行默认 http://localhost:3000）。
+    点击工具栏图标或右键「发送到 AnchorRead」时，会把当前网页发送过去自动抽取正文。
+  </p>
+  <label for="baseUrl">AnchorRead 地址</label>
+  <input id="baseUrl" type="url" placeholder="http://localhost:3000" />
+  <button id="save" type="button">保存</button>
+  <span id="status" role="status"></span>
+  <script src="options.js"></script>
+</body>
+</html>
