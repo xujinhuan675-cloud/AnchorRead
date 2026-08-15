@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>AnchorRead Clipper 设置</title>
+  <title>AnchorRead 扩展设置</title>
   <style>
     body {
       font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -35,18 +35,27 @@
     }
     button:hover { background: #115e59; }
     #status { margin-left: 10px; font-size: 12px; color: #0f766e; }
+    #status.is-error { color: #b91c1c; }
     p.hint { font-size: 12px; color: #6b7280; line-height: 1.6; }
   </style>
 </head>
 <body>
-  <h1>AnchorRead Clipper 设置</h1>
+  <h1>AnchorRead 扩展设置</h1>
   <p class="hint">
     填写你的 AnchorRead 实例地址（本地运行默认 http://localhost:3000）。
-    点击工具栏图标或右键「发送到 AnchorRead」时，会把当前网页发送过去自动抽取正文。
+    点击工具栏图标打开侧边栏，右键「发送到 AnchorRead」可剪藏当前网页。
   </p>
   <label for="baseUrl">AnchorRead 地址</label>
   <input id="baseUrl" type="url" placeholder="http://localhost:3000" />
-  <button id="save" type="button">保存</button>
+  <label for="accessPassword">访问密码（原地解读必需）</label>
+  <input id="accessPassword" type="password" placeholder="对应服务端 ACCESS_PASSWORD" autocomplete="off" />
+  <p class="hint">
+    原地划词解读由扩展调用 AnchorRead 的 /api/explain，走服务端 LLM 配置
+    （SERVER_LLM_* 环境变量），因此需要服务端启用访问密码并在此填写。
+  </p>
+  <label for="apiKey">API Key（可选）</label>
+  <input id="apiKey" type="password" placeholder="仅当服务端设置了 ANCHORREAD_API_KEY 时填写" autocomplete="off" />
+  <button id="save" type="button">保存并检测连接</button>
   <span id="status" role="status"></span>
   <script src="options.js"></script>
 </body>

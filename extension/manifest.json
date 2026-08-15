@@ -1,14 +1,44 @@
 {
   "manifest_version": 3,
   "name": "AnchorRead Clipper",
-  "version": "0.1.0",
-  "description": "把当前网页发送到自托管的 AnchorRead 阅读工作台，自动抽取正文并建立文档。",
-  "permissions": ["activeTab", "storage", "contextMenus", "tabs"],
+  "version": "0.3.0",
+  "description": "把当前网页发送到自托管的 AnchorRead 阅读工作台；支持原地划词解读与侧边栏收件箱。",
+  "permissions": ["activeTab", "storage", "contextMenus", "tabs", "sidePanel"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js", "inline-reader.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "options_page": "options.html",
   "action": {
-    "default_title": "发送到 AnchorRead"
+    "default_title": "打开 AnchorRead 侧边栏",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   }
 }

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>AnchorRead 侧边栏</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size: 13px;
+      color: #1f2937;
+      background: #f7f8f8;
+    }
+    header {
+      position: sticky; top: 0; z-index: 1;
+      background: #fff; border-bottom: 1px solid #e5e7eb;
+      padding: 10px 12px 0;
+    }
+    .ar-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .ar-title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: #0f766e; }
+    .ar-title::before { content: ''; width: 10px; height: 10px; border-radius: 2px; background: #0f766e; }
+    #send-inbox {
+      border: none; border-radius: 6px; background: #0f766e; color: #fff;
+      font-size: 12px; padding: 6px 10px; cursor: pointer; white-space: nowrap;
+    }
+    #send-inbox:hover:not(:disabled) { background: #115e59; }
+    #send-inbox:disabled { opacity: 0.5; cursor: default; }
+    nav { display: flex; gap: 4px; margin-top: 8px; }
+    nav button {
+      flex: 1; border: none; background: none; padding: 8px 0; cursor: pointer;
+      font-size: 13px; font-weight: 600; color: #6b7280;
+      border-bottom: 2px solid transparent;
+    }
+    nav button[aria-selected="true"] { color: #0f766e; border-bottom-color: #0f766e; }
+    main { padding: 12px; }
+    .ar-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+    .ar-filter {
+      border: 1px solid #d1d5db; border-radius: 999px; background: #fff;
+      font-size: 12px; padding: 4px 10px; cursor: pointer; color: #374151;
+    }
+    .ar-filter[aria-pressed="true"] { border-color: #0f766e; color: #0f766e; background: #f0fdfa; }
+    .ar-count { margin-left: auto; font-size: 12px; color: #9ca3af; }
+    .ar-empty { color: #9ca3af; text-align: center; padding: 28px 12px; line-height: 1.8; }
+    .ar-item {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 10px;
+    }
+    .ar-item-head { display: flex; align-items: baseline; gap: 6px; }
+    .ar-item-title { font-weight: 600; font-size: 12px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .ar-item-time { font-size: 11px; color: #9ca3af; white-space: nowrap; }
+    .ar-item-quote {
+      margin: 6px 0; padding-left: 8px; border-left: 3px solid #ccfbf1;
+      color: #6b7280; font-size: 12px; line-height: 1.6;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .ar-item.is-open .ar-item-quote { display: block; -webkit-line-clamp: unset; }
+    .ar-item-explain { margin: 6px 0 0; line-height: 1.7; display: none; }
+    .ar-item.is-open .ar-item-explain { display: block; }
+    .ar-item-terms { margin: 8px 0 0; padding: 0; list-style: none; display: none; }
+    .ar-item.is-open .ar-item-terms { display: block; }
+    .ar-item-terms li { background: #f0fdfa; border-radius: 6px; padding: 5px 8px; margin-top: 5px; line-height: 1.6; }
+    .ar-term-name { font-weight: 600; color: #0f766e; }
+    .ar-item-actions { display: flex; gap: 10px; margin-top: 8px; }
+    .ar-item-actions button { border: none; background: none; padding: 0; cursor: pointer; font-size: 12px; color: #0f766e; }
+    .ar-item-actions button.ar-danger { color: #b91c1c; }
+    .ar-glossary-form {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .ar-glossary-form input, .ar-glossary-form textarea {
+      border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 8px;
+      font-size: 12px; font-family: inherit; resize: vertical; box-sizing: border-box; width: 100%;
+    }
+    .ar-glossary-form button {
+      align-self: flex-end; border: none; border-radius: 6px; background: #0f766e;
+      color: #fff; font-size: 12px; padding: 6px 12px; cursor: pointer;
+    }
+    .ar-glossary-item { display: flex; gap: 8px; align-items: flex-start; }
+    .ar-glossary-body { flex: 1; min-width: 0; }
+    .ar-glossary-term { font-weight: 600; color: #0f766e; }
+    .ar-glossary-explain { margin-top: 2px; color: #4b5563; line-height: 1.6; }
+    .ar-status-line { margin: 8px 2px; font-size: 12px; color: #0f766e; }
+    .ar-status-line.is-error { color: #b91c1c; }
+    .ar-hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="ar-title-row">
+      <span class="ar-title">AnchorRead 侧边栏</span>
+      <button id="send-inbox" type="button" disabled>回流到 AnchorRead</button>
+    </div>
+    <nav role="tablist" aria-label="侧边栏视图">
+      <button id="tab-inbox" type="button" role="tab" aria-selected="true">收件箱</button>
+      <button id="tab-glossary" type="button" role="tab" aria-selected="false">术语表</button>
+    </nav>
+  </header>
+  <main>
+    <p id="status-line" class="ar-status-line ar-hidden" role="status"></p>
+
+    <section id="view-inbox" role="tabpanel" aria-label="收件箱">
+      <div class="ar-toolbar">
+        <button id="filter-all" type="button" class="ar-filter" aria-pressed="true">全部</button>
+        <button id="filter-page" type="button" class="ar-filter" aria-pressed="false">本页</button>
+        <span id="inbox-count" class="ar-count"></span>
+      </div>
+      <div id="inbox-list"></div>
+    </section>
+
+    <section id="view-glossary" role="tabpanel" aria-label="术语表" class="ar-hidden">
+      <form id="glossary-form" class="ar-glossary-form">
+        <input id="glossary-term" type="text" placeholder="术语" required maxlength="100" />
+        <textarea id="glossary-explanation" placeholder="定义（解读时会作为背景交代给 AI，命中后不再重复解释）" rows="2" maxlength="1000"></textarea>
+        <button type="submit">添加到术语表</button>
+      </form>
+      <div id="glossary-list"></div>
+    </section>
+  </main>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
