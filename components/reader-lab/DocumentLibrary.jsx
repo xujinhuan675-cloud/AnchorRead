@@ -189,7 +189,7 @@ export default function DocumentLibrary({
           onClick={onAnalyzeDocument}
           disabled={!onAnalyzeDocument || analysisBusy || analysisDisabled || !currentDocumentId}
           className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded bg-teal-700 px-3 text-xs font-medium text-white outline-none hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
-          title="为当前文档生成重点和贴行辅助"
+          title="为当前文档生成重点和解读"
         >
           {analysisBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
           {analysisBusy ? '正在分析全文' : '分析当前文档'}

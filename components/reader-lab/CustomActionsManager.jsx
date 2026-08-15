@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Plus, Pencil, Trash2, WandSparkles } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { CUSTOM_ACTION_SELECTION_PLACEHOLDER } from '@/lib/custom-actions';
@@ -21,13 +21,13 @@ export default function CustomActionsManager({
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState('');
 
-  useEffect(() => {
-    if (!isOpen) {
-      setForm(EMPTY_FORM);
-      setFormOpen(false);
-      setFormError('');
-    }
-  }, [isOpen]);
+  // 关闭弹窗时在事件回调里重置表单（新建/编辑入口本身也会重置）
+  const handleClose = () => {
+    setForm(EMPTY_FORM);
+    setFormOpen(false);
+    setFormError('');
+    onClose?.();
+  };
 
   const startCreate = () => {
     setForm({ ...EMPTY_FORM, promptTemplate: `请用通俗易懂的语言解释以下内容：\n\n${CUSTOM_ACTION_SELECTION_PLACEHOLDER}` });
@@ -64,7 +64,7 @@ export default function CustomActionsManager({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="自定义动作" maxWidth="max-w-3xl">
+    <Modal isOpen={isOpen} onClose={handleClose} title="自定义动作" maxWidth="max-w-3xl">
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-3">
           <p className="text-sm text-gray-500">
@@ -138,7 +138,7 @@ export default function CustomActionsManager({
         {actions.length === 0 && !formOpen ? (
           <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center">
             <WandSparkles size={22} className="mx-auto text-gray-300" aria-hidden="true" />
-            <p className="mt-2 text-sm text-gray-400">还没有自定义动作，点击"新建动作"开始。</p>
+            <p className="mt-2 text-sm text-gray-400">还没有自定义动作，点击「新建动作」开始。</p>
           </div>
         ) : (
           <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200">

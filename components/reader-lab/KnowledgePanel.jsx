@@ -1,16 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Brain, CheckCircle2, Eye, Trash2 } from 'lucide-react';
-import GlossaryManager from '@/components/reader-lab/GlossaryManager';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { formatDue, RATING, RATING_LABELS } from '@/lib/fsrs';
+import { readerRoleLayer } from '@/lib/reader-analysis';
 
 const TABS = [
   { id: 'explanations', label: '解读' },
+  { id: 'structure', label: '重点' },
   { id: 'terms', label: '术语' },
-  { id: 'glossary', label: '术语表' },
-  { id: 'flashcards', label: '闪卡复习' },
+  { id: 'flashcards', label: '闪卡' },
 ];
 
 const DEMO_NOTICE = '以下为本地 Demo 示例解读，仅用于演示功能，不代表真实 AI 分析结果。';
@@ -24,8 +24,45 @@ const RATING_STYLES = {
 
 function roleLabel(record) {
   if (record.role === 'term') return '术语';
+  if (record.role === 'core') return '中心论点';
+  if (record.role === 'subthesis') return '分论点';
   if (record.role === 'concept') return '概念';
+  if (record.role === 'evidence') return '论据';
+  if (record.role === 'countermeasure') return '对策';
+  if (record.role === 'case') return '案例';
+  if (record.role === 'conclusion') return '结论';
+  if (record.role === 'background') return '背景';
   return '关键段';
+}
+
+const STRUCTURE_LAYER_SECTIONS = [
+  { layer: 'article', label: '文章层 · 中心论点', chip: 'bg-pink-100 text-pink-700' },
+  { layer: 'paragraph', label: '段落层 · 分论点', chip: 'bg-yellow-100 text-yellow-800' },
+];
+const MARK_KIND_LABELS = { center: '服务中心', quote: '金句', idiom: '成语' };
+
+// 闪卡存储是 localStorage 外部源，统一用 useSyncExternalStore 订阅；
+// 快照按版本号缓存（含读取时刻），保证 getSnapshot 返回稳定引用，
+// 也避免在渲染期调用 Date.now 这类不纯函数
+let cardsVersion = 0;
+const cardsSnapshot = { version: -1, cards: [], readAt: 0 };
+
+function subscribeFlashcards(callback) {
+  const handler = () => {
+    cardsVersion += 1;
+    callback();
+  };
+  window.addEventListener('flashcards-changed', handler);
+  return () => window.removeEventListener('flashcards-changed', handler);
+}
+
+function getAllCardsSnapshot() {
+  if (cardsSnapshot.version !== cardsVersion) {
+    cardsSnapshot.version = cardsVersion;
+    cardsSnapshot.cards = flashcardStore.getAll();
+    cardsSnapshot.readAt = Date.now();
+  }
+  return cardsSnapshot;
 }
 
 function demoLabel(record) {
@@ -35,21 +72,23 @@ function demoLabel(record) {
 }
 
 function FlashcardQuiz({ documentId }) {
-  const [stats, setStats] = useState({ total: 0, due: 0, reviewedToday: 0 });
-  const [libraryCards, setLibraryCards] = useState([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [session, setSession] = useState(null);
 
-  const refresh = useCallback(() => {
-    setStats(flashcardStore.getStats(Date.now(), documentId));
-    setLibraryCards(flashcardStore.getForDocument(documentId));
-  }, [documentId]);
-
-  useEffect(() => {
-    refresh();
-    window.addEventListener('flashcards-changed', refresh);
-    return () => window.removeEventListener('flashcards-changed', refresh);
-  }, [refresh]);
+  const { cards: allCards, readAt } = useSyncExternalStore(subscribeFlashcards, getAllCardsSnapshot, getAllCardsSnapshot);
+  const libraryCards = useMemo(
+    () => allCards.filter((card) => card.documentId === documentId),
+    [allCards, documentId]
+  );
+  const stats = useMemo(() => {
+    const todayStart = new Date(readAt);
+    todayStart.setHours(0, 0, 0, 0);
+    return {
+      total: libraryCards.length,
+      due: libraryCards.filter((card) => card.due <= readAt).length,
+      reviewedToday: libraryCards.filter((card) => card.lastReview >= todayStart.getTime()).length,
+    };
+  }, [libraryCards, readAt]);
 
   const startSession = () => {
     const queue = flashcardStore.getDueCards(Date.now(), documentId);
@@ -99,7 +138,7 @@ function FlashcardQuiz({ documentId }) {
   if (session) {
     const current = session.queue[session.index];
     return (
-      <div className="p-4" aria-label="闪卡复习">
+      <div className="p-4" aria-label="闪卡">
         <div className="flex items-center justify-between text-[11px] text-gray-400">
           <span>第 {session.index + 1}/{session.queue.length} 张 · 已复习 {session.reviewed}</span>
           <span className="flex items-center gap-3">
@@ -139,7 +178,7 @@ function FlashcardQuiz({ documentId }) {
   }
 
   return (
-    <div className="p-4" aria-label="闪卡复习">
+    <div className="p-4" aria-label="闪卡">
       <div className="flex items-center justify-between text-xs text-gray-600">
         <span>{stats.due} 张待复习 · 卡库 {stats.total} 张</span>
         <span className="text-gray-400">今日已复习 {stats.reviewedToday}</span>
@@ -155,7 +194,7 @@ function FlashcardQuiz({ documentId }) {
       </button>
       {stats.total === 0 && (
         <p className="mt-3 rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
-          还没有为这篇文档生成闪卡。阅读时在顶部工具栏点击"生成闪卡"，即可把重点转成间隔复习卡片。
+          还没有为这篇文档生成闪卡。阅读时在顶部工具栏点击「生成闪卡」，即可把重点转成间隔复习卡片。
         </p>
       )}
 
@@ -202,34 +241,37 @@ export default function KnowledgePanel({
   explanations = [],
   terms = [],
   mastery = {},
-  glossary = [],
   onFocus,
   onMaster,
   onDelete,
   onFocusTerm,
   onMasterTerm,
-  onSaveGlossaryEntry,
-  onRemoveGlossaryEntry,
   isStale,
   flashcardSignal = 0,
 }) {
   const [activeTab, setActiveTab] = useState('explanations');
-  const [dueCount, setDueCount] = useState(0);
   const listRef = useRef(null);
 
-  useEffect(() => {
+  // 外部触发“生成闪卡”时自动切到闪卡页：渲染期跟随 prop 调整状态，避免用 effect 同步 setState
+  const [prevFlashcardSignal, setPrevFlashcardSignal] = useState(flashcardSignal);
+  if (flashcardSignal !== prevFlashcardSignal) {
+    setPrevFlashcardSignal(flashcardSignal);
     if (flashcardSignal > 0) setActiveTab('flashcards');
-  }, [flashcardSignal]);
+  }
 
-  useEffect(() => {
-    const update = () => setDueCount(flashcardStore.getDueCount(Date.now(), documentId));
-    update();
-    window.addEventListener('flashcards-changed', update);
-    return () => window.removeEventListener('flashcards-changed', update);
-  }, [documentId]);
+  const { cards: allCards, readAt } = useSyncExternalStore(subscribeFlashcards, getAllCardsSnapshot, getAllCardsSnapshot);
+  const dueCount = useMemo(
+    () => allCards.filter((card) => card.due <= readAt).length,
+    [allCards, readAt]
+  );
 
   const hasDemo = useMemo(() => explanations.some((record) => record.demo), [explanations]);
-  const masteredCount = explanations.filter((record) => mastery[record.id]).length;
+  // 词语层标记没有解读内容，解读页只列句子层记录；结构页才展示词语层
+  const sentenceRecords = useMemo(
+    () => explanations.filter((record) => record.level !== 'word'),
+    [explanations]
+  );
+  const masteredCount = sentenceRecords.filter((record) => mastery[record.id]).length;
 
   const focusTerm = (termId) => {
     onFocusTerm?.(termId);
@@ -240,7 +282,7 @@ export default function KnowledgePanel({
     <div className="p-4" aria-label="术语理解列表">
       {terms.length === 0 ? (
         <p className="rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
-          还没有生成术语卡。选中原文后使用"识别术语"。
+          还没有生成术语卡。选中原文后使用「识别术语」。
         </p>
       ) : (
         <ul className="space-y-3">
@@ -249,7 +291,12 @@ export default function KnowledgePanel({
             const aliasList = Array.isArray(term.aliases) ? term.aliases : [];
             const stale = isStale?.(term, document?.content);
             return (
-              <li key={term.id} className="rounded border border-gray-200 bg-white p-3 shadow-sm">
+              <li
+                key={term.id}
+                onClick={() => focusTerm(term.id)}
+                title="点击定位原文"
+                className="cursor-pointer rounded border border-gray-200 bg-white p-3 shadow-sm transition-colors hover:border-gray-300"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <p className="min-w-0 truncate text-xs font-semibold text-gray-800">
                     {term.term || term.name}
@@ -260,17 +307,13 @@ export default function KnowledgePanel({
                         源文已变化
                       </span>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => focusTerm(term.id)}
-                      className="rounded border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
-                    >
-                      定位原文
-                    </button>
                     {onMasterTerm && (
                       <button
                         type="button"
-                        onClick={() => onMasterTerm(term)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onMasterTerm(term);
+                        }}
                         aria-label={mastered ? '取消懂了' : '标记为懂了'}
                         className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${
                           mastered
@@ -315,16 +358,21 @@ export default function KnowledgePanel({
           {DEMO_NOTICE}
         </p>
       )}
-      {explanations.length === 0 ? (
+      {sentenceRecords.length === 0 ? (
         <p className="rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
-          还没有解读记录。选中原文后使用"解释这段"。
+          还没有解读记录。选中原文后使用「解释这段」。
         </p>
       ) : (
         <ul className="space-y-3">
-          {explanations.map((record) => {
+          {sentenceRecords.map((record) => {
             const stale = isStale?.(record, document?.content);
             return (
-            <li key={record.id} className="rounded border border-gray-200 bg-white p-3 shadow-sm">
+            <li
+              key={record.id}
+              onClick={() => onFocus?.(record.id)}
+              title="点击定位原文"
+              className="cursor-pointer rounded border border-gray-200 bg-white p-3 shadow-sm transition-colors hover:border-gray-300"
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5">
                   <span className="rounded bg-gray-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
@@ -339,14 +387,10 @@ export default function KnowledgePanel({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => onFocus?.(record.id)}
-                    className="rounded border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50"
-                  >
-                    定位
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onMaster?.(record.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMaster?.(record.id);
+                    }}
                     aria-label={mastery[record.id] ? '取消理解标记' : '标记为懂了'}
                     className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${
                       mastery[record.id]
@@ -359,7 +403,10 @@ export default function KnowledgePanel({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onDelete?.(record.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDelete?.(record.id);
+                    }}
                     aria-label="删除解读"
                     title="删除解读"
                     className="flex items-center justify-center rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
@@ -381,13 +428,111 @@ export default function KnowledgePanel({
           })}
         </ul>
       )}
-      {explanations.length > 0 && (
+      {sentenceRecords.length > 0 && (
         <p className="mt-4 text-center text-[11px] text-gray-400">
-          已懂 {masteredCount}/{explanations.length} 条 · "懂了"只影响你的复习清单，不会删除解读。
+          已懂 {masteredCount}/{sentenceRecords.length} 条 · 「懂了」只影响你的复习清单，不会删除解读。
         </p>
       )}
     </div>
   );
+
+  // 结构页：按文章层/段落层/句子层/词语层分组，serves 关系以缩进嵌套呈现支撑结构
+  const renderStructureRecord = (record, depth, byId) => {
+    const children = explanations.filter(
+      (item) => item.level !== 'word' && item.servesTo === record.id && byId.has(record.id)
+    );
+    return (
+      <li key={record.id} style={{ marginLeft: depth * 12 }}>
+        <button
+          type="button"
+          onClick={() => onFocus?.(record.id)}
+          title="点击定位原文"
+          className="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-gray-300"
+        >
+          <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">
+            {roleLabel(record)}
+          </span>
+          <span className="break-words text-xs leading-5 text-gray-800">{record.selectedText}</span>
+        </button>
+        {children.length > 0 && (
+          <ul className="mt-1.5 space-y-1.5">
+            {children.map((child) => renderStructureRecord(child, depth + 1, byId))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
+  const renderStructure = () => {
+    const byId = new Map(explanations.map((record) => [record.id, record]));
+    const wordRecords = explanations.filter((record) => record.level === 'word');
+    const topRecords = sentenceRecords.filter((record) => readerRoleLayer(record.role) !== 'sentence');
+    // 未挂靠的句子重点：没有 serves，或服务对象已不存在
+    const looseSentence = sentenceRecords.filter((record) =>
+      readerRoleLayer(record.role) === 'sentence' && (!record.servesTo || !byId.has(record.servesTo))
+    );
+    if (explanations.length === 0) {
+      return (
+        <div className="p-4">
+          <p className="rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
+            还没有重点。点击顶栏「生成」里的「生成重点」或「生成解读」，AI 会按文章/段落/句子/词语分层标注原文。
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-4 p-4" aria-label="重点结构">
+        {STRUCTURE_LAYER_SECTIONS.map((section) => {
+          const records = topRecords.filter((record) => readerRoleLayer(record.role) === section.layer);
+          if (records.length === 0) return null;
+          return (
+            <section key={section.layer}>
+              <h3 className={`mb-2 inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${section.chip}`}>
+                {section.label}
+              </h3>
+              <ul className="space-y-1.5">
+                {records.map((record) => renderStructureRecord(record, 0, byId))}
+              </ul>
+            </section>
+          );
+        })}
+        {looseSentence.length > 0 && (
+          <section>
+            <h3 className="mb-2 inline-block rounded bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+              句子层 · 句重点
+            </h3>
+            <ul className="space-y-1.5">
+              {looseSentence.map((record) => renderStructureRecord(record, 0, byId))}
+            </ul>
+          </section>
+        )}
+        {wordRecords.length > 0 && (
+          <section>
+            <h3 className="mb-2 inline-block rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+              词语层 · 中心/金句/成语
+            </h3>
+            <ul className="space-y-1.5">
+              {wordRecords.map((record) => (
+                <li key={record.id}>
+                  <button
+                    type="button"
+                    onClick={() => onFocus?.(record.id)}
+                    title="点击定位原文"
+                    className="w-full rounded border border-dashed border-red-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-red-300"
+                  >
+                    <span className="mr-1.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] text-red-600">
+                      {MARK_KIND_LABELS[record.markKind] || '服务中心'}
+                    </span>
+                    <span className="break-words text-xs leading-5 text-gray-800">{record.selectedText}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#fafafa]">
@@ -418,13 +563,9 @@ export default function KnowledgePanel({
       </div>
 
       {activeTab === 'terms' && renderTerms()}
-      {activeTab === 'glossary' && (
+      {activeTab === 'structure' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <GlossaryManager
-            entries={glossary}
-            onSave={onSaveGlossaryEntry}
-            onRemove={onRemoveGlossaryEntry}
-          />
+          {renderStructure()}
         </div>
       )}
       {activeTab === 'explanations' && (

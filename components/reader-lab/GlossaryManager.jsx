@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { BookMarked, Pencil, Plus, Trash2 } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 
 const EMPTY_FORM = { id: '', term: '', aliases: '', explanation: '' };
 
@@ -20,11 +21,20 @@ function parseAliases(value) {
 /**
  * 术语表管理器：用户自维护的术语定义列表（增删改）
  * 表中术语会作为背景交代给 AI：不再从零解释，并沿用既定定义
+ * 以弹窗形式从工作台导航栏打开，不占用知识面板 tab
  */
-export default function GlossaryManager({ entries = [], onSave, onRemove }) {
+export default function GlossaryManager({ isOpen, onClose, entries = [], onSave, onRemove }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState('');
+
+  // 关闭弹窗时顺手重置表单，避免下次打开残留上次编辑内容
+  const handleClose = () => {
+    setForm(EMPTY_FORM);
+    setFormOpen(false);
+    setFormError('');
+    onClose?.();
+  };
 
   // 表单只在打开动作（新建/编辑）时重置，关闭后无需额外清理
   const startCreate = () => {
@@ -76,7 +86,8 @@ export default function GlossaryManager({ entries = [], onSave, onRemove }) {
   };
 
   return (
-    <div className="p-4" aria-label="术语表管理">
+    <Modal isOpen={isOpen} onClose={handleClose} title="术语表" maxWidth="max-w-3xl">
+      <div className="p-4" aria-label="术语表管理">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[11px] leading-5 text-gray-500">
           维护你自己的术语定义。解读与分析请求会把术语表作为背景告知 AI：
@@ -196,6 +207,7 @@ export default function GlossaryManager({ entries = [], onSave, onRemove }) {
           ))}
         </ul>
       )}
-    </div>
+      </div>
+    </Modal>
   );
 }

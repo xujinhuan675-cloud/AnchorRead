@@ -1,16 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   BookOpen,
+  BookMarked,
   Brain,
   CheckCircle2,
+  ChevronDown,
   Download,
-  EyeOff,
+  Highlighter,
+  Home,
   Library,
   LoaderCircle,
   Menu,
   MessageSquareText,
+  MoreHorizontal,
   Network,
   PanelRight,
   ShieldCheck,
@@ -31,7 +36,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { getConfig, isConfigValid } from '@/lib/config';
-import { createDemoReaderAnalysis } from '@/lib/reader-analysis';
+import { createDemoReaderAnalysis, readerRoleLayer } from '@/lib/reader-analysis';
 import {
   createReaderDocumentFromFile,
   createReaderDocumentFromPaste,
@@ -41,6 +46,7 @@ import {
 import { isEpubFile, parseEpubFile } from '@/lib/epub-import';
 import { createCustomAction } from '@/lib/custom-actions';
 import CustomActionsManager from '@/components/reader-lab/CustomActionsManager';
+import GlossaryManager from '@/components/reader-lab/GlossaryManager';
 import WorkspaceSyncPanel from '@/components/reader-lab/WorkspaceSyncPanel';
 import Modal from '@/components/ui/Modal';
 import {
@@ -55,9 +61,11 @@ import {
   listExplainedTerms,
   listMasteredTerms,
   mergeKnownTerm,
+  migrateBatchAnalysisMappings,
   recordsForDocument,
 } from '@/lib/reader-lab';
 import { workspaceRepository } from '@/lib/local-workspace-db';
+import { mergeInboxPayload } from '@/lib/inbox-merge';
 import { isDerivationStale } from '@/lib/provenance';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { historyManager } from '@/lib/history-manager';
@@ -65,17 +73,104 @@ import { downloadWorkspaceFile, exportWorkspace } from '@/lib/workspace-file';
 import { buildAnkiText, downloadAnkiFile } from '@/lib/anki-export';
 import { buildObsidianVaultNotes, downloadObsidianZip } from '@/lib/obsidian-export';
 
-const MODES = Object.freeze([
-  { id: 'original', label: '原文' },
-  { id: 'comparison', label: '对照' },
-  { id: 'interpretation', label: '精准替代' },
-]);
-
-// 内联辅助可逐项开关：用户可按需选择理解方式，而不是一次性全部铺在原文上
+// 阅读辅助都是叠加在原文之上的可选层：多选多生效，全部关闭即纯原文
 const AID_OPTIONS = Object.freeze([
   { id: 'explanations', label: '解读' },
   { id: 'diagrams', label: '图表' },
+  { id: 'precision', label: '精准替代' },
 ]);
+
+// 层级化重点可见性：可全部展示，也可只展示某一层（如只看文章层中心论点）
+const LAYER_OPTIONS = Object.freeze([
+  { id: 'article', label: '文章层 · 中心论点' },
+  { id: 'paragraph', label: '段落层 · 分论点' },
+  { id: 'sentence', label: '句子层 · 句重点' },
+  { id: 'word', label: '词语层 · 中心/金句/成语' },
+]);
+const DEFAULT_LAYERS = Object.freeze({ article: true, paragraph: true, sentence: true, word: true });
+
+function readStoredLayerVisibility() {
+  if (typeof window === 'undefined') return { ...DEFAULT_LAYERS };
+  try {
+    const stored = JSON.parse(window.localStorage.getItem('anchor-read-layer-visibility') || 'null');
+    if (stored && typeof stored === 'object') return { ...DEFAULT_LAYERS, ...stored };
+  } catch {
+    // 解析失败回退默认全开
+  }
+  return { ...DEFAULT_LAYERS };
+}
+
+// 打开文档的默认形态：原文 + 解读 + 图表，精准替代关闭
+const DEFAULT_AIDS = Object.freeze({ explanations: true, diagrams: true, precision: false });
+
+/**
+ * 旧版会话只存阅读模式（original/comparison/interpretation），
+ * 恢复时翻译成对应的多选辅助状态；新版会话直接读取 aids。
+ */
+function sessionAids(session) {
+  const stored = session?.aids;
+  if (stored && typeof stored === 'object') return { ...DEFAULT_AIDS, ...stored };
+  if (session?.mode === 'original') return { explanations: false, diagrams: false, precision: false };
+  if (session?.mode === 'interpretation') return { ...DEFAULT_AIDS, precision: true };
+  return DEFAULT_AIDS;
+}
+
+/**
+ * 与 AnchorRead 浏览器扩展的 content script 握手，取回它暂存的载荷。
+ * 深链 ?via=clipper 表示扩展已暂存载荷；网页无法直接读 chrome.storage，
+ * 由页面轮询发起 postMessage 请求，注入在本网页的 content script 回传载荷。
+ * 超时或载荷不匹配时返回 null，调用方回退（剪藏回退服务端重抓取，收件箱报错提示）。
+ * @param {string} kind - 'clip'：剪藏的已渲染 DOM；'inbox'：原地阅读收件箱
+ */
+function requestExtensionPayload(kind = 'clip', { attempts = 8, intervalMs = 400 } = {}) {
+  return new Promise((resolve) => {
+    const requestId = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let timer = null;
+    let tries = 0;
+
+    const cleanup = () => {
+      window.removeEventListener('message', onMessage);
+      if (timer) clearInterval(timer);
+    };
+    const onMessage = (event) => {
+      const data = event.data;
+      if (event.source !== window || data?.type !== 'anchorread/clip-response') return;
+      if (data.requestId !== requestId) return;
+      cleanup();
+      resolve(data);
+    };
+    window.addEventListener('message', onMessage);
+    const request = () => window.postMessage({ type: 'anchorread/clip-request', requestId, kind }, '*');
+    request();
+    timer = setInterval(() => {
+      tries += 1;
+      if (tries >= attempts) {
+        cleanup();
+        resolve(null);
+        return;
+      }
+      request();
+    }, intervalMs);
+  });
+}
+
+/** 剪藏载荷校验：归属本次剪藏的网址、载荷新鲜（十分钟内），否则回退重抓取 */
+async function requestClipperPayload(sourceUrl) {
+  const data = await requestExtensionPayload('clip');
+  const clip = data?.clip;
+  const fresh = Number.isFinite(clip?.savedAt) && Date.now() - clip.savedAt < 10 * 60 * 1000;
+  return clip?.html && clip.url === sourceUrl && fresh ? clip : null;
+}
+
+/** 收件箱载荷校验：kind 匹配且载荷新鲜（十分钟内），含解读或术语任一 */
+async function requestInboxPayload() {
+  const data = await requestExtensionPayload('inbox');
+  const inbox = data?.inbox;
+  const fresh = Number.isFinite(inbox?.savedAt) && Date.now() - inbox.savedAt < 10 * 60 * 1000;
+  const hasContent = Array.isArray(inbox?.inboxItems) && inbox.inboxItems.length > 0 ||
+    Array.isArray(inbox?.glossaryTerms) && inbox.glossaryTerms.length > 0;
+  return inbox?.kind === 'inbox' && fresh && hasContent ? inbox : null;
+}
 
 function sessionId(documentId) {
   return `reader-lab-session-${documentId}`;
@@ -117,9 +212,19 @@ export default function ReaderLabWorkspace({
   const [explanations, setExplanations] = useState([]);
   const [terms, setTerms] = useState([]);
   const [reviewStates, setReviewStates] = useState([]);
-  const [mode, setMode] = useState('comparison');
   const [query, setQuery] = useState('');
   const [libraryOpen, setLibraryOpen] = useState(false);
+  // 桌面端左侧文档库折叠状态，持久化到本地，刷新后保持用户偏好
+  const [libraryCollapsed, setLibraryCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('anchor-read-library-collapsed') === '1';
+  });
+  const updateLibraryCollapsed = (collapsed) => {
+    setLibraryCollapsed(collapsed);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('anchor-read-library-collapsed', collapsed ? '1' : '0');
+    }
+  };
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [busyAction, setBusyAction] = useState('');
   const [notice, setNotice] = useState(null);
@@ -130,10 +235,17 @@ export default function ReaderLabWorkspace({
   const [activeDrawingId, setActiveDrawingId] = useState('');
   const [diagramAnchor, setDiagramAnchor] = useState(null);
   const [flashcardPanelSignal, setFlashcardPanelSignal] = useState(0);
-  const [aidVisibility, setAidVisibility] = useState({ explanations: true, diagrams: true });
+  const [aidVisibility, setAidVisibility] = useState({ ...DEFAULT_AIDS });
+  // 层级重点可见性偏好持久化，刷新后保持
+  const [layerVisibility, setLayerVisibility] = useState(readStoredLayerVisibility);
+  const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  // 头部动作分层收纳：生成类与管理类各自一个下拉，互斥展开
+  const [generateMenuOpen, setGenerateMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [internalHistoryOpen, setInternalHistoryOpen] = useState(false);
   const [customActions, setCustomActions] = useState([]);
   const [customActionsOpen, setCustomActionsOpen] = useState(false);
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [customActionResult, setCustomActionResult] = useState(null);
   const [glossary, setGlossary] = useState([]);
@@ -208,7 +320,11 @@ export default function ReaderLabWorkspace({
 
         setDocuments(nextDocuments);
         setSessions(sessionMap);
-        setExplanations(storedExplanations.filter((record) => record.readerLab || record.id?.startsWith('reader-lab-')));
+        // 旧版全文分析记录缺少 mappings 会让精准替代静默回退原文，恢复时统一迁移并持久化
+        const readerExplanations = storedExplanations.filter((record) => record.readerLab || record.id?.startsWith('reader-lab-'));
+        const { records: migratedExplanations, migrated } = migrateBatchAnalysisMappings(readerExplanations);
+        for (const record of migrated) await workspaceRepository.explanations.save(record);
+        setExplanations(migratedExplanations);
         setTerms(storedTerms.filter((term) => term.readerLab || term.id?.startsWith('reader-lab-')));
         setReviewStates(storedReviews.filter((state) => (
           (state.itemType === 'explanation' || state.id?.startsWith('reader-lab-review-')) &&
@@ -220,7 +336,7 @@ export default function ReaderLabWorkspace({
         const initialDrawing = storedDrawings.find((drawing) => drawing.documentId === initialId);
         setActiveDrawingId(sessionMap[initialId]?.activeDrawingId || initialDrawing?.id || '');
         setCurrentDocumentId(initialId);
-        setMode(sessionMap[initialId]?.mode || 'comparison');
+        setAidVisibility(sessionAids(sessionMap[initialId]));
       } catch (error) {
         console.error('Failed to restore reader lab:', error);
         setNotice({ type: 'error', message: '本地工作区恢复失败，请检查浏览器是否允许 IndexedDB。' });
@@ -270,14 +386,15 @@ export default function ReaderLabWorkspace({
     if (!documentId) return;
     const now = Date.now();
     const previous = sessionsRef.current[documentId] || {};
+    // 新版会话只持久化多选辅助状态，旧版 mode 字段在读取时由 sessionAids 迁移
     const next = {
-      ...previous,
       id: sessionId(documentId),
       documentId,
       readerLab: true,
-      mode: previous.mode || 'comparison',
+      aids: previous.aids || DEFAULT_AIDS,
       progress: previous.progress || 0,
       scrollTop: previous.scrollTop || 0,
+      activeDrawingId: previous.activeDrawingId || '',
       ...changes,
       updatedAt: now,
     };
@@ -288,7 +405,7 @@ export default function ReaderLabWorkspace({
 
   const selectDocument = useCallback((documentId) => {
     setCurrentDocumentId(documentId);
-    setMode(sessions[documentId]?.mode || 'comparison');
+    setAidVisibility(sessionAids(sessions[documentId]));
     setLibraryOpen(false);
     setNotice(null);
     const nextDrawing = drawings.find((drawing) => drawing.documentId === documentId);
@@ -296,11 +413,22 @@ export default function ReaderLabWorkspace({
     saveSession(documentId, {}).catch(console.error);
   }, [drawings, saveSession, sessions]);
 
-  const changeMode = useCallback((nextMode) => {
-    if (!nextMode || !currentDocumentId) return;
-    setMode(nextMode);
-    saveSession(currentDocumentId, { mode: nextMode }).catch(console.error);
+  // 多选辅助开关：任何变更立即持久化到当前文档会话，每篇文档记住自己的阅读组合
+  const updateAids = useCallback((nextAids) => {
+    setAidVisibility(nextAids);
+    if (currentDocumentId) saveSession(currentDocumentId, { aids: nextAids }).catch(console.error);
   }, [currentDocumentId, saveSession]);
+
+  const toggleAid = useCallback((aidId) => {
+    updateAids({ ...aidVisibility, [aidId]: !aidVisibility[aidId] });
+  }, [aidVisibility, updateAids]);
+
+  const updateLayerVisibility = useCallback((next) => {
+    setLayerVisibility(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('anchor-read-layer-visibility', JSON.stringify(next));
+    }
+  }, []);
 
   const persistProgress = useCallback((metrics) => {
     if (!currentDocumentId) return;
@@ -329,20 +457,23 @@ export default function ReaderLabWorkspace({
       ...importedTerms,
     ]);
     setCurrentDocumentId(document.id);
-    setMode('comparison');
+    setAidVisibility({ ...DEFAULT_AIDS });
     setLibraryOpen(false);
     setHomeStarted(true);
-    await saveSession(document.id, { mode: 'comparison', progress: 0, scrollTop: 0 });
+    await saveSession(document.id, { aids: DEFAULT_AIDS, progress: 0, scrollTop: 0 });
     setNotice({ type: 'success', message: `已导入「${document.title}」，原文保存在此浏览器。` });
   }, [saveSession]);
 
-  // 浏览器扩展深链导入：/?import=<url>，由扩展把网页发送到本实例自动抽取正文
+  // 浏览器扩展深链导入：/?import=<url>；带 via=clipper 时优先接收扩展提取的已渲染 DOM，
+  // 避免服务端重抓取失败（纯 JS 渲染、强反爬、内网页面）；握手失败时回退到重抓取
   useEffect(() => {
     if (!ready) return undefined;
     const params = new URLSearchParams(window.location.search);
     const importUrl = params.get('import');
     if (!importUrl || !/^https?:\/\//i.test(importUrl)) return undefined;
+    const viaClipper = params.get('via') === 'clipper';
     params.delete('import');
+    params.delete('via');
     const nextSearch = params.toString();
     window.history.replaceState(null, '', nextSearch ? `?${nextSearch}` : window.location.pathname);
 
@@ -350,10 +481,15 @@ export default function ReaderLabWorkspace({
     (async () => {
       setBusyAction('parse');
       try {
+        const clip = viaClipper ? await requestClipperPayload(importUrl) : null;
+        if (cancelled) return;
+        const body = clip?.html
+          ? { url: importUrl, html: clip.html, title: clip.title || '' }
+          : { url: importUrl };
         const response = await fetch('/api/import-url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: importUrl }),
+          body: JSON.stringify(body),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload.content) {
@@ -378,6 +514,59 @@ export default function ReaderLabWorkspace({
       cancelled = true;
     };
   }, [ready, documents, persistImportedDocument]);
+
+  // 浏览器扩展原地阅读收件箱回流：/?inbox=1&via=clipper。
+  // 与剪藏同样走 postMessage 握手取回载荷，合并进工作区（术语表去重并入，解读按来源网址挂到既有文档）
+  useEffect(() => {
+    if (!ready) return undefined;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('inbox') !== '1') return undefined;
+    const viaClipper = params.get('via') === 'clipper';
+    params.delete('inbox');
+    params.delete('via');
+    const nextSearch = params.toString();
+    window.history.replaceState(null, '', nextSearch ? `?${nextSearch}` : window.location.pathname);
+    if (!viaClipper) {
+      setNotice({ type: 'error', message: '回流链接缺少扩展交接标记，请从扩展侧边栏重新发起回流。' });
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      setBusyAction('inbox');
+      try {
+        const payload = await requestInboxPayload();
+        if (cancelled) return;
+        if (!payload) throw new Error('未接收到扩展收件箱，请确认扩展侧边栏已发起回流后重试。');
+        const merged = mergeInboxPayload(payload, { documents, glossary, explanations });
+        for (const entry of merged.glossaryEntries) await workspaceRepository.glossary.save(entry);
+        for (const record of merged.explanationRecords) await workspaceRepository.explanations.save(record);
+        if (cancelled) return;
+        if (merged.glossaryEntries.length > 0) {
+          setGlossary((current) => [...current, ...merged.glossaryEntries]);
+        }
+        if (merged.explanationRecords.length > 0) {
+          setExplanations((current) => [...current, ...merged.explanationRecords]);
+        }
+        const parts = [];
+        if (merged.summary.attachedExplanations > 0) parts.push(`${merged.summary.attachedExplanations} 条解读已挂到对应文档`);
+        if (merged.summary.addedTerms > 0) parts.push(`${merged.summary.addedTerms} 个术语已并入术语表`);
+        if (merged.summary.unmatchedItems > 0) parts.push(`${merged.summary.unmatchedItems} 条解读因尚未导入对应网页暂未挂载`);
+        if (merged.summary.duplicates > 0) parts.push(`${merged.summary.duplicates} 条重复解读已跳过`);
+        setNotice({
+          type: 'success',
+          message: parts.length > 0 ? `已接收扩展采集：${parts.join('，')}。` : '已接收扩展回流，但没有可合并的新内容。',
+        });
+      } catch (error) {
+        if (!cancelled) setNotice({ type: 'error', message: error.message || '扩展收件箱回流失败。' });
+      } finally {
+        if (!cancelled) setBusyAction('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, documents, glossary, explanations]);
 
   const importDocumentFile = useCallback(async (file) => {
     try {
@@ -552,7 +741,7 @@ export default function ReaderLabWorkspace({
     }
   }, [callReaderAnalysisApi, documents, knownMasteredWithGlossary, persistImportedDocument, selectDocument]);
 
-  const analyzeDocument = useCallback(async () => {
+  const runReaderAnalysis = useCallback(async (kind = 'inline') => {
     if (!currentDocument || busyAction) return;
     setBusyAction('analysis');
     setNotice(null);
@@ -563,15 +752,19 @@ export default function ReaderLabWorkspace({
         analysis: result,
         isDemo,
         knownMasteredTerms: knownMasteredWithGlossary(currentDocument.id),
+        kind,
       });
       if (nextRecords.length === 0) throw new Error('全文分析没有产生可定位的辅助结果。');
 
+      // 重点与解读是两类独立批量，重新生成时只替换同类旧记录
       const previousBatchRecords = explanations.filter(
-        (record) => record.documentId === currentDocument.id && record.batchAnalysis
+        (record) => record.documentId === currentDocument.id
+          && record.batchAnalysis
+          && (record.batchKind || 'inline') === kind
       );
-      const previousBatchTerms = terms.filter(
-        (term) => term.documentId === currentDocument.id && term.batchAnalysis
-      );
+      const previousBatchTerms = kind === 'inline'
+        ? terms.filter((term) => term.documentId === currentDocument.id && term.batchAnalysis)
+        : [];
       for (const record of previousBatchRecords) {
         await Promise.all([
           workspaceRepository.explanations.remove(record.id),
@@ -585,7 +778,11 @@ export default function ReaderLabWorkspace({
       for (const term of nextBatchTerms) await workspaceRepository.terms.save(term);
 
       setExplanations((current) => [
-        ...current.filter((record) => !(record.documentId === currentDocument.id && record.batchAnalysis)),
+        ...current.filter((record) => !(
+          record.documentId === currentDocument.id
+          && record.batchAnalysis
+          && (record.batchKind || 'inline') === kind
+        )),
         ...nextRecords,
       ]);
       setReviewStates((current) => current.filter(
@@ -595,20 +792,32 @@ export default function ReaderLabWorkspace({
         ...current.filter((term) => !(term.documentId === currentDocument.id && term.batchAnalysis)),
         ...nextBatchTerms,
       ]);
-      setMode('comparison');
-      await saveSession(currentDocument.id, { mode: 'comparison' });
+      // 分析完成后打开解读，让重点与贴行卡可见；其余辅助保持用户自选组合
+      updateAids({ ...aidVisibility, explanations: true });
       setNotice({
         type: isDemo ? 'demo' : 'success',
-        message: isDemo
-          ? `已生成 ${nextRecords.length} 条明确标识的本地 Demo 重点与贴行辅助。`
-          : `已定位 ${result.anchors.length} 个原文重点，并保存 ${nextRecords.length} 条贴行辅助。`,
+        message: kind === 'highlights'
+          ? (isDemo
+            ? `已生成 ${nextRecords.length} 条明确标识的本地 Demo 全文重点。`
+            : `已在原文中高亮 ${nextRecords.length} 处全文重点。`)
+          : (isDemo
+            ? `已生成 ${nextRecords.length} 条明确标识的本地 Demo 重点与解读。`
+            : `已定位 ${result.anchors.length} 个原文重点，并保存 ${nextRecords.length} 条解读。`),
       });
     } catch (error) {
       setNotice({ type: 'error', message: error.message });
     } finally {
       setBusyAction('');
     }
-  }, [busyAction, callReaderAnalysisApi, currentDocument, explanations, knownMasteredWithGlossary, saveSession, terms]);
+  }, [aidVisibility, busyAction, callReaderAnalysisApi, currentDocument, explanations, knownMasteredWithGlossary, terms, updateAids]);
+
+  const analyzeHighlights = useCallback(() => runReaderAnalysis('highlights'), [runReaderAnalysis]);
+  const analyzeInlineAid = useCallback(() => runReaderAnalysis('inline'), [runReaderAnalysis]);
+  // 文档库与精准替代提示条等入口沿用原有行为：一次分析同时生成重点与解读
+  const analyzeDocument = useCallback(async () => {
+    await runReaderAnalysis('highlights');
+    await runReaderAnalysis('inline');
+  }, [runReaderAnalysis]);
 
   const generateFlashcards = useCallback(async () => {
     if (!currentDocument || busyAction) return;
@@ -625,10 +834,12 @@ export default function ReaderLabWorkspace({
         headers,
         body: JSON.stringify({
           article: currentDocument.content,
-          highlights: currentExplanations.map((record) => ({
-            text: record.selectedText,
-            level: record.role || 'core',
-          })),
+          highlights: currentExplanations
+            .filter((record) => record.level !== 'word')
+            .map((record) => ({
+              text: record.selectedText,
+              level: record.role || 'core',
+            })),
           config: usePassword ? null : config,
         }),
       });
@@ -636,7 +847,7 @@ export default function ReaderLabWorkspace({
       const result = await response.json();
       const cards = flashcardStore.addCards(result.cards, currentDocument.title, currentDocument.id);
       setNotice({ type: 'success', message: `已为当前文档生成 ${cards.length} 张闪卡。` });
-      // 生成后直接切到知识面板的闪卡复习 tab，不再弹独立窗口
+      // 生成后直接切到知识面板的闪卡 tab，不再弹独立窗口
       setRightPanelView('knowledge');
       setFlashcardPanelSignal((signal) => signal + 1);
       onToolChange?.('read');
@@ -817,8 +1028,7 @@ export default function ReaderLabWorkspace({
       if (selection.action === 'explain') {
         await workspaceRepository.explanations.save(explanation);
         setExplanations((current) => [...current, explanation]);
-        setMode('comparison');
-        await saveSession(currentDocument.id, { mode: 'comparison' });
+        updateAids({ ...aidVisibility, explanations: true });
         setNotice({
           type: isDemo ? 'demo' : 'success',
           message: isDemo ? '未检测到可用模型配置，已生成明确标识的 Demo 解读。' : '解读已保存到此浏览器。',
@@ -871,7 +1081,7 @@ export default function ReaderLabWorkspace({
     } finally {
       setBusyAction('');
     }
-  }, [busyAction, callExplainApi, currentDocument, customActions, glossary, saveSession, terms]);
+  }, [aidVisibility, busyAction, callExplainApi, currentDocument, customActions, glossary, terms, updateAids]);
 
   const toggleMastery = useCallback(async (record) => {
     const nextState = createReviewState(record, !mastery[record.id]);
@@ -913,9 +1123,20 @@ export default function ReaderLabWorkspace({
   }, [terms]);
 
   const focusExplanation = useCallback((recordId) => {
-    if (mode !== 'comparison') changeMode('comparison');
+    // 定位解读卡需要原文坐标：关闭精准替代并打开解读
+    if (aidVisibility.precision || !aidVisibility.explanations) {
+      updateAids({ ...aidVisibility, precision: false, explanations: true });
+    }
+    // 记录所在层被隐藏时先恢复可见，否则高亮/框线装饰不存在，无法定位
+    const record = explanations.find((item) => item.id === recordId);
+    const layer = record?.level === 'word' ? 'word' : readerRoleLayer(record?.role);
+    if (record && layerVisibility[layer] === false) {
+      updateLayerVisibility({ ...layerVisibility, [layer]: true });
+    }
     window.setTimeout(() => {
-      const element = document.getElementById(`reader-note-${recordId}`);
+      // 行间解读卡优先；词语层记录没有卡片，回退到原文上的框线装饰
+      const element = document.getElementById(`reader-note-${recordId}`)
+        || document.querySelector(`[data-reader-explanation-id="${recordId}"]`);
       element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       element?.animate?.(
         [{ backgroundColor: '#ccfbf1' }, { backgroundColor: '#f0fdfa' }],
@@ -923,18 +1144,19 @@ export default function ReaderLabWorkspace({
       );
     }, 100);
     setKnowledgeOpen(false);
-  }, [changeMode, mode]);
+  }, [aidVisibility, explanations, layerVisibility, updateAids, updateLayerVisibility]);
 
   const focusTerm = useCallback((term) => {
     const record = term?.explanationId
       ? explanations.find((item) => item.id === term.explanationId)
       : null;
     if (!term?.range && !record) return;
-    if (mode === 'interpretation') changeMode('comparison');
+    // 精准替代视图里的文本坐标已变，定位前先还原原文
+    if (aidVisibility.precision) updateAids({ ...aidVisibility, precision: false });
     if (term.range) setFocusRange({ ...term.range, nonce: Date.now() });
     else if (record) focusExplanation(record.id);
     setKnowledgeOpen(false);
-  }, [changeMode, explanations, focusExplanation, mode]);
+  }, [aidVisibility, explanations, focusExplanation, updateAids]);
 
   const exportBackup = useCallback(async () => {
     try {
@@ -1105,35 +1327,29 @@ export default function ReaderLabWorkspace({
       analysisDisabled={Boolean(busyAction && busyAction !== 'analysis')}
     />
   );
-  const knowledge = mode === 'original' ? (
-    <div className="flex h-full flex-col items-center justify-center bg-[#fafafa] px-6 text-center">
-      <EyeOff size={20} className="text-gray-400" aria-hidden="true" />
-      <p className="mt-3 text-sm font-medium text-gray-700">派生内容已隐藏</p>
-      <p className="mt-1 text-xs leading-5 text-gray-500">切换到对照或解读稿模式查看解读与术语。</p>
-    </div>
-  ) : (
+  // 知识面板是派生内容的管理入口，始终可见；辅助开关只控制原文上的叠加显示
+  const knowledge = (
     <KnowledgePanel
       documentId={currentDocument.id}
       document={currentDocument}
       explanations={currentExplanations}
       terms={currentTerms}
       mastery={mastery}
-      glossary={glossary}
       onFocus={focusExplanation}
       onMaster={toggleMastery}
       onDelete={deleteExplanation}
       onFocusTerm={focusTerm}
       onMasterTerm={toggleTermMastery}
-      onSaveGlossaryEntry={saveGlossaryEntry}
-      onRemoveGlossaryEntry={removeGlossaryEntry}
       isStale={isDerivationStale}
       flashcardSignal={flashcardPanelSignal}
     />
   );
+  // 任一重点层级勾选时重点入口呈点亮态；全部取消勾选即隐藏原文重点
+  const anyLayerVisible = LAYER_OPTIONS.some((option) => layerVisibility[option.id] !== false);
+  const allLayersVisible = LAYER_OPTIONS.every((option) => layerVisibility[option.id] !== false);
   const readingSurface = (
     <ReaderSurface
       document={currentDocument}
-      mode={mode}
       explanations={currentExplanations}
       mastery={mastery}
       busyAction={busyAction}
@@ -1146,12 +1362,15 @@ export default function ReaderLabWorkspace({
       onNotice={setNotice}
       drawings={currentDrawings}
       aidVisibility={aidVisibility}
+      layerVisibility={layerVisibility}
       onMaster={toggleMastery}
       onDelete={deleteExplanation}
       onFocus={focusExplanation}
       onProgress={persistProgress}
       initialScrollTop={sessions[currentDocument.id]?.scrollTop || 0}
       focusRange={focusRange}
+      onAnalyzeDocument={analyzeDocument}
+      analysisBusy={busyAction === 'analysis'}
     />
   );
   const diagram = (
@@ -1193,12 +1412,27 @@ export default function ReaderLabWorkspace({
         </div>}
 
         <header className="z-20 flex min-h-[62px] shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-3 sm:px-4 lg:px-6">
-          <Tooltip content="打开文档库">
+          {/* 验证版路由没有全局导航，头部提供回首页入口（首页自带导航，不重复渲染） */}
+          {!isHomeLayout && (
+            <Tooltip content="回到首页（新建/导入文档）">
+              <Link
+                href="/"
+                aria-label="回到首页"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
+              >
+                <Home size={18} />
+              </Link>
+            </Tooltip>
+          )}
+          <Tooltip content={isDesktop && !isHomeLayout ? (libraryCollapsed ? '展开文档库' : '折叠文档库') : '打开文档库'}>
             <button
               type="button"
-              onClick={() => setLibraryOpen(true)}
-              aria-label="打开文档库"
-              className={`h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 ${isHomeLayout ? 'flex' : 'flex lg:hidden'}`}
+              onClick={() => {
+                if (isDesktop && !isHomeLayout) updateLibraryCollapsed(!libraryCollapsed);
+                else setLibraryOpen(true);
+              }}
+              aria-label={isDesktop && !isHomeLayout ? (libraryCollapsed ? '展开文档库' : '折叠文档库') : '打开文档库'}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
             >
               <Menu size={18} />
             </button>
@@ -1213,105 +1447,223 @@ export default function ReaderLabWorkspace({
               <span className="hidden sm:inline">更新于 {formatDate(currentDocument.updatedAt)}</span>
             </p>
           </div>
-          <Tooltip content="选择阅读模式">
-            <select
-              value={mode}
-              onChange={(e) => changeMode(e.target.value)}
-              aria-label="选择阅读模式"
-              className="h-9 shrink-0 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-            >
-              {MODES.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </Tooltip>
-          {mode === 'comparison' && (
-            <div className="flex shrink-0 items-center gap-1" aria-label="内联辅助显示">
+          {/* 显示组：多选辅助 + 层级可见性常驻可见；生成/管理动作收纳进右侧下拉 */}
+          <div className="flex shrink-0 items-center gap-1 rounded-md border border-gray-200 bg-[#fafafa] p-1">
+            <div className="flex items-center gap-1" aria-label="内联辅助显示">
               {AID_OPTIONS.map((option) => {
-                const active = aidVisibility[option.id];
+                const active = Boolean(aidVisibility[option.id]);
+                const tooltip = option.id === 'precision'
+                  ? (active ? '还原原文（关闭精准替代）' : '应用精准替代：把难懂表述替换为易懂释义')
+                  : `在原文中${active ? '隐藏' : '显示'}${option.label}`;
                 return (
-                  <Tooltip key={option.id} content={`在原文中${active ? '隐藏' : '显示'}${option.label}`}>
+                  <Tooltip key={option.id} content={tooltip}>
                     <button
                       type="button"
-                      onClick={() => setAidVisibility({ ...aidVisibility, [option.id]: !active })}
+                      onClick={() => toggleAid(option.id)}
                       aria-pressed={active}
-                      aria-label={`${active ? '隐藏' : '显示'}${option.label}辅助`}
-                      className={`flex h-9 items-center gap-1.5 rounded border px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${active ? 'border-gray-300 bg-white text-gray-900 shadow-sm' : 'border-gray-200 text-gray-400 hover:bg-gray-50'}`}
+                      aria-label={`${active ? '关闭' : '打开'}${option.label}`}
+                      className={`flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${active ? 'border-gray-300 bg-white text-gray-900 shadow-sm' : 'border-transparent text-gray-400 hover:bg-white'}`}
                     >
-                      {option.id === 'explanations' ? <MessageSquareText size={14} /> : <Network size={14} />}
+                      {option.id === 'explanations'
+                        ? <MessageSquareText size={14} />
+                        : option.id === 'diagrams'
+                          ? <Network size={14} />
+                          : <WandSparkles size={14} />}
                       {option.label}
                     </button>
                   </Tooltip>
                 );
               })}
             </div>
-          )}
-          <Tooltip content="为当前文档生成全文关系图">
-            <button
-              type="button"
-              onClick={generateFullDiagram}
-              disabled={diagramState.isGenerating}
-              aria-label="为当前文档生成全文关系图"
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded border border-gray-200 px-2.5 text-xs font-medium text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:text-gray-300"
-            >
-              {diagramState.isGenerating ? <LoaderCircle size={15} className="animate-spin" /> : <Waypoints size={15} />}
-              <span className="hidden xl:inline">全文图</span>
-            </button>
-          </Tooltip>
-          {(() => {
-            const presets = getConfig()?.promptPresets || [];
-            if (presets.length === 0) return null;
-            return (
-              <Tooltip content="选择提示词预设（视角/身份），与输出形态正交">
-                <select
-                  value={activePromptPresetId && presets.some((p) => p.id === activePromptPresetId) ? activePromptPresetId : ''}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setActivePromptPresetId(next);
-                    if (typeof window !== 'undefined') {
-                      if (next) localStorage.setItem('anchor-read-prompt-preset', next);
-                      else localStorage.removeItem('anchor-read-prompt-preset');
-                    }
+            <span className="h-5 w-px bg-gray-200" aria-hidden="true" />
+            {/* 重点不是一个独立模式：层级是重点的内部选项，在重点下拉里多选叠加 */}
+            <div className="relative">
+              <Tooltip content="显示原文重点，并选择要叠加展示的重点层级（文章/段落/句子/词语）">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLayerMenuOpen((open) => !open);
+                    setGenerateMenuOpen(false);
+                    setMoreMenuOpen(false);
                   }}
-                  aria-label="选择提示词预设"
-                  className="h-9 max-w-[9rem] shrink-0 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                  aria-label="重点可见层级"
+                  aria-expanded={layerMenuOpen}
+                  className={`flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${anyLayerVisible ? 'border-gray-300 bg-white text-gray-900 shadow-sm' : 'border-transparent text-gray-400 hover:bg-white'}`}
                 >
-                  <option value="">无预设</option>
-                  {presets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>{preset.name || '未命名预设'}</option>
-                  ))}
-                </select>
+                  <Highlighter size={14} />
+                  重点
+                  <ChevronDown size={12} aria-hidden="true" />
+                </button>
               </Tooltip>
-            );
-          })()}
-          <Tooltip content="为当前文档生成全文重点和贴行辅助">
-            <button
-              type="button"
-              onClick={analyzeDocument}
-              disabled={Boolean(busyAction)}
-              aria-label="分析当前文档"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-teal-700 outline-none hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:text-gray-300"
-            >
-              {busyAction === 'analysis'
-                ? <LoaderCircle size={17} className="animate-spin" />
-                : <Sparkles size={17} />}
-            </button>
-          </Tooltip>
-          <Tooltip content="为当前文档生成闪卡">
-            <button type="button" onClick={generateFlashcards} disabled={Boolean(busyAction)} aria-label="为当前文档生成闪卡" className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:text-gray-300">
-              {busyAction === 'flashcards' ? <LoaderCircle size={17} className="animate-spin" /> : <Brain size={17} />}
-            </button>
-          </Tooltip>
-          <Tooltip content="管理选区自定义动作">
-            <button
-              type="button"
-              onClick={() => setCustomActionsOpen(true)}
-              aria-label="管理选区自定义动作"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
-            >
-              <WandSparkles size={17} />
-            </button>
-          </Tooltip>
+              {layerMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setLayerMenuOpen(false)} />
+                  <div className="absolute right-0 top-9 z-50 w-52 rounded-md border border-zinc-200 bg-white p-2 shadow-lg">
+                    <p className="px-2 pb-1 text-[11px] text-gray-500">重点层级（多选叠加）</p>
+                    {LAYER_OPTIONS.map((option) => (
+                      <label
+                        key={option.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={layerVisibility[option.id] !== false}
+                          onChange={() => updateLayerVisibility({ ...layerVisibility, [option.id]: layerVisibility[option.id] === false })}
+                          className="h-3.5 w-3.5 accent-teal-600"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => updateLayerVisibility(
+                        allLayersVisible
+                          ? Object.fromEntries(LAYER_OPTIONS.map((option) => [option.id, false]))
+                          : { ...DEFAULT_LAYERS }
+                      )}
+                      className="mt-1 w-full rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+                    >
+                      {allLayersVisible ? '全部隐藏' : '全部展示'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          {/* 生成组：AI 生成动作收纳进一个下拉，入口按钮承载忙碌状态 */}
+          <div className="relative shrink-0">
+            <Tooltip content="为当前文档生成 AI 辅助（图表/重点/解读/闪卡）">
+              <button
+                type="button"
+                onClick={() => {
+                  setGenerateMenuOpen((open) => !open);
+                  setLayerMenuOpen(false);
+                  setMoreMenuOpen(false);
+                }}
+                aria-label="生成 AI 辅助"
+                className="flex h-9 shrink-0 items-center gap-1.5 rounded border border-gray-200 px-2.5 text-xs font-medium text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
+              >
+                {busyAction || diagramState.isGenerating ? <LoaderCircle size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                生成
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+            </Tooltip>
+            {generateMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setGenerateMenuOpen(false)} />
+                <div className="absolute right-0 top-10 z-50 w-60 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => { setGenerateMenuOpen(false); generateFullDiagram(); }}
+                    disabled={diagramState.isGenerating}
+                    title="梳理全文概念与关系，生成整篇关系图"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:text-gray-300"
+                  >
+                    <Waypoints size={14} className="shrink-0" />
+                    <span className="min-w-0 flex-1">生成图表</span>
+                    {diagramState.isGenerating && <LoaderCircle size={13} className="animate-spin text-gray-400" aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setGenerateMenuOpen(false); analyzeHighlights(); }}
+                    disabled={Boolean(busyAction)}
+                    title="按层级高亮原文重点，不插入行间解读"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:text-gray-300"
+                  >
+                    <Highlighter size={14} className="shrink-0" />
+                    <span className="min-w-0 flex-1">生成重点</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setGenerateMenuOpen(false); analyzeInlineAid(); }}
+                    disabled={Boolean(busyAction)}
+                    title="在重点旁插入行间解读卡"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:text-gray-300"
+                  >
+                    <Sparkles size={14} className="shrink-0" />
+                    <span className="min-w-0 flex-1">生成解读</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setGenerateMenuOpen(false); generateFlashcards(); }}
+                    disabled={Boolean(busyAction)}
+                    title="基于重点生成间隔重复闪卡"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:text-gray-300"
+                  >
+                    <Brain size={14} className="shrink-0" />
+                    <span className="min-w-0 flex-1">生成闪卡</span>
+                  </button>
+                  {(() => {
+                    const presets = getConfig()?.promptPresets || [];
+                    if (presets.length === 0) return null;
+                    return (
+                      <label className="mt-1 block border-t border-gray-100 px-2 pb-1.5 pt-2 text-[11px] text-gray-500">
+                        提示词预设（视角/身份）
+                        <select
+                          value={activePromptPresetId && presets.some((p) => p.id === activePromptPresetId) ? activePromptPresetId : ''}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setActivePromptPresetId(next);
+                            if (typeof window !== 'undefined') {
+                              if (next) localStorage.setItem('anchor-read-prompt-preset', next);
+                              else localStorage.removeItem('anchor-read-prompt-preset');
+                            }
+                          }}
+                          aria-label="选择提示词预设"
+                          className="mt-1 w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                        >
+                          <option value="">无预设</option>
+                          {presets.map((preset) => (
+                            <option key={preset.id} value={preset.id}>{preset.name || '未命名预设'}</option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })()}
+                </div>
+              </>
+            )}
+          </div>
+          {/* 管理组：自定义动作与术语表收纳进「更多」 */}
+          <div className="relative shrink-0">
+            <Tooltip content="自定义动作与术语表管理">
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreMenuOpen((open) => !open);
+                  setLayerMenuOpen(false);
+                  setGenerateMenuOpen(false);
+                }}
+                aria-label="更多管理项"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
+              >
+                <MoreHorizontal size={17} />
+              </button>
+            </Tooltip>
+            {moreMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setMoreMenuOpen(false)} />
+                <div className="absolute right-0 top-10 z-50 w-48 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => { setMoreMenuOpen(false); setCustomActionsOpen(true); }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
+                  >
+                    <WandSparkles size={14} className="shrink-0" />
+                    选区自定义动作
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMoreMenuOpen(false); setGlossaryOpen(true); }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
+                  >
+                    <BookMarked size={14} className="shrink-0" />
+                    术语表（AI 背景定义）
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <Tooltip content="打开知识面板">
             <button
               type="button"
@@ -1335,7 +1687,7 @@ export default function ReaderLabWorkspace({
         <div className="min-h-0 flex-1">
           {isDesktop ? (
             <ResizablePanelGroup orientation="horizontal" id="reader-lab-layout">
-              {!isHomeLayout && (
+              {!isHomeLayout && !libraryCollapsed && (
                 <>
                   <ResizablePanel id="reader-library" defaultSize="20%" minSize="220px" maxSize="320px">
                     {library}
@@ -1350,7 +1702,7 @@ export default function ReaderLabWorkspace({
                   <section className="h-full min-h-0" aria-label="阅读区">{readingSurface}</section>
                 )}
               </ResizablePanel>
-              <ResizableHandle withHandle />
+              <ResizableHandle />
               <ResizablePanel id="reader-knowledge" defaultSize={isHomeLayout ? '28%' : '23%'} minSize="260px" maxSize="440px">
                 {rightPanel}
               </ResizablePanel>
@@ -1392,6 +1744,13 @@ export default function ReaderLabWorkspace({
           />
         )}
         <WorkspaceSyncPanel isOpen={syncOpen} onClose={() => setSyncOpen(false)} />
+        <GlossaryManager
+          isOpen={glossaryOpen}
+          onClose={() => setGlossaryOpen(false)}
+          entries={glossary}
+          onSave={saveGlossaryEntry}
+          onRemove={removeGlossaryEntry}
+        />
         <CustomActionsManager
           isOpen={customActionsOpen}
           onClose={() => setCustomActionsOpen(false)}
