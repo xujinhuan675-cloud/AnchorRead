@@ -10,12 +10,14 @@ import {
   Library,
   LoaderCircle,
   Menu,
+  MessageSquareText,
+  Network,
   PanelRight,
-  PenTool,
   ShieldCheck,
   Sparkles,
   TriangleAlert,
   WandSparkles,
+  Waypoints,
 } from 'lucide-react';
 import DocumentLibrary from '@/components/reader-lab/DocumentLibrary';
 import DocumentDiagramPanel from '@/components/reader-lab/DocumentDiagramPanel';
@@ -27,7 +29,6 @@ import ReaderSurface from '@/components/reader-lab/ReaderSurface';
 import HistoryModal from '@/components/HistoryModal';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { getConfig, isConfigValid } from '@/lib/config';
 import { createDemoReaderAnalysis } from '@/lib/reader-analysis';
@@ -44,6 +45,7 @@ import WorkspaceSyncPanel from '@/components/reader-lab/WorkspaceSyncPanel';
 import Modal from '@/components/ui/Modal';
 import {
   calculateReadingProgress,
+  combineKnownMasteredTerms,
   createDemoExplanation,
   createReaderLabAnalysisRecords,
   createReaderLabExplanation,
@@ -134,6 +136,7 @@ export default function ReaderLabWorkspace({
   const [customActionsOpen, setCustomActionsOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [customActionResult, setCustomActionResult] = useState(null);
+  const [glossary, setGlossary] = useState([]);
   const [activePromptPresetId, setActivePromptPresetId] = useState(() => {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem('anchor-read-prompt-preset') || '';
@@ -178,13 +181,14 @@ export default function ReaderLabWorkspace({
           }
         }
 
-        const [storedSessions, storedExplanations, storedTerms, storedReviews, storedDrawings, storedCustomActions] = await Promise.all([
+        const [storedSessions, storedExplanations, storedTerms, storedReviews, storedDrawings, storedCustomActions, storedGlossary] = await Promise.all([
           workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev' }),
           workspaceRepository.explanations.list(),
           workspaceRepository.terms.list(),
           workspaceRepository.reviewStates.list(),
           workspaceRepository.drawings.list({ index: 'updatedAt', direction: 'prev' }),
           workspaceRepository.customActions.list(),
+          workspaceRepository.glossary.list({ index: 'updatedAt', direction: 'prev' }),
         ]);
         if (cancelled) return;
 
@@ -212,6 +216,7 @@ export default function ReaderLabWorkspace({
         )));
         setDrawings(storedDrawings.filter((drawing) => seedIds.has(drawing.documentId) || byId.has(drawing.documentId)));
         setCustomActions(storedCustomActions.sort((left, right) => left.createdAt - right.createdAt));
+        setGlossary(storedGlossary);
         const initialDrawing = storedDrawings.find((drawing) => drawing.documentId === initialId);
         setActiveDrawingId(sessionMap[initialId]?.activeDrawingId || initialDrawing?.id || '');
         setCurrentDocumentId(initialId);
@@ -241,6 +246,19 @@ export default function ReaderLabWorkspace({
   const currentTerms = useMemo(
     () => recordsForDocument(terms, currentDocumentId),
     [currentDocumentId, terms]
+  );
+  // 术语表载荷：只把用户可见字段发给 AI，作为解读与全文分析的背景交代
+  const glossaryPayload = useMemo(
+    () => glossary.map(({ term, aliases, explanation }) => ({ term, aliases, explanation })),
+    [glossary]
+  );
+  // 术语表 + 已掌握术语合并后的回灌集合：两者都视为用户已懂，命中即不再解释
+  const knownMasteredWithGlossary = useCallback(
+    (documentId) => combineKnownMasteredTerms(
+      listMasteredTerms(terms, { excludeDocumentId: documentId }),
+      glossaryPayload
+    ),
+    [glossaryPayload, terms]
   );
   const mastery = useMemo(() => Object.fromEntries(
     reviewStates
@@ -298,10 +316,17 @@ export default function ReaderLabWorkspace({
   const persistImportedDocument = useCallback(async (document, analysisRecords = []) => {
     await workspaceRepository.documents.save(document);
     for (const record of analysisRecords) await workspaceRepository.explanations.save(record);
+    // 导入即分析时同样把派生术语写入术语库，保持与工作台「分析」按钮一致的术语沉淀
+    const importedTerms = analysisRecords.flatMap((record) => record.terms || []);
+    for (const term of importedTerms) await workspaceRepository.terms.save(term);
     setDocuments((current) => [document, ...current.filter((item) => item.id !== document.id)]);
     setExplanations((current) => [
       ...current.filter((record) => record.documentId !== document.id || !record.batchAnalysis),
       ...analysisRecords,
+    ]);
+    setTerms((current) => [
+      ...current.filter((term) => !(term.documentId === document.id && term.batchAnalysis)),
+      ...importedTerms,
     ]);
     setCurrentDocumentId(document.id);
     setMode('comparison');
@@ -413,6 +438,8 @@ export default function ReaderLabWorkspace({
       body: JSON.stringify({
         article: currentDocument.content,
         selectedText,
+        // 术语表作为背景：告知 AI 哪些术语已有既定定义，不再列为新术语
+        glossary: glossaryPayload,
         config: usePassword ? null : config,
       }),
     });
@@ -421,14 +448,14 @@ export default function ReaderLabWorkspace({
       throw new Error(body.error || `解释请求失败 (${response.status})`);
     }
     return { result: await response.json(), isDemo: false };
-  }, [currentDocument]);
+  }, [currentDocument, glossaryPayload]);
 
   const callReaderAnalysisApi = useCallback(async (document = currentDocument) => {
     if (!document) throw new Error('请先导入一篇文档。');
     const config = getConfig();
     const usePassword = hasPasswordMode();
-    // 收集已掌握术语（排除当前文档），告知 AI 不再解释，驱动"越用越准确"
-    const knownMasteredTerms = listMasteredTerms(terms, { excludeDocumentId: document.id });
+    // 已掌握术语与术语表合并回灌（均视为已懂）：告知 AI 不再解释，驱动"越用越准确"
+    const knownMasteredTerms = knownMasteredWithGlossary(document.id);
     // 收集已接触未掌握术语（第二条回灌通道）：告知 AI 仍生成但更简练，不跳过
     const knownExplainedTerms = listExplainedTerms(terms, { excludeDocumentId: document.id });
     // 提示词预设：从当前配置的预设里按选中 id 取正文，未选或缺失则为空
@@ -443,6 +470,8 @@ export default function ReaderLabWorkspace({
       mode: 'plain',
       knownMasteredTerms,
       knownExplainedTerms,
+      // 术语表单独交代定义背景：AI 沿用表中既定定义，不另造解释
+      glossary: glossaryPayload,
       userContext: config?.userContext || '',
       promptPreset,
     };
@@ -464,7 +493,7 @@ export default function ReaderLabWorkspace({
       throw new Error(body.error || `全文分析失败 (${response.status})`);
     }
     return { result: await response.json(), isDemo: false };
-  }, [currentDocument, terms, activePromptPresetId]);
+  }, [currentDocument, glossaryPayload, knownMasteredWithGlossary, terms, activePromptPresetId]);
 
   const parseAndOpenDocument = useCallback(async ({ title, content, file }) => {
     setBusyAction('parse');
@@ -513,7 +542,7 @@ export default function ReaderLabWorkspace({
         document,
         analysis: result,
         isDemo,
-        knownMasteredTerms: listMasteredTerms(terms, { excludeDocumentId: document.id }),
+        knownMasteredTerms: knownMasteredWithGlossary(document.id),
       });
       await persistImportedDocument(document, records);
     } catch (error) {
@@ -521,7 +550,7 @@ export default function ReaderLabWorkspace({
     } finally {
       setBusyAction('');
     }
-  }, [callReaderAnalysisApi, documents, persistImportedDocument, selectDocument]);
+  }, [callReaderAnalysisApi, documents, knownMasteredWithGlossary, persistImportedDocument, selectDocument]);
 
   const analyzeDocument = useCallback(async () => {
     if (!currentDocument || busyAction) return;
@@ -533,7 +562,7 @@ export default function ReaderLabWorkspace({
         document: currentDocument,
         analysis: result,
         isDemo,
-        knownMasteredTerms: listMasteredTerms(terms, { excludeDocumentId: currentDocument.id }),
+        knownMasteredTerms: knownMasteredWithGlossary(currentDocument.id),
       });
       if (nextRecords.length === 0) throw new Error('全文分析没有产生可定位的辅助结果。');
 
@@ -551,6 +580,9 @@ export default function ReaderLabWorkspace({
       }
       for (const term of previousBatchTerms) await workspaceRepository.terms.remove(term.id);
       for (const record of nextRecords) await workspaceRepository.explanations.save(record);
+      // 批量分析从 mapping 派生的术语同步写入术语库，供知识面板展示与跨文档术语回灌
+      const nextBatchTerms = nextRecords.flatMap((record) => record.terms || []);
+      for (const term of nextBatchTerms) await workspaceRepository.terms.save(term);
 
       setExplanations((current) => [
         ...current.filter((record) => !(record.documentId === currentDocument.id && record.batchAnalysis)),
@@ -561,6 +593,7 @@ export default function ReaderLabWorkspace({
       ));
       setTerms((current) => [
         ...current.filter((term) => !(term.documentId === currentDocument.id && term.batchAnalysis)),
+        ...nextBatchTerms,
       ]);
       setMode('comparison');
       await saveSession(currentDocument.id, { mode: 'comparison' });
@@ -575,7 +608,7 @@ export default function ReaderLabWorkspace({
     } finally {
       setBusyAction('');
     }
-  }, [busyAction, callReaderAnalysisApi, currentDocument, explanations, saveSession, terms]);
+  }, [busyAction, callReaderAnalysisApi, currentDocument, explanations, knownMasteredWithGlossary, saveSession, terms]);
 
   const generateFlashcards = useCallback(async () => {
     if (!currentDocument || busyAction) return;
@@ -718,6 +751,19 @@ export default function ReaderLabWorkspace({
     onNotice: setNotice,
   });
 
+  // 一键全文图：切到图表视图并直接发起整篇文档的关系图生成，省去手动输入提示词
+  const generateFullDiagram = useCallback(() => {
+    if (!currentDocument || diagramState.isGenerating) return;
+    setRightPanelView('diagram');
+    onToolChange?.('diagram');
+    diagramState.generate(
+      '请围绕这篇文档的全文内容建模，梳理核心概念与它们之间的关系，生成一张完整的全文关系图',
+      'auto',
+      'text',
+      'mermaid'
+    );
+  }, [currentDocument, diagramState, onToolChange]);
+
   const handleSelectionAction = useCallback(async (selection) => {
     if (!currentDocument || busyAction) return;
     setBusyAction(selection.action);
@@ -780,6 +826,11 @@ export default function ReaderLabWorkspace({
       }
 
       if (selection.action === 'term') {
+        // 术语表兜底：命中术语表主术语或别名的返回项不再建档（服务端已过滤，防 AI 不听话）
+        const glossaryKeys = new Set(glossary.flatMap((entry) => [
+          entry.normalizedTerm,
+          ...(Array.isArray(entry.aliases) ? entry.aliases : []),
+        ]));
         const nextTerms = createReaderLabTerms({
           documentId: currentDocument.id,
           explanationId: selection.action === 'explain' ? explanation.id : '',
@@ -789,7 +840,12 @@ export default function ReaderLabWorkspace({
           content: currentDocument.content,
           isDemo,
           now,
-        }).map((term) => ({ ...term, readerLab: true }));
+        })
+          .map((term) => ({ ...term, readerLab: true }))
+          .filter((term) =>
+            !glossaryKeys.has(term.normalizedTerm)
+            && !term.aliases.some((alias) => glossaryKeys.has(alias))
+          );
         // 命中既有同义术语时累积别名而非重复建档，让术语库越用越准
         const mergedTerms = nextTerms.map((term) => {
           const existing = terms.find((item) =>
@@ -815,7 +871,7 @@ export default function ReaderLabWorkspace({
     } finally {
       setBusyAction('');
     }
-  }, [busyAction, callExplainApi, currentDocument, customActions, saveSession]);
+  }, [busyAction, callExplainApi, currentDocument, customActions, glossary, saveSession, terms]);
 
   const toggleMastery = useCallback(async (record) => {
     const nextState = createReviewState(record, !mastery[record.id]);
@@ -913,6 +969,31 @@ export default function ReaderLabWorkspace({
     await workspaceRepository.customActions.remove(id);
     setCustomActions((current) => current.filter((item) => item.id !== id));
     setNotice({ type: 'success', message: '自定义动作已删除。' });
+  }, []);
+
+  // 术语表：保存（新建/更新）条目，持久化到本地工作区并立即作为 AI 背景生效
+  const saveGlossaryEntry = useCallback(async (input) => {
+    const existing = input.id ? glossary.find((entry) => entry.id === input.id) : null;
+    const entry = {
+      id: input.id || `glossary-${Date.now()}`,
+      term: input.term,
+      aliases: Array.isArray(input.aliases) ? input.aliases : [],
+      explanation: typeof input.explanation === 'string' ? input.explanation : '',
+      createdAt: existing?.createdAt,
+      updatedAt: Date.now(),
+    };
+    await workspaceRepository.glossary.save(entry);
+    setGlossary((current) => [
+      ...current.filter((item) => item.id !== entry.id),
+      entry,
+    ]);
+    setNotice({ type: 'success', message: `术语「${entry.term}」已保存，后续解读将沿用此定义。` });
+  }, [glossary]);
+
+  const removeGlossaryEntry = useCallback(async (id) => {
+    await workspaceRepository.glossary.remove(id);
+    setGlossary((current) => current.filter((entry) => entry.id !== id));
+    setNotice({ type: 'success', message: '术语表条目已删除。' });
   }, []);
 
   // 生态导出：闪卡 → Anki 文本导入文件
@@ -1037,11 +1118,14 @@ export default function ReaderLabWorkspace({
       explanations={currentExplanations}
       terms={currentTerms}
       mastery={mastery}
+      glossary={glossary}
       onFocus={focusExplanation}
       onMaster={toggleMastery}
       onDelete={deleteExplanation}
       onFocusTerm={focusTerm}
       onMasterTerm={toggleTermMastery}
+      onSaveGlossaryEntry={saveGlossaryEntry}
+      onRemoveGlossaryEntry={removeGlossaryEntry}
       isStale={isDerivationStale}
       flashcardSignal={flashcardPanelSignal}
     />
@@ -1129,40 +1213,51 @@ export default function ReaderLabWorkspace({
               <span className="hidden sm:inline">更新于 {formatDate(currentDocument.updatedAt)}</span>
             </p>
           </div>
-          <ToggleGroup
-            type="single"
-            value={mode}
-            onValueChange={changeMode}
-            aria-label="阅读模式"
-            className="shrink-0"
-          >
-            {MODES.map((item) => (
-              <ToggleGroupItem key={item.id} value={item.id} aria-label={`${item.label}模式`} className="px-2 sm:px-3">
-                {item.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <ToggleGroup
-            type="multiple"
-            value={AID_OPTIONS.filter((option) => aidVisibility[option.id]).map((option) => option.id)}
-            onValueChange={(value) => setAidVisibility({
-              explanations: value.includes('explanations'),
-              diagrams: value.includes('diagrams'),
-            })}
-            aria-label="内联辅助显示"
-            title="选择要在原文中显示的理解辅助"
-            className="shrink-0"
-          >
-            {AID_OPTIONS.map((option) => (
-              <ToggleGroupItem key={option.id} value={option.id} aria-label={`显示${option.label}辅助`} className="px-2 sm:px-3">
-                {option.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <div className="flex shrink-0 items-center rounded border border-gray-200 bg-gray-50 p-0.5" aria-label="理解工具">
-            <button type="button" title="知识" onClick={() => { setRightPanelView('knowledge'); onToolChange?.('read'); }} aria-pressed={rightPanelView === 'knowledge'} className={`flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium ${rightPanelView === 'knowledge' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}><BookOpen size={14} /><span className="hidden xl:inline">知识</span></button>
-            <button type="button" title="图表" onClick={() => { setRightPanelView('diagram'); onToolChange?.('diagram'); }} aria-pressed={rightPanelView === 'diagram'} className={`flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium ${rightPanelView === 'diagram' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}><PenTool size={14} /><span className="hidden xl:inline">图表</span></button>
-          </div>
+          <Tooltip content="选择阅读模式">
+            <select
+              value={mode}
+              onChange={(e) => changeMode(e.target.value)}
+              aria-label="选择阅读模式"
+              className="h-9 shrink-0 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            >
+              {MODES.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </Tooltip>
+          {mode === 'comparison' && (
+            <div className="flex shrink-0 items-center gap-1" aria-label="内联辅助显示">
+              {AID_OPTIONS.map((option) => {
+                const active = aidVisibility[option.id];
+                return (
+                  <Tooltip key={option.id} content={`在原文中${active ? '隐藏' : '显示'}${option.label}`}>
+                    <button
+                      type="button"
+                      onClick={() => setAidVisibility({ ...aidVisibility, [option.id]: !active })}
+                      aria-pressed={active}
+                      aria-label={`${active ? '隐藏' : '显示'}${option.label}辅助`}
+                      className={`flex h-9 items-center gap-1.5 rounded border px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${active ? 'border-gray-300 bg-white text-gray-900 shadow-sm' : 'border-gray-200 text-gray-400 hover:bg-gray-50'}`}
+                    >
+                      {option.id === 'explanations' ? <MessageSquareText size={14} /> : <Network size={14} />}
+                      {option.label}
+                    </button>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          )}
+          <Tooltip content="为当前文档生成全文关系图">
+            <button
+              type="button"
+              onClick={generateFullDiagram}
+              disabled={diagramState.isGenerating}
+              aria-label="为当前文档生成全文关系图"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded border border-gray-200 px-2.5 text-xs font-medium text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:text-gray-300"
+            >
+              {diagramState.isGenerating ? <LoaderCircle size={15} className="animate-spin" /> : <Waypoints size={15} />}
+              <span className="hidden xl:inline">全文图</span>
+            </button>
+          </Tooltip>
           {(() => {
             const presets = getConfig()?.promptPresets || [];
             if (presets.length === 0) return null;

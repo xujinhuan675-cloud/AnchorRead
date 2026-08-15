@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Brain, CheckCircle2, Eye, Trash2 } from 'lucide-react';
+import GlossaryManager from '@/components/reader-lab/GlossaryManager';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { formatDue, RATING, RATING_LABELS } from '@/lib/fsrs';
 
 const TABS = [
   { id: 'explanations', label: '解读' },
   { id: 'terms', label: '术语' },
+  { id: 'glossary', label: '术语表' },
   { id: 'flashcards', label: '闪卡复习' },
 ];
 
@@ -200,11 +202,14 @@ export default function KnowledgePanel({
   explanations = [],
   terms = [],
   mastery = {},
+  glossary = [],
   onFocus,
   onMaster,
   onDelete,
   onFocusTerm,
   onMasterTerm,
+  onSaveGlossaryEntry,
+  onRemoveGlossaryEntry,
   isStale,
   flashcardSignal = 0,
 }) {
@@ -413,6 +418,15 @@ export default function KnowledgePanel({
       </div>
 
       {activeTab === 'terms' && renderTerms()}
+      {activeTab === 'glossary' && (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <GlossaryManager
+            entries={glossary}
+            onSave={onSaveGlossaryEntry}
+            onRemove={onRemoveGlossaryEntry}
+          />
+        </div>
+      )}
       {activeTab === 'explanations' && (
         <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
           {renderExplanations()}
