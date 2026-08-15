@@ -29,6 +29,7 @@ test('normalizes reader analysis requests without changing source offsets', () =
       mode: 'plain',
       knownMasteredTerms: [],
       knownExplainedTerms: [],
+      glossary: [],
       userContext: '',
       promptPreset: '',
     }
@@ -40,6 +41,31 @@ test('normalizes reader analysis requests without changing source offsets', () =
   assert.throws(
     () => normalizeReaderAnalysisRequest({ title: '标题', content: '正文', mode: 'unknown' }),
     /mode 必须是/
+  );
+});
+
+test('normalizes glossary entries and ignores malformed input', () => {
+  const normalized = normalizeReaderAnalysisRequest({
+    title: '示例文档',
+    content: '正文',
+    glossary: [
+      { term: 'Idempotency Key', aliases: ['幂等键', ''], explanation: '同一意图只产生一次有效结果' },
+      null,
+      { aliases: [] },
+      { term: 'RAG', explanation: '  检索增强生成  ' },
+    ],
+  });
+  assert.deepEqual(normalized.glossary, [
+    { term: 'idempotency key', aliases: ['幂等键'], explanation: '同一意图只产生一次有效结果' },
+    { term: 'rag', aliases: [], explanation: '检索增强生成' },
+  ]);
+  assert.throws(
+    () => normalizeReaderAnalysisRequest({
+      title: '标题',
+      content: '正文',
+      glossary: [{ term: '过长', explanation: '定'.repeat(1_001) }],
+    }),
+    /术语表定义不能超过/
   );
 });
 
@@ -115,6 +141,18 @@ test('creates stable source blocks and a JSON-only grounded prompt', () => {
     () => buildReaderAnalysisPrompt({ title: '标题', content: '正文', mode: 'invalid' }),
     ReaderAnalysisRequestError
   );
+});
+
+test('injects glossary background only when present and keeps it out otherwise', () => {
+  const glossary = [{ term: '幂等键', aliases: ['idempotency key'], explanation: '同一意图只产生一次有效结果' }];
+  const glossaryPrompt = buildReaderAnalysisPrompt({ ...request, glossary });
+  assert.match(glossaryPrompt, /用户术语表/);
+  assert.match(glossaryPrompt, /不得为它们生成 mapping 或 explanation/);
+  assert.match(glossaryPrompt, /"term":"幂等键"/);
+  assert.match(glossaryPrompt, /同一意图只产生一次有效结果/);
+
+  const plainPrompt = buildReaderAnalysisPrompt(request);
+  assert.doesNotMatch(plainPrompt, /用户术语表/);
 });
 
 test('injects user background, prompt preset, and explained terms with a guard rail', () => {
@@ -273,5 +311,9 @@ test('creates an explicitly labelled local demo with the canonical shape', () =>
   assert.equal(result.isDemo, true);
   assert.ok(result.anchors.length > 0);
   assert.ok(result.explanations.length > 0);
-  assert.deepEqual(result.explanations[0].mappings, []);
+  // Demo 现在自带替换映射以驱动"精准替代"模式，source 必须是逐字可定位的原文
+  const mapping = result.explanations[0].mappings[0];
+  assert.ok(mapping);
+  assert.equal(request.content.slice(mapping.start, mapping.end), mapping.source);
+  assert.ok(mapping.target.includes('本地示例替换'));
 });
