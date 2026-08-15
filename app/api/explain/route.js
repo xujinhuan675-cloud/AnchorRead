@@ -11,7 +11,8 @@ import {
 
 /**
  * POST /api/explain
- * 入参：{ config, article|articleContext|context, selectedText }
+ * 入参：{ config, article|articleContext|context, selectedText, glossary }
+ * glossary 为用户自维护术语表，作为背景交代给 AI（已有定义的术语不再从零解释）
  * 出参：{ plainExplanation, terms: [{ source, explanation }], context }
  */
 export async function POST(request) {
@@ -23,7 +24,7 @@ export async function POST(request) {
     const messages = [
       {
         role: 'user',
-        content: buildExplainPrompt(source.article, source.selectedText),
+        content: buildExplainPrompt(source.article, source.selectedText, source.glossary),
       },
     ];
 
