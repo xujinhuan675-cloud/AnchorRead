@@ -4,12 +4,14 @@ import {
   applyReaderLabReplacements,
   calculateReadingProgress,
   collectKnownTerms,
+  combineKnownMasteredTerms,
   createReaderLabAnalysisRecords,
   createReaderLabExplanation,
   createReaderLabSeedDocuments,
   createReaderLabTerms,
   createReviewState,
   deriveReaderDraft,
+  glossaryToKnownTerms,
   listExplainedTerms,
   listMasteredTerms,
   mergeKnownTerm,
@@ -323,4 +325,60 @@ test('listExplainedTerms returns learning terms and excludes mastered', () => {
   assert.equal(explained.find((entry) => entry.term === '幂等键'), undefined);
   // 排除当前文档：doc-a 的 RAG 被排除，仅剩 Faithfulness
   assert.equal(listExplainedTerms(terms, { excludeDocumentId: 'doc-a' }).length, 1);
+});
+
+test('glossaryToKnownTerms normalizes entries and ignores malformed input', () => {
+  const entries = [
+    { term: '  幂等键  ', aliases: ['Idempotency Key', '幂等键', ''], explanation: '同一意图只产生一次有效结果' },
+    { term: 'RAG', aliases: null },
+    null,
+    { aliases: ['无主术语'] },
+    { term: '幂等键', aliases: [] },
+  ];
+
+  const known = glossaryToKnownTerms(entries);
+  // 主术语 trim、重复去重；别名小写去重并剔除与主术语重复项
+  assert.deepEqual(known, [
+    { term: '幂等键', aliases: ['idempotency key'] },
+    { term: 'RAG', aliases: [] },
+  ]);
+  assert.deepEqual(glossaryToKnownTerms(undefined), []);
+});
+
+test('combineKnownMasteredTerms merges glossary into mastered terms and dedupes', () => {
+  const mastered = [{ term: '幂等键', aliases: ['idempotency key'] }];
+  const glossary = [
+    { term: '幂等键', aliases: ['幂等性键'], explanation: '同一意图只产生一次有效结果' },
+    { term: 'RAG', aliases: ['检索增强'], explanation: '检索增强生成' },
+  ];
+
+  const combined = combineKnownMasteredTerms(mastered, glossary);
+  // 已掌握优先保留；术语表新增条目追加，均视为已懂
+  assert.equal(combined.length, 2);
+  assert.deepEqual(combined[0], { term: '幂等键', aliases: ['idempotency key'] });
+  assert.deepEqual(combined[1], { term: 'RAG', aliases: ['检索增强'] });
+  // 空输入安全
+  assert.deepEqual(combineKnownMasteredTerms([], []), []);
+});
+
+test('createReaderLabAnalysisRecords skips glossary-covered terms like mastered ones', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const glossary = [{ term: '幂等键', aliases: ['idempotency key'], explanation: '同一意图只产生一次有效结果' }];
+  const combined = combineKnownMasteredTerms([], glossary);
+
+  const records = createReaderLabAnalysisRecords({
+    document,
+    now: 200,
+    knownMasteredTerms: combined,
+    analysis: {
+      version: 1,
+      summary: '示例摘要。',
+      anchors: [
+        { source: document.content.slice(0, 6), role: 'core', importance: 5, reason: '关键约束' },
+      ],
+      explanations: [],
+    },
+  });
+
+  assert.ok(records.length > 0);
 });
