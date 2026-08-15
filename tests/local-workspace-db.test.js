@@ -10,8 +10,8 @@ import {
   normalizeWorkspaceRecord,
 } from '../lib/local-workspace-db.js';
 
-test('declares the complete v1 local workspace schema', () => {
-  assert.equal(WORKSPACE_DB_VERSION, 1);
+test('declares the complete v2 local workspace schema', () => {
+  assert.equal(WORKSPACE_DB_VERSION, 2);
   assert.deepEqual(WORKSPACE_STORE_NAMES, [
     'documents',
     'readSessions',
@@ -19,6 +19,7 @@ test('declares the complete v1 local workspace schema', () => {
     'explanations',
     'terms',
     'reviewStates',
+    'customActions',
   ]);
   assert.equal(WORKSPACE_SCHEMA.readSessions.indexes.documentId.unique, true);
   assert.equal(WORKSPACE_SCHEMA.drawings.indexes.engine.keyPath, 'engine');

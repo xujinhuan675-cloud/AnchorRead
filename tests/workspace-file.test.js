@@ -15,7 +15,7 @@ test('workspace files contain local content but no application configuration', (
   }, { exportedAt: 1 });
 
   assert.equal(payload.type, 'anchor-read-workspace');
-  assert.equal(payload.version, 1);
+  assert.equal(payload.version, 2);
   assert.equal(payload.data.documents.length, 1);
   assert.equal('configs' in payload.data, false);
   assert.doesNotMatch(JSON.stringify(payload), /secret/);
@@ -57,10 +57,27 @@ test('older workspace files default document-scoped extras to empty arrays', () 
   assert.deepEqual(payload.data.diagramHistory, []);
 });
 
+test('migrates v1 workspace files to the current version', () => {
+  const payload = parseWorkspaceFile({
+    type: 'anchor-read-workspace',
+    version: 1,
+    data: { documents: [{ id: 'doc-1' }], terms: [{ id: 'term-1' }] },
+  });
+
+  assert.equal(payload.version, 2);
+  assert.deepEqual(payload.data.customActions, []);
+  assert.equal(payload.data.documents.length, 1);
+  assert.equal(payload.data.terms.length, 1);
+});
+
 test('rejects invalid or unsupported workspace files', () => {
   assert.throws(() => parseWorkspaceFile('{broken'), /有效的 JSON/);
   assert.throws(
     () => parseWorkspaceFile({ type: 'anchor-read-workspace', version: 99, data: {} }),
+    /高于当前支持/
+  );
+  assert.throws(
+    () => parseWorkspaceFile({ type: 'anchor-read-workspace', version: '1', data: {} }),
     /不支持/
   );
 });
