@@ -9,8 +9,10 @@ import { TableKit } from '@tiptap/extension-table';
 import { UniqueID } from '@tiptap/extension-unique-id';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
-import { BookOpenCheck, LoaderCircle, PenTool, ScanText, Sparkles, WandSparkles } from 'lucide-react';
+import { BookOpenCheck, LoaderCircle, PenTool, ScanText, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react';
 import { markdownToSafeHtml } from '@/lib/document-content';
+import { precisionReplacementStats } from '@/lib/reader-lab';
+import { readerRoleLayer } from '@/lib/reader-analysis';
 import { createPrecisionReplacementMarkdown } from './DerivedDraft';
 import InlineExplanation from './InlineExplanation';
 import InlineDiagramCard from './InlineDiagramCard';
@@ -93,38 +95,34 @@ function resolveRecordRange(record, doc) {
   return null;
 }
 
-function resolveMappingRange(mapping, doc) {
-  return resolveRecordRange({ source: mapping?.source }, doc);
-}
-
-function createReaderLabDecorations(editor, records, mode, mastery, callbacks, drawings, aid = {}) {
+function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}) {
   const { doc } = editor.state;
-  if (mode === 'interpretation') return DecorationSet.empty;
+  // 精准替代视图的文本已被映射替换，原文坐标不再可用，不叠加任何装饰
+  if (aid.precision) return DecorationSet.empty;
   const showExplanations = aid.explanations !== false;
   const showDiagrams = aid.diagrams !== false;
 
   const decorations = [];
   for (const record of records) {
-    const mappings = record.batchAnalysis && Array.isArray(record.explanation?.mappings)
-      ? record.explanation.mappings
-      : [];
+    // 重点高亮按层级可见性控制（重点入口内的多选开关），不再跟随解读开关；
+    // 高亮/框线是包裹原文的内联装饰，隐藏时直接不叠加（不能用 display:none，否则原文会一起隐藏）
+    const isWord = record.level === 'word';
+    const layer = isWord ? 'word' : readerRoleLayer(record.role);
+    if (layers[layer] === false) continue;
     const range = resolveRecordRange(record, doc);
-    if (mode === 'original') {
-      for (const mapping of mappings) {
-        const mappingRange = resolveMappingRange(mapping, doc);
-        if (!mappingRange) continue;
-        decorations.push(Decoration.inline(mappingRange.from, mappingRange.to, {
-          class: 'reader-lab-inline-source-mapping',
-          'data-reader-explanation-id': record.id,
-          role: 'button',
-          tabindex: '0',
-          title: '查看这处精准替代',
-        }));
-      }
-    } else if (range && showExplanations) {
-      // 高亮是包裹原文的内联装饰，关闭时直接不叠加；不能用 display:none，否则原文会一起隐藏
+    if (range && isWord) {
+      // 词语层标记（句子服务中心/金句/成语）用红框，由重点层级开关控制
       decorations.push(Decoration.inline(range.from, range.to, {
-        class: `reader-lab-highlight reader-lab-highlight-${record.role || 'explanation'}`,
+        class: `reader-lab-word-mark reader-lab-word-mark-${record.markKind || 'center'}`,
+        'data-reader-explanation-id': record.id,
+        role: 'button',
+        tabindex: '0',
+        title: record.reason || '词语标记',
+      }));
+    } else if (range) {
+      // importance>=4 叠加背景（划重点），其余仅下划线（划线）
+      decorations.push(Decoration.inline(range.from, range.to, {
+        class: `reader-lab-highlight reader-lab-highlight-${record.role || 'explanation'}${Number(record.importance) >= 4 ? ' reader-lab-highlight-fill' : ''}`,
         'data-reader-explanation-id': record.id,
         role: 'button',
         tabindex: '0',
@@ -132,9 +130,10 @@ function createReaderLabDecorations(editor, records, mode, mastery, callbacks, d
       }));
     }
 
-    // 行间解读卡在所有模式下都保持挂载（原文模式用 CSS 隐藏）：若在原模式移除 widget，
-    // ProseMirror 会销毁其 React 根，切回对照时重建会在 React 生命周期内 flushSync 报警
-    if (!range) continue;
+    // 行间解读卡在非精准替代形态下保持挂载（隐藏时用 CSS），若直接移除 widget，
+    // ProseMirror 会销毁其 React 根，重新打开时重建会在 React 生命周期内 flushSync 报警；
+    // 全文重点类记录没有解读内容，只保留高亮，不挂卡片
+    if (!range || !record.explanation) continue;
     const resolvedEnd = doc.resolve(range.to);
     const end = resolvedEnd.depth > 0 ? resolvedEnd.after(1) : range.to;
     // ReactWidgetRenderer 返回的是 Tiptap 内部的 WidgetDecoration，
@@ -162,7 +161,7 @@ function createReaderLabDecorations(editor, records, mode, mastery, callbacks, d
   }
 
   // 带锚点的图表在内联卡片形式插入对应原文下方，与行间解读保持一致；
-  // 图表卡同样在所有模式下保持挂载（原文模式用 CSS 隐藏），避免销毁重建触发 flushSync
+  // 图表卡同样保持挂载（隐藏时用 CSS），避免销毁重建触发 flushSync
   for (const drawing of drawings) {
       if (!drawing.anchor?.source) continue;
       const range = resolveRecordRange({ source: drawing.anchor.source }, doc);
@@ -199,8 +198,8 @@ function createDecorationsPlugin(editor, getSource) {
     key: READER_LAB_DECORATIONS_KEY,
     props: {
       decorations() {
-        const { records, mode, mastery, callbacks, drawings, aid } = getSource();
-        return createReaderLabDecorations(editor, records, mode, mastery, callbacks, drawings, aid);
+        const { records, mastery, callbacks, drawings, aid, layers } = getSource();
+        return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers);
       },
       handleClick(_view, _position, event) {
         const marker = event.target?.closest?.('[data-reader-explanation-id]');
@@ -222,7 +221,6 @@ function createDecorationsPlugin(editor, getSource) {
 
 export default function ReaderSurface({
   document,
-  mode,
   explanations,
   mastery,
   busyAction,
@@ -235,19 +233,31 @@ export default function ReaderSurface({
   drawings = [],
   customActions = [],
   aidVisibility,
+  layerVisibility,
   onMaster,
   onDelete,
   onFocus,
   onProgress,
   initialScrollTop = 0,
   focusRange,
+  onAnalyzeDocument,
+  analysisBusy,
 }) {
+  const precisionEnabled = Boolean(aidVisibility?.precision);
   const sourceMarkdown = useMemo(
-    () => mode === 'interpretation'
+    () => precisionEnabled
       ? createPrecisionReplacementMarkdown(document, explanations)
       : document.content,
-    [document, explanations, mode]
+    [document, explanations, precisionEnabled]
   );
+  // 精准替代开启但无可用映射时不再静默显示原文，给出明确提示并引导重新分析
+  const precisionNotice = useMemo(() => {
+    if (!precisionEnabled) return '';
+    const stats = precisionReplacementStats(explanations);
+    if (stats.batchRecords === 0) return '当前文档还没有全文分析记录，精准替代暂显示原文。';
+    if (stats.mappingCount === 0) return '当前分析记录不含可替换映射，精准替代暂显示原文。';
+    return '';
+  }, [explanations, precisionEnabled]);
   const safeHtml = useMemo(() => markdownToSafeHtml(sourceMarkdown), [sourceMarkdown]);
   const editor = useEditor({
     extensions: [
@@ -297,11 +307,11 @@ export default function ReaderSurface({
   useEffect(() => {
     decorationsSourceRef.current = {
       records: explanations,
-      mode,
       mastery,
       callbacks: { onMaster, onDelete, onFocus, onOpenDiagram, document, onCreateDrawing, onPersistDrawing, onNotice },
       drawings,
       aid: aidVisibility,
+      layers: layerVisibility,
     };
   });
 
@@ -327,7 +337,7 @@ export default function ReaderSurface({
       editor.view.dispatch(editor.state.tr.setMeta('readerLabDecorationsRefresh', true));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [editor, explanations, mastery, mode, drawings, document, aidVisibility, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice]);
+  }, [editor, explanations, mastery, precisionEnabled, drawings, document, aidVisibility, layerVisibility, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed || !focusRange) return;
@@ -366,9 +376,10 @@ export default function ReaderSurface({
     if (node) node.scrollTop = initialScrollTop;
   }, [initialScrollTop]);
 
-  // 原文模式不展示解读/图表内联卡，但保持挂载（用 CSS 隐藏），避免销毁重建触发 flushSync
-  const hideExplanations = aidVisibility?.explanations === false || mode === 'original';
-  const hideDiagrams = aidVisibility?.diagrams === false || mode === 'original';
+  // 解读/图表关闭时不展示对应内联卡，但保持挂载（用 CSS 隐藏），避免销毁重建触发 flushSync；
+  // 句子层隐藏时间行解读卡一并隐藏（卡片只挂在句子层记录上）
+  const hideExplanations = aidVisibility?.explanations === false || layerVisibility?.sentence === false;
+  const hideDiagrams = aidVisibility?.diagrams === false;
   const enabledCustomActions = useMemo(
     () => customActions.filter((action) => action.enabled !== false),
     [customActions]
@@ -441,9 +452,27 @@ export default function ReaderSurface({
       )}
 
       <div className="mx-auto w-full max-w-[780px] px-5 pb-24 pt-8 sm:px-8 lg:px-12 lg:pt-12">
+        {precisionNotice && (
+          <div role="status" className="mb-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <TriangleAlert size={14} className="shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1">{precisionNotice}</span>
+            {onAnalyzeDocument && (
+              <button
+                type="button"
+                onClick={onAnalyzeDocument}
+                disabled={Boolean(analysisBusy)}
+                className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 font-medium text-amber-800 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
+              >
+                {analysisBusy ? '分析中…' : '分析当前文档'}
+              </button>
+            )}
+          </div>
+        )}
         <div className="mb-7 flex items-center gap-2 text-xs text-gray-400">
           <BookOpenCheck size={15} aria-hidden="true" />
-          <span>{mode === 'original' ? '事实源视图' : '原文与派生解读对照'}</span>
+          <span>{precisionEnabled
+            ? '精准替代视图'
+            : ['原文', !hideExplanations && '解读', !hideDiagrams && '图表'].filter(Boolean).join(' · ')}</span>
         </div>
         <EditorContent editor={editor} />
       </div>

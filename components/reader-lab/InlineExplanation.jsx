@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, GitCompareArrows, Trash2 } from 'lucide-react';
+import { Check, Trash2 } from 'lucide-react';
 
 const ROLE_LABELS = Object.freeze({
   core: '核心观点',
@@ -12,12 +12,11 @@ const ROLE_LABELS = Object.freeze({
 export default function InlineExplanation({ record, mastered, onMaster, onDelete }) {
   const explanation = record.explanation || {};
   const display = explanation.display || explanation.plainExplanation;
-  const mappings = Array.isArray(explanation.mappings) ? explanation.mappings : [];
 
   return (
     <aside
       id={`reader-note-${record.id}`}
-      className="reader-lab-inline-note my-5 border-l-2 border-teal-600 bg-teal-50/70 px-4 py-3"
+      className="group reader-lab-inline-note my-5 border-l-2 border-teal-600 bg-teal-50/70 px-4 py-3"
       aria-label={`关于“${record.selectedText}”的行间解读`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -36,7 +35,8 @@ export default function InlineExplanation({ record, mastered, onMaster, onDelete
             )}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        {/* 操作按钮悬浮时才显示，降低阅读流中的视觉干扰；键盘聚焦时同样可见 */}
+        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
           <button
             type="button"
             onClick={() => onMaster(record)}
@@ -64,25 +64,6 @@ export default function InlineExplanation({ record, mastered, onMaster, onDelete
         <p className="mt-2 text-xs leading-5 text-gray-500">
           {explanation.context}
         </p>
-      )}
-      {mappings.length > 0 && (
-        <div className="mt-3 border-t border-teal-100 pt-2.5">
-          <p className="flex items-center gap-1.5 text-[10px] font-semibold text-teal-800">
-            <GitCompareArrows size={12} aria-hidden="true" />
-            原文映射
-          </p>
-          <dl className="mt-2 space-y-2">
-            {mappings.map((mapping, index) => (
-              <div key={`${mapping.source}-${index}`} className="grid gap-0.5 text-xs sm:grid-cols-[minmax(80px,0.7fr)_1fr] sm:gap-3">
-                <dt className="break-words font-medium text-gray-700">{mapping.source}</dt>
-                <dd className="break-words text-gray-600">
-                  {mapping.target}
-                  {mapping.note ? <span className="ml-1 text-gray-400">· {mapping.note}</span> : null}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
       )}
     </aside>
   );

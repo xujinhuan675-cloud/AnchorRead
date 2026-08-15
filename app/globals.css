@@ -98,7 +98,13 @@ body {
   padding-left: 0.2em;
 }
 
-.reader-lab-prosemirror blockquote,
+.reader-lab-prosemirror blockquote {
+  /* 原文引用不加竖线与背景，避免与行间解读卡的左侧竖线混淆 */
+  margin: 1.5em 0;
+  color: #3f3f46;
+  padding: 0.2em 0;
+}
+
 .reader-lab-derived-source blockquote {
   margin: 1.5em 0;
   border-left: 3px solid #0f766e;
@@ -170,39 +176,52 @@ body {
 }
 
 .reader-lab-highlight {
+  /* 层级化重点：默认仅下划线（划线形态），importance>=4 叠加 .reader-lab-highlight-fill 背景（划重点） */
   border-bottom: 2px solid #0d9488;
-  background: #ccfbf1;
+  background: transparent;
   color: inherit;
   cursor: pointer;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 
+/* 角色配色：文章层=粉，段落层=黄，论据=蓝，对策=紫，案例=绿，概念=青，结论=橙，背景=灰 */
+.reader-lab-highlight-core { border-bottom-color: #db2777; }
+.reader-lab-highlight-core.reader-lab-highlight-fill { background: #fce7f3; }
+.reader-lab-highlight-subthesis { border-bottom-color: #ca8a04; }
+.reader-lab-highlight-subthesis.reader-lab-highlight-fill { background: #fef9c3; }
+.reader-lab-highlight-evidence { border-bottom-color: #2563eb; }
+.reader-lab-highlight-evidence.reader-lab-highlight-fill { background: #dbeafe; }
+.reader-lab-highlight-countermeasure { border-bottom-color: #7c3aed; }
+.reader-lab-highlight-countermeasure.reader-lab-highlight-fill { background: #ede9fe; }
+.reader-lab-highlight-case { border-bottom-color: #16a34a; }
+.reader-lab-highlight-case.reader-lab-highlight-fill { background: #dcfce7; }
+.reader-lab-highlight-concept { border-bottom-color: #0d9488; }
+.reader-lab-highlight-concept.reader-lab-highlight-fill { background: #ccfbf1; }
+.reader-lab-highlight-conclusion { border-bottom-color: #ea580c; }
+.reader-lab-highlight-conclusion.reader-lab-highlight-fill { background: #ffedd5; }
+.reader-lab-highlight-background { border-bottom-color: #a1a1aa; }
+.reader-lab-highlight-background.reader-lab-highlight-fill { background: #f4f4f5; }
+.reader-lab-highlight-explanation { border-bottom-color: #0d9488; }
+.reader-lab-highlight-explanation.reader-lab-highlight-fill { background: #ccfbf1; }
+
+/* 词语层标记：句子服务中心/金句/成语用红框，呼应纸质标注习惯 */
+.reader-lab-word-mark {
+  border: 1.5px solid #dc2626;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.reader-lab-word-mark-quote { background: #fef2f2; }
+.reader-lab-word-mark-idiom { border-style: dashed; }
+
 .reader-lab-highlight:focus-visible {
   border-radius: 2px;
   outline: 2px solid #0f766e;
   outline-offset: 2px;
-}
-
-.reader-lab-inline-source-mapping {
-  background: transparent;
-  color: inherit;
-  text-decoration: underline dotted #0f766e;
-  text-decoration-thickness: 1px;
-}
-
-.reader-lab-inline-source-mapping::before,
-.reader-lab-inline-source-mapping::after {
-  color: #0f766e;
-  font-weight: 650;
-}
-
-.reader-lab-inline-source-mapping::before {
-  content: '⌜';
-}
-
-.reader-lab-inline-source-mapping::after {
-  content: '⌝';
 }
 
 .reader-lab-widget {

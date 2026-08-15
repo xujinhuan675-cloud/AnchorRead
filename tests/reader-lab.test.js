@@ -15,6 +15,8 @@ import {
   listExplainedTerms,
   listMasteredTerms,
   mergeKnownTerm,
+  migrateBatchAnalysisMappings,
+  precisionReplacementStats,
   recordsForDocument,
   splitSourceIntoBlocks,
 } from '../lib/reader-lab.js';
@@ -22,6 +24,7 @@ import {
   createMemoryWorkspaceAdapter,
   createWorkspaceRepository,
 } from '../lib/local-workspace-db.js';
+import { createDemoReaderAnalysis } from '../lib/reader-analysis.js';
 
 const response = {
   plainExplanation: '这是派生解释。',
@@ -90,7 +93,7 @@ test('local repository restores current session and mastered state', async () =>
     id: `reader-lab-session-${document.id}`,
     documentId: document.id,
     readerLab: true,
-    mode: 'comparison',
+    aids: { explanations: true, diagrams: false, precision: false },
     progress: 46,
     updatedAt: 310,
   });
@@ -104,7 +107,7 @@ test('local repository restores current session and mastered state', async () =>
   const mastery = await restoredRepository.reviewStates.get('reader-lab-review-persisted-explanation');
 
   assert.equal(sessions[0].documentId, document.id);
-  assert.equal(sessions[0].mode, 'comparison');
+  assert.deepEqual(sessions[0].aids, { explanations: true, diagrams: false, precision: false });
   assert.equal(mastery.mastered, true);
 });
 
@@ -220,6 +223,77 @@ test('precision replacements preserve all unmapped whitespace and source charact
   );
 });
 
+test('precision replacements keep markdown structure markers intact', () => {
+  const source = '# 支付 API：幂等请求\n\n> 核心约束：同一意图只产生一笔结果。\n\n| 字段 | 必填 |\n| --- | --- |\n| order_id | 是 |\n\n1. 客户端通过 POST 创建支付。';
+
+  // 映射 source 吞入标题标记：保留 # 前缀，只替换内容，且替换文本的重复标记被剥离
+  assert.equal(
+    applyReaderLabReplacements(source, [{ source: '# 支付 API', target: '# 支付接口（本地示例替换）' }], 'target'),
+    source.replace('# 支付 API', '# ⌜支付接口（本地示例替换）⌝')
+  );
+  // 引用标记同理保留
+  assert.equal(
+    applyReaderLabReplacements(source, [{ source: '> 核心约束', target: '核心规则（本地示例替换）' }], 'target'),
+    source.replace('> 核心约束', '> ⌜核心规则（本地示例替换）⌝')
+  );
+  // 只覆盖表格行首管道的映射直接跳过，表格结构不被破坏
+  assert.equal(
+    applyReaderLabReplacements(source, [{ source: '|', target: '|（本地示例替换）' }], 'target'),
+    source
+  );
+  // 表格单元格内替换不越过单元格边界，且替换文本中的管道被转义
+  assert.equal(
+    applyReaderLabReplacements(source, [{ source: 'order_id', target: '订单号|商户唯一' }], 'target'),
+    source.replace('order_id', '⌜订单号\\|商户唯一⌝')
+  );
+  // 跨行映射被收敛到起始行内，不破坏块结构
+  assert.equal(
+    applyReaderLabReplacements(source, [{ source: '幂等请求\n\n> 核心约束', target: '跨行替换' }], 'target'),
+    source.replace('幂等请求', '⌜跨行替换⌝')
+  );
+});
+
+test('legacy batch records without mappings are migrated for precision replacement', () => {
+  const legacy = {
+    id: 'reader-lab-analysis-doc-1',
+    documentId: 'doc-1',
+    source: '幂等键必须绑定业务意图。',
+    selectedText: '幂等键必须绑定业务意图。',
+    batchAnalysis: true,
+    explanation: { display: '重复提交不会创建第二个业务结果。', plainExplanation: '重复提交不会创建第二个业务结果。' },
+  };
+  const fresh = {
+    id: 'reader-lab-analysis-doc-2',
+    documentId: 'doc-1',
+    source: '重复请求',
+    batchAnalysis: true,
+    explanation: { display: '同一次业务重试。', mappings: [{ source: '重复请求', target: '同一次业务重试' }] },
+  };
+
+  const { records, migrated } = migrateBatchAnalysisMappings([legacy, fresh], { now: 999 });
+
+  assert.equal(migrated.length, 1);
+  assert.equal(migrated[0].id, legacy.id);
+  assert.deepEqual(records[0].explanation.mappings, [{
+    source: '幂等键必须绑定业务意图。',
+    target: '重复提交不会创建第二个业务结果。',
+    note: '旧版分析记录迁移生成的映射',
+  }]);
+  assert.equal(records[0].mappingsMigratedAt, 999);
+  // 已带映射的记录原样保留
+  assert.equal(records[1], fresh);
+  assert.equal(migrateBatchAnalysisMappings([records[0]]).migrated.length, 0);
+});
+
+test('precision replacement stats expose missing mappings for the reader notice', () => {
+  assert.deepEqual(precisionReplacementStats([]), { batchRecords: 0, mappingCount: 0 });
+  assert.deepEqual(precisionReplacementStats([
+    { batchAnalysis: true, explanation: {} },
+    { batchAnalysis: true, explanation: { mappings: [{ source: 'a', target: 'b' }] } },
+    { explanation: { mappings: [{ source: 'c', target: 'd' }] } },
+  ]), { batchRecords: 2, mappingCount: 1 });
+});
+
 test('createReaderLabTerms normalizes aliases and defaults status to learning', () => {
   const [document] = createReaderLabSeedDocuments({ now: 100 });
   const terms = createReaderLabTerms({
@@ -279,6 +353,37 @@ test('createReaderLabAnalysisRecords writes aliases and skips mastered terms', (
   assert.deepEqual(serverTerm.aliases, []);
   assert.equal(serverTerm.status, 'learning');
   assert.ok(serverTerm.sourceFingerprint);
+});
+
+test('createReaderLabAnalysisRecords highlights kind keeps highlight records without inline aids', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const anchorText = 'The server uses an idempotency key.';
+  const analysis = {
+    version: 1,
+    title: document.title,
+    summary: '示例摘要。',
+    anchors: [
+      { source: anchorText, role: 'core', importance: 5, reason: '核心约束', start: document.content.indexOf(anchorText), end: document.content.indexOf(anchorText) + anchorText.length },
+    ],
+    explanations: [
+      {
+        blockId: 'reader-analysis-block-1',
+        source: '未命中锚点的整块内容。',
+        mode: 'plain',
+        display: '整块背景解读。',
+        mappings: [{ source: 'block', target: '块（替换）' }],
+      },
+    ],
+  };
+
+  const records = createReaderLabAnalysisRecords({ document, analysis, now: 200, kind: 'highlights' });
+
+  // 全文重点只保留锚点高亮：不生成整块背景解读，也不携带行间解读与派生术语
+  assert.equal(records.length, 1);
+  assert.equal(records[0].batchKind, 'highlights');
+  assert.equal(records[0].batchAnalysis, true);
+  assert.equal(records[0].explanation, null);
+  assert.deepEqual(records[0].terms, []);
 });
 
 test('collectKnownTerms prefers mastered and accumulates aliases; listMasteredTerms filters mastered', () => {
@@ -381,4 +486,32 @@ test('createReaderLabAnalysisRecords skips glossary-covered terms like mastered 
   });
 
   assert.ok(records.length > 0);
+});
+
+test('analysis records carry hierarchical structure: word marks and servesTo resolve to record ids', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
+  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: true, now: 200 });
+
+  const core = records.find((record) => record.role === 'core');
+  const evidence = records.find((record) => record.role === 'evidence');
+  const word = records.find((record) => record.level === 'word');
+  assert.ok(core && evidence && word);
+  // 词语层标记：红框语义、无解读内容、服务于中心论点
+  assert.equal(word.markKind, 'center');
+  assert.equal(word.explanation, null);
+  assert.equal(word.servesTo, core.id);
+  // 句子层支撑关系映射为记录 id；中心论点本身无服务对象
+  assert.equal(evidence.servesTo, core.id);
+  assert.equal(core.servesTo, null);
+  assert.equal(core.level, 'sentence');
+});
+
+test('highlights batch also generates word-level marks without explanations', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
+  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: true, now: 200, kind: 'highlights' });
+
+  assert.ok(records.some((record) => record.level === 'word'));
+  assert.ok(records.every((record) => record.explanation === null));
 });

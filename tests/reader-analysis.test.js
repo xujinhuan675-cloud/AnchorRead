@@ -311,9 +311,60 @@ test('creates an explicitly labelled local demo with the canonical shape', () =>
   assert.equal(result.isDemo, true);
   assert.ok(result.anchors.length > 0);
   assert.ok(result.explanations.length > 0);
-  // Demo 现在自带替换映射以驱动"精准替代"模式，source 必须是逐字可定位的原文
+  // Demo 现在自带替换映射以驱动“精准替代”模式，source 必须是逐字可定位的原文
   const mapping = result.explanations[0].mappings[0];
   assert.ok(mapping);
   assert.equal(request.content.slice(mapping.start, mapping.end), mapping.source);
   assert.ok(mapping.target.includes('本地示例替换'));
+  // Demo 同样演示层级结构：中心论点 + 服务于它的论据/对策 + 词语层标记
+  const core = result.anchors.find((anchor) => anchor.role === 'core');
+  const word = result.anchors.find((anchor) => anchor.level === 'word');
+  assert.ok(core);
+  assert.ok(word);
+  assert.deepEqual(word.serves, { start: core.start, end: core.end });
+});
+
+test('normalizes hierarchical anchors: word-level marks and serves references', () => {
+  const result = normalizeReaderAnalysisResponse({
+    summary: '幂等是全文核心约束。',
+    anchors: [
+      { source: '请求必须携带幂等键。', role: 'core', importance: 5, reason: '中心论点' },
+      { source: '幂等键', role: 'evidence', importance: 4, reason: '支撑中心论点', serves: 0 },
+      { source: '幂等键', occurrence: 1, role: 'background', importance: 2, reason: '句子服务中心', level: 'word', markKind: 'center', serves: 0 },
+    ],
+    explanations: [{
+      blockId: 'reader-analysis-block-1',
+      mode: 'plain',
+      display: '幂等键标识同一次操作。',
+      mappings: [{ source: '幂等键', target: '识别同一次操作的键', note: '' }],
+    }],
+  }, request);
+
+  assert.equal(result.anchors.length, 3);
+  const core = result.anchors.find((anchor) => anchor.role === 'core');
+  const evidence = result.anchors.find((anchor) => anchor.role === 'evidence');
+  const word = result.anchors.find((anchor) => anchor.level === 'word');
+  assert.equal(core.serves, null);
+  assert.deepEqual(evidence.serves, { start: core.start, end: core.end });
+  assert.equal(word.markKind, 'center');
+  assert.deepEqual(word.serves, { start: core.start, end: core.end });
+});
+
+test('rejects invalid level, markKind and serves values', () => {
+  const base = {
+    summary: '摘要',
+    explanations: [{ blockId: 'reader-analysis-block-1', mode: 'plain', display: '解释', mappings: [] }],
+  };
+  assert.throws(
+    () => normalizeReaderAnalysisResponse({ ...base, anchors: [{ source: '幂等键', role: 'core', importance: 5, level: 'block' }] }, request),
+    /level 无效/
+  );
+  assert.throws(
+    () => normalizeReaderAnalysisResponse({ ...base, anchors: [{ source: '幂等键', role: 'core', importance: 5, level: 'word', markKind: 'keyword' }] }, request),
+    /markKind 无效/
+  );
+  assert.throws(
+    () => normalizeReaderAnalysisResponse({ ...base, anchors: [{ source: '幂等键', role: 'core', importance: 5, serves: -1 }] }, request),
+    /serves 必须是/
+  );
 });
