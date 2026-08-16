@@ -2,22 +2,29 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   applyReaderLabReplacements,
+  batchAnchorKey,
   calculateReadingProgress,
   collectKnownTerms,
   combineKnownMasteredTerms,
+  createDemoFlashcards,
   createReaderLabAnalysisRecords,
   createReaderLabExplanation,
   createReaderLabSeedDocuments,
   createReaderLabTerms,
   createReviewState,
+  dedupeBatchAnalysisRecords,
   deriveReaderDraft,
+  extractMarkdownOutline,
   glossaryToKnownTerms,
   listExplainedTerms,
   listMasteredTerms,
   mergeKnownTerm,
+  createDemoGlossary,
   migrateBatchAnalysisMappings,
   precisionReplacementStats,
   recordsForDocument,
+  repairDemoPlaceholderRecords,
+  repairDemoPlaceholderTerms,
   splitSourceIntoBlocks,
 } from '../lib/reader-lab.js';
 import {
@@ -25,6 +32,7 @@ import {
   createWorkspaceRepository,
 } from '../lib/local-workspace-db.js';
 import { createDemoReaderAnalysis } from '../lib/reader-analysis.js';
+import { createDemoDocumentDiagram } from '../lib/diagram-generation.js';
 
 const response = {
   plainExplanation: '这是派生解释。',
@@ -197,11 +205,11 @@ test('local replacements bracket only mapped source or target text', () => {
 
   assert.equal(
     applyReaderLabReplacements(source, mappings, 'source'),
-    '服务端必须使用⌜幂等键⌝识别同一次支付意图。'
+    '服务端必须使用『幂等键』识别同一次支付意图。'
   );
   assert.equal(
     applyReaderLabReplacements(source, mappings, 'target'),
-    '服务端必须使用⌜识别同一笔业务请求的唯一标记⌝识别同一次支付意图。'
+    '服务端必须使用『识别同一笔业务请求的唯一标记』识别同一次支付意图。'
   );
   assert.equal(
     applyReaderLabReplacements(source, [{ source: '不存在', target: '不会出现' }], 'target'),
@@ -219,7 +227,7 @@ test('precision replacements preserve all unmapped whitespace and source charact
 
   assert.equal(
     applyReaderLabReplacements(source, mappings, 'target'),
-    source.replace('idempotency key', '\u231cunique request identifier\u231d')
+    source.replace('idempotency key', '\u300eunique request identifier\u300f')
   );
 });
 
@@ -229,12 +237,12 @@ test('precision replacements keep markdown structure markers intact', () => {
   // 映射 source 吞入标题标记：保留 # 前缀，只替换内容，且替换文本的重复标记被剥离
   assert.equal(
     applyReaderLabReplacements(source, [{ source: '# 支付 API', target: '# 支付接口（本地示例替换）' }], 'target'),
-    source.replace('# 支付 API', '# ⌜支付接口（本地示例替换）⌝')
+    source.replace('# 支付 API', '# 『支付接口（本地示例替换）』')
   );
   // 引用标记同理保留
   assert.equal(
     applyReaderLabReplacements(source, [{ source: '> 核心约束', target: '核心规则（本地示例替换）' }], 'target'),
-    source.replace('> 核心约束', '> ⌜核心规则（本地示例替换）⌝')
+    source.replace('> 核心约束', '> 『核心规则（本地示例替换）』')
   );
   // 只覆盖表格行首管道的映射直接跳过，表格结构不被破坏
   assert.equal(
@@ -244,12 +252,12 @@ test('precision replacements keep markdown structure markers intact', () => {
   // 表格单元格内替换不越过单元格边界，且替换文本中的管道被转义
   assert.equal(
     applyReaderLabReplacements(source, [{ source: 'order_id', target: '订单号|商户唯一' }], 'target'),
-    source.replace('order_id', '⌜订单号\\|商户唯一⌝')
+    source.replace('order_id', '『订单号\\|商户唯一』')
   );
   // 跨行映射被收敛到起始行内，不破坏块结构
   assert.equal(
     applyReaderLabReplacements(source, [{ source: '幂等请求\n\n> 核心约束', target: '跨行替换' }], 'target'),
-    source.replace('幂等请求', '⌜跨行替换⌝')
+    source.replace('幂等请求', '『跨行替换』')
   );
 });
 
@@ -283,6 +291,87 @@ test('legacy batch records without mappings are migrated for precision replaceme
   // 已带映射的记录原样保留
   assert.equal(records[1], fresh);
   assert.equal(migrateBatchAnalysisMappings([records[0]]).migrated.length, 0);
+});
+
+test('legacy demo placeholder records are rewritten with glossary real values on restore', () => {
+  const legacy = {
+    id: 'reader-lab-analysis-legacy',
+    documentId: 'doc-1',
+    source: '检索增强生成系统的上线判断不能只看回答是否流畅。',
+    batchAnalysis: true,
+    explanation: {
+      display: '这是对“检索增强生成系统的上线判断不能只”的本地 Demo 阅读辅助。',
+      plainExplanation: '这是对“检索增强生成系统的上线判断不能只”的本地 Demo 阅读辅助。',
+      mappings: [{
+        source: '检索增强生成系统的上线判断不能只',
+        target: '检索增强生成系统的上线判断不能只（本地示例替换）',
+        start: 0,
+        end: 19,
+      }],
+    },
+  };
+  const noTerm = {
+    id: 'reader-lab-analysis-noterm',
+    documentId: 'doc-1',
+    source: '这里没有任何词典术语。',
+    batchAnalysis: true,
+    explanation: {
+      display: '这是本地 Demo 阅读辅助。',
+      mappings: [{ source: '这里没有任何词典', target: '这里没有任何词典（本地示例替换）' }],
+    },
+  };
+  const untouched = {
+    id: 'reader-lab-analysis-fresh',
+    documentId: 'doc-1',
+    batchAnalysis: true,
+    explanation: { display: '通俗解读：正常记录。', mappings: [{ source: 'a', target: 'b' }] },
+  };
+
+  const { records, repaired } = repairDemoPlaceholderRecords([legacy, noTerm, untouched], { now: 555 });
+
+  assert.equal(repaired.length, 2);
+  // 命中词典：占位映射换成真实大白话，占位解读改成通俗首句（不带“通俗解读：”题头）
+  assert.deepEqual(records[0].explanation.mappings, [{
+    source: '检索增强生成',
+    target: '先检索资料再生成回答',
+    note: 'RAG 的中文全称',
+  }]);
+  assert.equal(records[0].explanation.display, '检索增强生成系统的上线判断不能只看回答是否流畅。');
+  assert.equal(records[0].explanation.display.includes('本地 Demo 阅读辅助'), false);
+  assert.equal(records[0].demoRepairedAt, 555);
+  // 未命中词典：占位映射直接丢弃，不留空替换
+  assert.deepEqual(records[1].explanation.mappings, []);
+  // 正常记录原样保留
+  assert.equal(records[2], untouched);
+  // 修复幂等：二次执行不再产出变更
+  assert.equal(repairDemoPlaceholderRecords(records).repaired.length, 0);
+});
+
+test('legacy demo placeholder terms are repaired with glossary plain wording', () => {
+  const legacyTerm = { id: 'term-1', term: '检索增强生成', explanation: '检索增强生成（本地示例替换）', readerLab: true };
+  const freshTerm = { id: 'term-2', term: '幂等键', explanation: '同一次操作的去重凭证' };
+
+  const { terms, repaired } = repairDemoPlaceholderTerms([legacyTerm, freshTerm], { now: 666 });
+
+  assert.equal(repaired.length, 1);
+  assert.equal(terms[0].explanation, '先检索资料再生成回答');
+  assert.equal(terms[0].note, 'RAG 的中文全称');
+  assert.equal(terms[1], freshTerm);
+});
+
+test('createDemoGlossary seeds 5 built-in entries with real explanations', () => {
+  const entries = createDemoGlossary({ now: 200 });
+  assert.equal(entries.length, 5);
+  for (const entry of entries) {
+    assert.equal(typeof entry.id, 'string');
+    assert.ok(entry.term);
+    assert.ok(entry.explanation);
+    assert.equal(entry.createdAt >= 200, true);
+  }
+  const rag = entries.find((e) => e.term === 'RAG');
+  assert.ok(rag);
+  assert.ok(rag.aliases.includes('检索增强生成'));
+  assert.ok(rag.explanation.includes('先检索资料再生成回答'));
 });
 
 test('precision replacement stats expose missing mappings for the reader notice', () => {
@@ -514,4 +603,104 @@ test('highlights batch also generates word-level marks without explanations', ()
 
   assert.ok(records.some((record) => record.level === 'word'));
   assert.ok(records.every((record) => record.explanation === null));
+});
+
+test('local demo flashcards extract real role and term content from analysis records', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
+  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: true, now: 200 });
+
+  const cards = createDemoFlashcards(records, document.title);
+  assert.ok(cards.length > 0);
+  // 角色卡：问真实摘录属于哪一层，背面是可记忆的角色定义
+  const roleCard = cards.find((card) => card.front.includes('属于哪一层重点'));
+  assert.ok(roleCard);
+  assert.match(roleCard.back, /中心论点|分论点|论据|对策|案例|概念|结论|背景/);
+  // 术语卡：真实术语→大白话，不出现占位示例文案
+  const termCard = cards.find((card) => card.front.includes('用大白话怎么理解'));
+  assert.ok(termCard);
+  assert.ok(cards.every((card) => !card.front.includes('示例') && !card.back.includes('本地示例替换')));
+});
+
+test('local demo diagram builds a mermaid mindmap from real document structure', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const source = createDemoDocumentDiagram(document);
+
+  assert.ok(source.startsWith('mindmap\n'));
+  assert.match(source, /root\(\(.+\)\)/u);
+  // 章节标题与正文首句都是真实内容，且括号等会触发形状解析的字符已被清理
+  const heading = document.content.split('\n').find((line) => /^#{1,6}\s+/u.test(line)).replace(/^#{1,6}\s+/u, '');
+  assert.ok(source.includes(heading.replace(/[()（）[\]{}【】<>《》"'`|]/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 18)));
+  assert.doesNotMatch(source, /^\s{4,}\S*[()（）[\]{}]/gmu);
+});
+
+test('batch analysis records are deduped per anchor with inline explanations preferred', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
+  // 同一分析的两种批量共存时，同一锚点只保留携带解读的一条
+  const highlightRecords = createReaderLabAnalysisRecords({ document, analysis, now: 200, kind: 'highlights' });
+  const inlineRecords = createReaderLabAnalysisRecords({ document, analysis, now: 300, kind: 'inline' });
+  const manualRecord = createReaderLabExplanation({
+    id: 'manual-1',
+    document,
+    selection: { from: 1, to: 5, text: document.content.slice(2, 6) },
+    response,
+    now: 400,
+  });
+
+  const { records, removed } = dedupeBatchAnalysisRecords([...highlightRecords, ...inlineRecords, manualRecord]);
+
+  assert.ok(removed.length > 0);
+  assert.ok(removed.every((record) => record.batchAnalysis));
+  assert.ok(records.some((record) => record.id === manualRecord.id));
+  const keys = records.filter((record) => record.batchAnalysis).map((record) => `${record.documentId}|${batchAnchorKey(record)}`);
+  assert.equal(keys.length, new Set(keys).size);
+  // 保留下来的重复锚点记录优先是携带行间解读的解读批量
+  const kept = records.filter((record) => record.batchAnalysis);
+  for (const record of highlightRecords) {
+    const key = `${record.documentId}|${batchAnchorKey(record)}`;
+    if (!keys.includes(key)) continue;
+    const sameAnchor = kept.filter((item) => `${item.documentId}|${batchAnchorKey(item)}` === key);
+    assert.equal(sameAnchor.length, 1);
+    assert.equal(sameAnchor[0].batchKind, 'inline');
+  }
+});
+
+test('extractMarkdownOutline collects ATX headings by level and order', () => {
+  const markdown = [
+    '# 验收背景',
+    '正文段落。',
+    '## 检索质量 ##',
+    '### **忠实度**指标',
+    '#topic 井号后紧跟字母不是标题',
+    '',
+  ].join('\n');
+  assert.deepEqual(extractMarkdownOutline(markdown), [
+    { level: 1, text: '验收背景' },
+    { level: 2, text: '检索质量' },
+    { level: 3, text: '忠实度指标' },
+  ]);
+});
+
+test('extractMarkdownOutline skips headings inside fenced code blocks', () => {
+  const markdown = [
+    '# 真实标题',
+    '```bash',
+    '# 这是 shell 注释不是标题',
+    '~~~',
+    '```',
+    '## 代码块后的标题',
+  ].join('\n');
+  assert.deepEqual(extractMarkdownOutline(markdown), [
+    { level: 1, text: '真实标题' },
+    { level: 2, text: '代码块后的标题' },
+  ]);
+});
+
+test('extractMarkdownOutline returns empty list for blank or non-string input', () => {
+  assert.deepEqual(extractMarkdownOutline(''), []);
+  assert.deepEqual(extractMarkdownOutline('   \n  '), []);
+  assert.deepEqual(extractMarkdownOutline(null), []);
+  // 井号后没有空白不是 ATX 标题
+  assert.deepEqual(extractMarkdownOutline('#topic'), []);
 });

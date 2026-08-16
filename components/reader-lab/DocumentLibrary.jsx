@@ -1,16 +1,16 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import Link from 'next/link';
 import {
+  ArrowLeft,
   ClipboardPaste,
   Clock3,
-  Cloud,
-  Download,
   FileText,
   FileUp,
-  GraduationCap,
+  List,
   LoaderCircle,
-  NotebookText,
+  Plus,
   Search,
   Sparkles,
 } from 'lucide-react';
@@ -30,7 +30,6 @@ function formatUpdatedAt(value) {
 }
 
 function DocumentRow({ document, current, session, onSelect }) {
-  const progress = Math.min(100, Math.max(0, session?.progress || 0));
   return (
     <button
       type="button"
@@ -44,13 +43,9 @@ function DocumentRow({ document, current, session, onSelect }) {
           <p className="line-clamp-2 break-words text-sm font-medium leading-5 text-gray-900">
             {document.title}
           </p>
-          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-gray-500">
-            <span>{progress}%</span>
-            <span className="truncate">{formatUpdatedAt(session?.updatedAt || document.updatedAt)}</span>
-          </div>
-          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-gray-200">
-            <span className="block h-full rounded-full bg-teal-600" style={{ width: `${progress}%` }} />
-          </div>
+          <p className="mt-1.5 truncate text-[11px] text-gray-500">
+            {formatUpdatedAt(session?.updatedAt || document.updatedAt)}
+          </p>
         </div>
       </div>
     </button>
@@ -59,15 +54,15 @@ function DocumentRow({ document, current, session, onSelect }) {
 
 export default function DocumentLibrary({
   documents,
+  homeHref = null,
+  outlineOpen = false,
+  onToggleOutline = null,
+  outlineHidden = false,
   currentDocumentId,
   sessions,
   query,
   onQueryChange,
   onSelect,
-  onExport,
-  onExportAnki,
-  onExportObsidian,
-  onOpenSync,
   onImportFile,
   onCreateDocument,
   onAnalyzeDocument,
@@ -77,6 +72,7 @@ export default function DocumentLibrary({
   const fileInputRef = useRef(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [importError, setImportError] = useState('');
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
   const filtered = documents.filter((document) =>
@@ -109,51 +105,62 @@ export default function DocumentLibrary({
     <div className="flex h-full min-h-0 flex-col bg-[#f7f8f8]">
       <header className="shrink-0 border-b border-gray-200 px-4 pb-3 pt-4">
         <div className="flex items-center justify-between gap-3 pr-8 lg:pr-0">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-950">AnchorRead</p>
-            <p className="mt-0.5 text-[11px] text-gray-500">本地阅读工作区</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Tooltip content="工作区同步（本地 / WebDAV）">
+          {homeHref ? (
+            <Link
+              href={homeHref}
+              aria-label="回到首页"
+              title="回到首页"
+              className="flex min-w-0 items-center gap-1.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            >
+              <ArrowLeft size={14} className="shrink-0 text-gray-400" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-950">AnchorRead</p>
+                <p className="mt-0.5 text-[11px] text-gray-500">本地阅读工作区</p>
+              </div>
+            </Link>
+          ) : (
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-950">AnchorRead</p>
+              <p className="mt-0.5 text-[11px] text-gray-500">本地阅读工作区</p>
+            </div>
+          )}
+          {/* 添加文档收纳到头部行：导入与粘贴两项通过下拉展开 */}
+          <div className="relative shrink-0">
+            <Tooltip content="添加文档">
               <button
                 type="button"
-                onClick={onOpenSync}
-                aria-label="工作区同步"
+                onClick={() => setAddOpen((open) => !open)}
+                aria-label="添加文档"
                 className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
               >
-                <Cloud size={15} aria-hidden="true" />
+                {importBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
               </button>
             </Tooltip>
-            <Tooltip content="导出闪卡到 Anki">
-              <button
-                type="button"
-                onClick={onExportAnki}
-                aria-label="导出闪卡到 Anki"
-                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
-              >
-                <GraduationCap size={15} aria-hidden="true" />
-              </button>
-            </Tooltip>
-            <Tooltip content="导出解读与术语到 Obsidian">
-              <button
-                type="button"
-                onClick={onExportObsidian}
-                aria-label="导出解读与术语到 Obsidian 笔记"
-                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
-              >
-                <NotebookText size={15} aria-hidden="true" />
-              </button>
-            </Tooltip>
-            <Tooltip content="导出工作区备份（.anchorread）">
-              <button
-                type="button"
-                onClick={onExport}
-                aria-label="导出工作区备份"
-                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
-              >
-                <Download size={15} aria-hidden="true" />
-              </button>
-            </Tooltip>
+            {addOpen && !importBusy && (
+              <>
+                <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setAddOpen(false)} />
+                <div className="absolute right-0 top-9 z-50 w-36 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => { setAddOpen(false); fileInputRef.current?.click(); }}
+                    disabled={!onImportFile}
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <FileUp size={14} className="shrink-0" />
+                    导入文件
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddOpen(false); setPasteOpen(true); }}
+                    disabled={!onCreateDocument}
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ClipboardPaste size={14} className="shrink-0" />
+                    粘贴文本
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
         <input
@@ -164,48 +171,44 @@ export default function DocumentLibrary({
           className="sr-only"
           tabIndex={-1}
         />
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!onImportFile || importBusy}
-            className="flex h-9 items-center justify-center gap-2 rounded border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {importBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <FileUp size={15} aria-hidden="true" />}
-            {importBusy ? '导入中' : '导入文件'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setPasteOpen(true)}
-            disabled={!onCreateDocument}
-            className="flex h-9 items-center justify-center gap-2 rounded border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <ClipboardPaste size={15} aria-hidden="true" />
-            粘贴文本
-          </button>
-        </div>
         <button
           type="button"
           onClick={onAnalyzeDocument}
           disabled={!onAnalyzeDocument || analysisBusy || analysisDisabled || !currentDocumentId}
           className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded bg-teal-700 px-3 text-xs font-medium text-white outline-none hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
-          title="为当前文档生成重点和解读"
+          title="一键生成图解、重点、解读、白话与闪卡"
         >
           {analysisBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
-          {analysisBusy ? '正在分析全文' : '分析当前文档'}
+          {analysisBusy ? '生成中…' : '一键生成'}
         </button>
         {importError ? <p role="alert" className="mt-2 text-xs leading-5 text-red-700">{importError}</p> : null}
-        <label className="relative mt-4 block">
-          <span className="sr-only">搜索文档</span>
-          <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-gray-400" />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="搜索文档"
-            className="h-9 w-full rounded border border-gray-200 bg-white pl-9 pr-3 text-xs text-gray-900 outline-none placeholder:text-gray-400 focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
-          />
-        </label>
+        <div className="mt-4 flex items-center gap-2">
+          <label className="relative flex-1">
+            <span className="sr-only">搜索文档</span>
+            <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-gray-400" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="搜索文档"
+              className="h-9 w-full rounded border border-gray-200 bg-white pl-9 pr-3 text-xs text-gray-900 outline-none placeholder:text-gray-400 focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+            />
+          </label>
+          {/* 目录开关收进文档库：与搜索并列，顶栏不再留按钮；图解画布下不展示 */}
+          {onToggleOutline && !outlineHidden && (
+            <Tooltip content={outlineOpen ? '收起目录' : '打开目录'}>
+              <button
+                type="button"
+                onClick={onToggleOutline}
+                aria-pressed={outlineOpen}
+                aria-label={outlineOpen ? '收起目录' : '打开目录'}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${outlineOpen ? 'border-gray-300 bg-white text-gray-900 shadow-sm' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+              >
+                <List size={15} aria-hidden="true" />
+              </button>
+            </Tooltip>
+          )}
+        </div>
       </header>
 
       <ScrollArea className="min-h-0 flex-1">

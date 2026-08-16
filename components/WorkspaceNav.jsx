@@ -62,7 +62,7 @@ export default function WorkspaceNav({
 }) {
   const primaryItems = [
     { icon: BookOpen, label: '阅读', active: mode === 'article', onClick: () => onModeChange('article') },
-    { icon: PenTool, label: '图表', active: mode === 'diagram', onClick: () => onModeChange('diagram') },
+    { icon: PenTool, label: '图解', active: mode === 'diagram', onClick: () => onModeChange('diagram') },
     { icon: Settings2, label: '配置', onClick: onConfig },
   ];
 

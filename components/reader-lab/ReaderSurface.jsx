@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react';
 import { EditorContent, ReactWidgetRenderer, useEditor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -11,13 +11,17 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { BookOpenCheck, LoaderCircle, PenTool, ScanText, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react';
 import { markdownToSafeHtml } from '@/lib/document-content';
-import { precisionReplacementStats } from '@/lib/reader-lab';
+import { isDefaultToolbarBuiltinTemplate } from '@/lib/toolbar-builtins';
+import { extractMarkdownOutline, precisionReplacementStats } from '@/lib/reader-lab';
 import { readerRoleLayer } from '@/lib/reader-analysis';
 import { createPrecisionReplacementMarkdown } from './DerivedDraft';
 import InlineExplanation from './InlineExplanation';
 import InlineDiagramCard from './InlineDiagramCard';
 
 const READER_LAB_DECORATIONS_KEY = new PluginKey('anchorReaderLabDecorations');
+
+// 浮动工具栏内置动作图标：按内置动作 id 映射
+const BUILTIN_TOOLBAR_ICONS = Object.freeze({ explain: Sparkles, term: ScanText, diagram: PenTool });
 
 function validRange(record, doc) {
   const from = record?.range?.from;
@@ -44,6 +48,35 @@ function candidateVariants(value) {
   return [...new Set([normalized, withoutBlockMarkup, withoutInlineMarkup].filter(Boolean))];
 }
 
+// 白话视图把批量分析的映射替换为“『大白话』”，高亮/解读卡要叠加就必须能命中替换后的文本
+function precisionSubstitutions(records) {
+  const list = [];
+  const seen = new Set();
+  for (const record of records) {
+    if (!record?.batchAnalysis) continue;
+    for (const mapping of record?.explanation?.mappings || []) {
+      const source = normalizeCandidate(mapping?.source);
+      const target = typeof mapping?.target === 'string' ? mapping.target.trim() : '';
+      if (!source || !target || seen.has(source)) continue;
+      seen.add(source);
+      list.push({ source, target });
+    }
+  }
+  return list;
+}
+
+function markedVariants(candidate, substitutions) {
+  const variants = [];
+  for (const { source, target } of substitutions) {
+    if (!candidate.includes(source)) continue;
+    const marker = `『${target}』`;
+    // 替换器对每个映射只换首个命中处，同时给出全部替换的变体兜底多重命中场景
+    variants.push(candidate.replace(source, marker));
+    variants.push(candidate.split(source).join(marker));
+  }
+  return variants;
+}
+
 function textblockSegments(doc) {
   const groups = new Map();
   doc.descendants((node, pos, parent) => {
@@ -68,10 +101,39 @@ function mapTextOffset(segments, offset) {
   return last ? last.from + last.text.length : null;
 }
 
-function resolveRecordRange(record, doc) {
-  if (validRange(record, doc)) return record.range;
+// 白话替换片段以 『…』 包裹（CJK 角引号，与汉字等高不撑行）：高亮/框线只命中片段一部分时扩展到整个片段，
+// 避免角引号落在选区外造成“框了一半”的观感
+const PRECISION_MARKER_PATTERN = /『[^『』]*』/gu;
 
-  const candidates = candidateVariants(record?.source || record?.selectedText);
+function expandRangeToPrecisionMarkers(range, doc) {
+  let { from, to } = range;
+  for (const block of textblockSegments(doc)) {
+    const blockStart = block.segments[0]?.from;
+    if (!Number.isInteger(blockStart)) continue;
+    const blockEnd = blockStart + block.text.length;
+    if (blockEnd <= from || blockStart >= to) continue;
+    PRECISION_MARKER_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = PRECISION_MARKER_PATTERN.exec(block.text)) !== null) {
+      const markerFrom = blockStart + match.index;
+      const markerTo = markerFrom + match[0].length;
+      if (markerFrom < to && markerTo > from) {
+        from = Math.min(from, markerFrom);
+        to = Math.max(to, markerTo);
+      }
+    }
+  }
+  return { from, to };
+}
+
+function resolveRecordRange(record, doc, substitutions = []) {
+  if (substitutions.length === 0 && validRange(record, doc)) return record.range;
+
+  const baseCandidates = candidateVariants(record?.source || record?.selectedText);
+  // 白话视图里原文已被替换，候选文本需同时尝试带“『大白话』”标记的形态
+  const candidates = substitutions.length > 0
+    ? [...new Set([...baseCandidates, ...baseCandidates.flatMap((candidate) => markedVariants(candidate, substitutions))])]
+    : baseCandidates;
   if (candidates.length === 0) return null;
 
   for (const block of textblockSegments(doc)) {
@@ -97,20 +159,24 @@ function resolveRecordRange(record, doc) {
 
 function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}) {
   const { doc } = editor.state;
-  // 精准替代视图的文本已被映射替换，原文坐标不再可用，不叠加任何装饰
-  if (aid.precision) return DecorationSet.empty;
+  // 白话视图与原文视图叠加同一套装饰：原文坐标失效后改用文本匹配重锚定，
+  // 命中“『大白话』”替换片段时高亮直接包在替换文本上，行间解读卡照常挂载
+  const substitutions = aid.precision ? precisionSubstitutions(records) : [];
   const showExplanations = aid.explanations !== false;
   const showDiagrams = aid.diagrams !== false;
 
   const decorations = [];
   for (const record of records) {
     // 重点高亮按层级可见性控制（重点入口内的多选开关），不再跟随解读开关；
-    // 高亮/框线是包裹原文的内联装饰，隐藏时直接不叠加（不能用 display:none，否则原文会一起隐藏）
+    // 高亮/框线是包裹原文的内联装饰，隐藏时直接不叠加（不能用 display:none，否则原文会一起隐藏）；
+    // 重点层级只管标记层，行间解读卡属于独立的解读模式，只受解读开关控制（两模式分开）
     const isWord = record.level === 'word';
     const layer = isWord ? 'word' : readerRoleLayer(record.role);
-    if (layers[layer] === false) continue;
-    const range = resolveRecordRange(record, doc);
-    if (range && isWord) {
+    const layerHidden = layers[layer] === false;
+    let range = resolveRecordRange(record, doc, substitutions);
+    // 白话视图里命中的替换片段需整体框选，含两端的 『 』 角引号
+    if (range && substitutions.length > 0) range = expandRangeToPrecisionMarkers(range, doc);
+    if (!layerHidden && range && isWord) {
       // 词语层标记（句子服务中心/金句/成语）用红框，由重点层级开关控制
       decorations.push(Decoration.inline(range.from, range.to, {
         class: `reader-lab-word-mark reader-lab-word-mark-${record.markKind || 'center'}`,
@@ -119,7 +185,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
         tabindex: '0',
         title: record.reason || '词语标记',
       }));
-    } else if (range) {
+    } else if (!layerHidden && range) {
       // importance>=4 叠加背景（划重点），其余仅下划线（划线）
       decorations.push(Decoration.inline(range.from, range.to, {
         class: `reader-lab-highlight reader-lab-highlight-${record.role || 'explanation'}${Number(record.importance) >= 4 ? ' reader-lab-highlight-fill' : ''}`,
@@ -161,13 +227,19 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
   }
 
   // 带锚点的图表在内联卡片形式插入对应原文下方，与行间解读保持一致；
+  // 无锚点的全文图解挂在文档顶部，保证「图解」开关打开时一定有图可见；
   // 图表卡同样保持挂载（隐藏时用 CSS），避免销毁重建触发 flushSync
   for (const drawing of drawings) {
-      if (!drawing.anchor?.source) continue;
-      const range = resolveRecordRange({ source: drawing.anchor.source }, doc);
-      if (!range) continue;
-      const resolvedEnd = doc.resolve(range.to);
-      const end = resolvedEnd.depth > 0 ? resolvedEnd.after(1) : range.to;
+      let end = null;
+      if (drawing.anchor?.source) {
+        const range = resolveRecordRange({ source: drawing.anchor.source }, doc, substitutions);
+        if (!range) continue;
+        const resolvedEnd = doc.resolve(range.to);
+        end = resolvedEnd.depth > 0 ? resolvedEnd.after(1) : range.to;
+      } else {
+        // 全文图解（anchor 为空）置顶展示
+        end = 0;
+      }
       const diagramKey = `reader-lab-diagram-${drawing.id}`;
       const diagramWidget = ReactWidgetRenderer(InlineDiagramCard, {
         editor,
@@ -175,7 +247,8 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
         key: diagramKey,
         as: 'div',
         className: 'reader-lab-widget reader-lab-diagram-widget',
-        side: 1,
+        // 置顶的全文图解用负 side 保证排在首个节点之前；锚定卡沿用正 side 跟在原文段落后
+        side: end === 0 ? -1 : 1,
         ignoreSelection: true,
         // 图表内联渲染后需接管滚轮/拖拽等交互，避免事件冒泡到编辑器
         stopEvent: () => true,
@@ -221,6 +294,7 @@ function createDecorationsPlugin(editor, getSource) {
 
 export default function ReaderSurface({
   document,
+  outlineOpen = false,
   explanations,
   mastery,
   busyAction,
@@ -231,7 +305,7 @@ export default function ReaderSurface({
   onPersistDrawing,
   onNotice,
   drawings = [],
-  customActions = [],
+  toolbarActions = [],
   aidVisibility,
   layerVisibility,
   onMaster,
@@ -254,11 +328,13 @@ export default function ReaderSurface({
   const precisionNotice = useMemo(() => {
     if (!precisionEnabled) return '';
     const stats = precisionReplacementStats(explanations);
-    if (stats.batchRecords === 0) return '当前文档还没有全文分析记录，精准替代暂显示原文。';
-    if (stats.mappingCount === 0) return '当前分析记录不含可替换映射，精准替代暂显示原文。';
+    if (stats.batchRecords === 0) return '当前文档还没有全文分析记录，白话暂显示原文。';
+    if (stats.mappingCount === 0) return '当前分析记录不含可替换映射，白话暂显示原文。';
     return '';
   }, [explanations, precisionEnabled]);
   const safeHtml = useMemo(() => markdownToSafeHtml(sourceMarkdown), [sourceMarkdown]);
+  // 目录随当前渲染文本（白话模式下跟随替换后文本）提取，顺序与编辑器内 heading 节点一一对应
+  const outline = useMemo(() => extractMarkdownOutline(sourceMarkdown), [sourceMarkdown]);
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -376,23 +452,45 @@ export default function ReaderSurface({
     if (node) node.scrollTop = initialScrollTop;
   }, [initialScrollTop]);
 
+  // 目录点击定位：按顺序找到编辑器内第 index 个 heading，平滑滚动到标题上方
+  const scrollToOutlineIndex = useCallback((index) => {
+    if (!editor || editor.isDestroyed) return;
+    let seen = 0;
+    let targetPos = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (targetPos !== null) return false;
+      if (node.type.name === 'heading') {
+        if (seen === index) targetPos = pos;
+        seen += 1;
+      }
+      return undefined;
+    });
+    if (targetPos === null) return;
+    const scroller = editor.view.dom.closest('.reader-lab-scroll');
+    if (!scroller) return;
+    const coords = editor.view.coordsAtPos(targetPos + 1);
+    const top = coords.top - scroller.getBoundingClientRect().top + scroller.scrollTop - 16;
+    scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }, [editor]);
+
   // 解读/图表关闭时不展示对应内联卡，但保持挂载（用 CSS 隐藏），避免销毁重建触发 flushSync；
-  // 句子层隐藏时间行解读卡一并隐藏（卡片只挂在句子层记录上）
-  const hideExplanations = aidVisibility?.explanations === false || layerVisibility?.sentence === false;
+  // 解读卡只归解读模式管，重点层级开关（含句子层）不再连带隐藏解读卡——两种模式相互独立
+  const hideExplanations = aidVisibility?.explanations === false;
   const hideDiagrams = aidVisibility?.diagrams === false;
-  const enabledCustomActions = useMemo(
-    () => customActions.filter((action) => action.enabled !== false),
-    [customActions]
+  // 浮动工具栏按统一列表顺序渲染：内置与自定义动作都在其中，禁用后不上屏
+  const visibleToolbarActions = useMemo(
+    () => toolbarActions.filter((action) => action.enabled !== false),
+    [toolbarActions]
   );
 
   return (
+    <div key={document.id} className="relative h-full min-h-0">
     <div
-      key={document.id}
       ref={restoreScroll}
       onScroll={handleScroll}
       className={`reader-lab-scroll h-full min-h-0 overflow-y-auto bg-white${hideExplanations ? ' reader-lab-hide-explanations' : ''}${hideDiagrams ? ' reader-lab-hide-diagrams' : ''}`}
     >
-      {editor && (
+      {editor && visibleToolbarActions.length > 0 && (
         <BubbleMenu
           editor={editor}
           pluginKey="reader-lab-bubble-menu"
@@ -401,53 +499,44 @@ export default function ReaderSurface({
           options={{ placement: 'top', offset: 8 }}
           className="flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1 shadow-xl"
         >
-          <button
-            type="button"
-            onClick={() => runSelectionAction('explain')}
-            disabled={Boolean(busyAction)}
-            className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
-          >
-            {busyAction === 'explain' ? <LoaderCircle size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            解释这段
-          </button>
-          <span className="h-5 w-px bg-gray-200" aria-hidden="true" />
-          <button
-            type="button"
-            onClick={() => runSelectionAction('term')}
-            disabled={Boolean(busyAction)}
-            className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
-          >
-            <ScanText size={14} />
-            识别术语
-          </button>
-          <span className="h-5 w-px bg-gray-200" aria-hidden="true" />
-          <button
-            type="button"
-            onClick={runDiagramSelection}
-            className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400"
-            title="将图表锚定到当前选区，生成后插入对应原文下方"
-          >
-            <PenTool size={14} />
-            图表
-          </button>
-          {enabledCustomActions.length > 0 && (
-            <>
-              <span className="h-5 w-px bg-gray-200" aria-hidden="true" />
-              {enabledCustomActions.map((action) => (
+          {visibleToolbarActions.map((item, index) => {
+            const BuiltinIcon = BUILTIN_TOOLBAR_ICONS[item.id];
+            const busyKey = BuiltinIcon ? item.id : `custom:${item.id}`;
+            if (BuiltinIcon) {
+              // 图解模板被修改后改按模板执行，只有默认模板才走选区锚定链路
+              const isDiagram = item.id === 'diagram' && isDefaultToolbarBuiltinTemplate(item);
+              return (
+                <Fragment key={item.id}>
+                  {index > 0 && <span className="h-5 w-px bg-gray-200" aria-hidden="true" />}
+                  <button
+                    type="button"
+                    onClick={() => (isDiagram ? runDiagramSelection() : runSelectionAction(item.id))}
+                    disabled={Boolean(busyAction)}
+                    className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
+                    title={item.description}
+                  >
+                    {busyAction === busyKey ? <LoaderCircle size={14} className="animate-spin" /> : <BuiltinIcon size={14} />}
+                    {item.name}
+                  </button>
+                </Fragment>
+              );
+            }
+            return (
+              <Fragment key={item.id}>
+                {index > 0 && <span className="h-5 w-px bg-gray-200" aria-hidden="true" />}
                 <button
                   type="button"
-                  key={action.id}
-                  onClick={() => runSelectionAction(`custom:${action.id}`)}
+                  onClick={() => runSelectionAction(`custom:${item.id}`)}
                   disabled={Boolean(busyAction)}
                   className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
-                  title={action.description || action.name}
+                  title={item.description || item.name}
                 >
-                  {busyAction === `custom:${action.id}` ? <LoaderCircle size={14} className="animate-spin" /> : <WandSparkles size={14} />}
-                  {action.name}
+                  {busyAction === busyKey ? <LoaderCircle size={14} className="animate-spin" /> : <WandSparkles size={14} />}
+                  {item.name}
                 </button>
-              ))}
-            </>
-          )}
+              </Fragment>
+            );
+          })}
         </BubbleMenu>
       )}
 
@@ -463,7 +552,7 @@ export default function ReaderSurface({
                 disabled={Boolean(analysisBusy)}
                 className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 font-medium text-amber-800 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
               >
-                {analysisBusy ? '分析中…' : '分析当前文档'}
+                {analysisBusy ? '生成中…' : '一键生成'}
               </button>
             )}
           </div>
@@ -471,11 +560,35 @@ export default function ReaderSurface({
         <div className="mb-7 flex items-center gap-2 text-xs text-gray-400">
           <BookOpenCheck size={15} aria-hidden="true" />
           <span>{precisionEnabled
-            ? '精准替代视图'
-            : ['原文', !hideExplanations && '解读', !hideDiagrams && '图表'].filter(Boolean).join(' · ')}</span>
+            ? ['白话', !hideExplanations && '解读', !hideDiagrams && '图解'].filter(Boolean).join(' · ')
+            : ['原文', !hideExplanations && '解读', !hideDiagrams && '图解'].filter(Boolean).join(' · ')}</span>
         </div>
         <EditorContent editor={editor} />
       </div>
+    </div>
+
+    {/* 目录抽屉：覆盖在阅读区左侧，不挤占布局；开关在顶栏，这里不重复关闭按钮 */}
+    {outlineOpen && outline.length > 0 && (
+      <nav aria-label="文档目录" className="absolute inset-y-0 left-0 z-20 flex w-60 flex-col border-r border-gray-200 bg-white/95 shadow-lg backdrop-blur-sm">
+        <div className="flex shrink-0 items-center gap-2 border-b border-gray-200 px-3 py-2">
+          <span className="text-xs font-semibold text-gray-700">目录</span>
+          <span className="ml-auto text-[11px] text-gray-400">{outline.length} 个标题</span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+          {outline.map((item, index) => (
+            <button
+              key={`${item.level}-${index}`}
+              type="button"
+              onClick={() => scrollToOutlineIndex(index)}
+              style={{ paddingLeft: `${8 + (item.level - 1) * 12}px` }}
+              className={`w-full rounded pr-2 py-1.5 text-left text-xs leading-5 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 ${item.level <= 1 ? 'font-medium text-gray-900' : 'text-gray-600'}`}
+            >
+              {item.text}
+            </button>
+          ))}
+        </div>
+      </nav>
+    )}
     </div>
   );
 }

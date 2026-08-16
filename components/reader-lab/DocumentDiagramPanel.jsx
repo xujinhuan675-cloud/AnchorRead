@@ -24,7 +24,7 @@ export default function DocumentDiagramPanel({
       <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-3 py-2.5">
         <Sparkles size={15} className="text-teal-700" aria-hidden="true" />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">文档关系图</h2>
-        <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: '未命名图表', engine: 'excalidraw', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-50" title="新建图表" aria-label="新建图表"><Plus size={15} /></button>
+        <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: '未命名图解', engine: 'excalidraw', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-50" title="新建图解" aria-label="新建图解"><Plus size={15} /></button>
         <button type="button" onClick={onOpenHistory} className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-50" title="打开历史" aria-label="打开历史"><History size={15} /></button>
       </header>
       {anchor && (
@@ -38,11 +38,11 @@ export default function DocumentDiagramPanel({
         <Chat onSendMessage={generate} isGenerating={isGenerating} initialInput={activeDrawing?.prompt || ''} initialChartType={chartType} initialEngine={engine} onEngineChange={handleEngineChange} />
       </div>
       <footer className="flex shrink-0 items-center gap-2 border-t border-gray-200 bg-white px-3 py-2 text-[11px] text-gray-500">
-        <select value={activeDrawing?.id || ''} onChange={(event) => onSelectDrawing(event.target.value)} className="min-w-0 flex-1 truncate border-0 bg-transparent text-[11px] outline-none" aria-label="选择图表">
-          <option value="">未命名图表</option>
+        <select value={activeDrawing?.id || ''} onChange={(event) => onSelectDrawing(event.target.value)} className="min-w-0 flex-1 truncate border-0 bg-transparent text-[11px] outline-none" aria-label="选择图解">
+          <option value="">未命名图解</option>
           {drawings.map((drawing) => <option key={drawing.id} value={drawing.id}>{drawing.title || drawing.id}</option>)}
         </select>
-        {activeDrawing ? <button type="button" onClick={() => onDeleteDrawing(activeDrawing.id)} className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600" title="删除当前图表" aria-label="删除当前图表"><Trash2 size={13} /></button> : null}
+        {activeDrawing ? <button type="button" onClick={() => onDeleteDrawing(activeDrawing.id)} className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-600" title="删除当前图解" aria-label="删除当前图解"><Trash2 size={13} /></button> : null}
         {isGenerating ? <LoaderCircle size={13} className="animate-spin" /> : null}
       </footer>
     </section>
