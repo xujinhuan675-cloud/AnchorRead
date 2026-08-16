@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CloudUpload, CloudDownload, LoaderCircle } from 'lucide-react';
+import { CloudUpload, CloudDownload, Download, LoaderCircle } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import {
   SyncStorageError,
@@ -11,6 +11,9 @@ import {
 } from '@/lib/sync-storage';
 import { pushWorkspace, pullWorkspace, peekRemoteExportedAt } from '@/lib/sync-manager';
 import { workspaceRepository } from '@/lib/local-workspace-db';
+import { exportWorkspace, downloadWorkspaceFile } from '@/lib/workspace-file';
+import { flashcardStore } from '@/lib/flashcard-store';
+import { historyManager } from '@/lib/history-manager';
 
 function formatTime(value) {
   if (!value) return '尚未同步';
@@ -52,6 +55,24 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
       setMessage({ type: 'success', text: `已推送到「${adapter.label}」（${formatTime(syncedAt)}）。` });
     } catch (error) {
       setMessage({ type: 'error', text: error?.message || '推送失败。' });
+    } finally {
+      setBusy('');
+    }
+  };
+
+  // 本地备份：把整个工作区导出为 .anchorread 文件，不依赖同步存储
+  const exportLocal = async () => {
+    setBusy('export');
+    setMessage(null);
+    try {
+      const payload = await exportWorkspace(workspaceRepository, {
+        flashcards: flashcardStore.getAll(),
+        diagramHistory: historyManager.getHistories(),
+      });
+      downloadWorkspaceFile(payload, `anchor-read-backup-${new Date().toISOString().slice(0, 10)}.anchorread`);
+      setMessage({ type: 'success', text: 'JSON 备份已开始下载。' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error?.message || '导出失败。' });
     } finally {
       setBusy('');
     }
@@ -157,6 +178,16 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
             拉取恢复
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={exportLocal}
+          disabled={Boolean(busy)}
+          className="flex h-9 w-full items-center justify-center gap-2 rounded border border-gray-200 bg-white text-xs font-medium text-gray-700 outline-none hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy === 'export' ? <LoaderCircle size={14} className="animate-spin" /> : <Download size={14} />}
+          导出本地备份文件
+        </button>
 
         <p className="text-[11px] text-gray-400">上次同步：{formatTime(config.lastSyncAt)}</p>
 

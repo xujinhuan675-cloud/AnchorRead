@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { ArrowUp } from 'lucide-react';
 import ImageUpload from './ImageUpload';
 import LoadingOverlay from './LoadingOverlay';
 import { generateImagePrompt } from '@/lib/image-utils';
@@ -284,17 +285,15 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
                 <button
                   type="submit"
                   disabled={!input.trim() || isGenerating}
-                  className="absolute right-2 bottom-2 p-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors duration-200"
+                  className="absolute right-2 bottom-2 flex h-8 w-8 items-center justify-center rounded-full bg-gray-900 text-white transition-colors duration-200 hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300"
                   title={isGenerating ? "生成中..." : "发送"}
+                  aria-label="发送"
                 >
                   {isGenerating ? (
-                    <div className="flex items-center justify-center">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    </div>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
                   ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
+                    // 上箭头是当下 AI 对话产品最常见的发送符号，比纸飞机更易识别
+                    <ArrowUp size={16} strokeWidth={2.5} aria-hidden="true" />
                   )}
                 </button>
               </div>

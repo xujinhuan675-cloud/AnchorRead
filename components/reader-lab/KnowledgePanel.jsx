@@ -1,15 +1,16 @@
 'use client';
 
-import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Brain, CheckCircle2, Eye, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Brain, CheckCircle2, Eye, GraduationCap, NotebookText, Trash2 } from 'lucide-react';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { formatDue, RATING, RATING_LABELS } from '@/lib/fsrs';
 import { readerRoleLayer } from '@/lib/reader-analysis';
+import MarkdownSnippet from './MarkdownSnippet';
 
 const TABS = [
   { id: 'explanations', label: '解读' },
   { id: 'structure', label: '重点' },
-  { id: 'terms', label: '术语' },
+  { id: 'terms', label: '白话' },
   { id: 'flashcards', label: '闪卡' },
 ];
 
@@ -71,7 +72,7 @@ function demoLabel(record) {
   return '';
 }
 
-function FlashcardQuiz({ documentId }) {
+function FlashcardQuiz({ documentId, onExportAnki = null }) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [session, setSession] = useState(null);
 
@@ -151,13 +152,17 @@ function FlashcardQuiz({ documentId }) {
           onClick={() => setSession({ ...session, revealed: true })}
           className="mt-3 flex min-h-32 w-full flex-col items-center justify-center rounded-lg border border-gray-200 bg-white p-5 text-center transition-colors hover:border-teal-300"
         >
-          <p className="text-sm font-medium leading-6 text-gray-900">{current.front}</p>
+          <p className="text-sm font-medium leading-6 text-gray-900">
+            <MarkdownSnippet text={current.front} />
+          </p>
           {!session.revealed && <span className="mt-3 text-xs text-gray-400">点击卡片显示答案</span>}
         </button>
         {session.revealed && (
           <>
             <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-4">
-              <p className="text-sm leading-6 text-teal-900">{current.back}</p>
+              <div className="text-sm leading-6 text-teal-900">
+                <MarkdownSnippet text={current.back} />
+              </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[RATING.AGAIN, RATING.HARD, RATING.GOOD, RATING.EASY].map((rating) => (
@@ -192,6 +197,17 @@ function FlashcardQuiz({ documentId }) {
         <Brain size={14} aria-hidden="true" />
         {stats.due > 0 ? `开始复习（${stats.due}）` : '当前文档暂无到期闪卡'}
       </button>
+      {onExportAnki && (
+        <button
+          type="button"
+          onClick={onExportAnki}
+          disabled={stats.total === 0}
+          className="mt-2 flex items-center gap-1.5 text-[11px] text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-40"
+        >
+          <GraduationCap size={12} aria-hidden="true" />
+          导出 Anki
+        </button>
+      )}
       {stats.total === 0 && (
         <p className="mt-3 rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
           还没有为这篇文档生成闪卡。阅读时在顶部工具栏点击「生成闪卡」，即可把重点转成间隔复习卡片。
@@ -215,7 +231,9 @@ function FlashcardQuiz({ documentId }) {
             {libraryCards.map((card) => (
               <li key={card.id} className="flex items-start justify-between gap-2 rounded border border-gray-200 bg-white p-2.5">
                 <div className="min-w-0">
-                  <p className="break-words text-xs leading-5 text-gray-700">{card.front}</p>
+                  <div className="break-words text-xs leading-5 text-gray-700">
+                    <MarkdownSnippet text={card.front} />
+                  </div>
                   <p className="mt-0.5 text-[10px] text-gray-400">{formatDue(card.due)} · 已复习 {card.reps} 次</p>
                 </div>
                 <button
@@ -246,11 +264,16 @@ export default function KnowledgePanel({
   onDelete,
   onFocusTerm,
   onMasterTerm,
+  onExportAnki = null,
+  onExportObsidian = null,
   isStale,
   flashcardSignal = 0,
+  // 左侧原文标记点击后驱动面板定位：{ id, nonce }，nonce 变化即可重复触发同一条
+  panelFocus = null,
 }) {
   const [activeTab, setActiveTab] = useState('explanations');
   const listRef = useRef(null);
+  const panelRef = useRef(null);
 
   // 外部触发“生成闪卡”时自动切到闪卡页：渲染期跟随 prop 调整状态，避免用 effect 同步 setState
   const [prevFlashcardSignal, setPrevFlashcardSignal] = useState(flashcardSignal);
@@ -278,11 +301,37 @@ export default function KnowledgePanel({
     if (listRef.current) listRef.current.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 左→右双向定位：点击原文高亮/框线后切到能展示该记录的页签，滚动到对应卡片并短暂闪烁；
+  // 页签切换与滚动都放在定时器里，先切页签等内容上屏再滚动，也避免 effect 体内同步 setState
+  useEffect(() => {
+    if (!panelFocus?.id) return undefined;
+    const record = explanations.find((item) => item.id === panelFocus.id);
+    const tabTimer = window.setTimeout(() => {
+      if (!record) return;
+      setActiveTab((current) => {
+        if (record.level === 'word') return 'structure';
+        return current === 'explanations' || current === 'structure' ? current : 'explanations';
+      });
+    }, 0);
+    const scrollTimer = window.setTimeout(() => {
+      const element = panelRef.current?.querySelector(`[data-panel-record-id="${CSS.escape(panelFocus.id)}"]`);
+      element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      element?.animate?.(
+        [{ backgroundColor: '#ccfbf1' }, { backgroundColor: 'transparent' }],
+        { duration: 900 }
+      );
+    }, 140);
+    return () => {
+      window.clearTimeout(tabTimer);
+      window.clearTimeout(scrollTimer);
+    };
+  }, [panelFocus, explanations]);
+
   const renderTerms = () => (
-    <div className="p-4" aria-label="术语理解列表">
+    <div className="p-4" aria-label="白话列表">
       {terms.length === 0 ? (
         <p className="rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
-          还没有生成术语卡。选中原文后使用「识别术语」。
+          还没有生成白话。选中原文后使用「生成白话」。
         </p>
       ) : (
         <ul className="space-y-3">
@@ -293,6 +342,7 @@ export default function KnowledgePanel({
             return (
               <li
                 key={term.id}
+                data-panel-record-id={term.id}
                 onClick={() => focusTerm(term.id)}
                 title="点击定位原文"
                 className="cursor-pointer rounded border border-gray-200 bg-white p-3 shadow-sm transition-colors hover:border-gray-300"
@@ -327,7 +377,9 @@ export default function KnowledgePanel({
                     )}
                   </div>
                 </div>
-                <p className="mt-2 break-words text-xs leading-5 text-gray-600">{term.explanation}</p>
+                <div className="mt-2 break-words text-xs leading-5 text-gray-600">
+                  <MarkdownSnippet text={term.explanation} />
+                </div>
                 {aliasList.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {aliasList.map((alias) => (
@@ -337,12 +389,6 @@ export default function KnowledgePanel({
                     ))}
                   </div>
                 )}
-                <p className="mt-2 rounded bg-gray-50 px-2 py-1 text-[11px] leading-5 text-gray-500">
-                  原文锚点：{term.selectedText || term.term}
-                </p>
-                <p className="mt-2 text-[11px] text-gray-400">
-                  {term.source === 'demo' ? 'Demo 术语示例' : 'AI 识别'} · 已懂的术语跨文档再次出现时不再解释。
-                </p>
               </li>
             );
           })}
@@ -369,6 +415,7 @@ export default function KnowledgePanel({
             return (
             <li
               key={record.id}
+              data-panel-record-id={record.id}
               onClick={() => onFocus?.(record.id)}
               title="点击定位原文"
               className="cursor-pointer rounded border border-gray-200 bg-white p-3 shadow-sm transition-colors hover:border-gray-300"
@@ -415,9 +462,17 @@ export default function KnowledgePanel({
                   </button>
                 </div>
               </div>
-              <p className="mt-2 break-words text-xs font-medium leading-5 text-gray-800">{record.selectedText}</p>
-              <p className="mt-2 break-words text-xs leading-5 text-gray-600">{record.explanation?.summary || ''}</p>
-              <p className="mt-2 break-words text-xs leading-5 text-gray-500">{record.explanation?.context || ''}</p>
+              <div className="mt-2 break-words text-xs font-medium leading-5 text-gray-800">
+                <MarkdownSnippet text={record.selectedText} />
+              </div>
+              <MarkdownSnippet
+                text={record.explanation?.summary || record.explanation?.display || record.explanation?.plainExplanation || ''}
+                className="mt-2 text-xs leading-5 text-gray-600"
+              />
+              <MarkdownSnippet
+                text={record.explanation?.context || ''}
+                className="mt-2 text-xs leading-5 text-gray-500"
+              />
               <p className="mt-2 text-[11px] text-gray-400">
                 {formatDate(record.createdAt)}
                 {demoLabel(record) ? ` · ${demoLabel(record)}` : ''}
@@ -436,27 +491,29 @@ export default function KnowledgePanel({
     </div>
   );
 
-  // 结构页：按文章层/段落层/句子层/词语层分组，serves 关系以缩进嵌套呈现支撑结构
-  const renderStructureRecord = (record, depth, byId) => {
+  // 结构页：按文章层/段落层/句子层/词语层分组，serves 关系以嵌套列表呈现支撑结构；
+  // 子级与父级左对齐，不做缩进，层级只靠分组嵌套表达
+  const renderStructureRecord = (record, byId) => {
     const children = explanations.filter(
       (item) => item.level !== 'word' && item.servesTo === record.id && byId.has(record.id)
     );
     return (
-      <li key={record.id} style={{ marginLeft: depth * 12 }}>
+      <li key={record.id}>
         <button
           type="button"
-          onClick={() => onFocus?.(record.id)}
+          data-panel-record-id={record.id}
+          onClick={() => onFocus?.(record.id, { openCard: false })}
           title="点击定位原文"
           className="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-gray-300"
         >
           <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">
             {roleLabel(record)}
           </span>
-          <span className="break-words text-xs leading-5 text-gray-800">{record.selectedText}</span>
+          <MarkdownSnippet text={record.selectedText} className="inline align-middle text-xs leading-5 text-gray-800" />
         </button>
         {children.length > 0 && (
           <ul className="mt-1.5 space-y-1.5">
-            {children.map((child) => renderStructureRecord(child, depth + 1, byId))}
+            {children.map((child) => renderStructureRecord(child, byId))}
           </ul>
         )}
       </li>
@@ -491,7 +548,7 @@ export default function KnowledgePanel({
                 {section.label}
               </h3>
               <ul className="space-y-1.5">
-                {records.map((record) => renderStructureRecord(record, 0, byId))}
+                {records.map((record) => renderStructureRecord(record, byId))}
               </ul>
             </section>
           );
@@ -502,7 +559,7 @@ export default function KnowledgePanel({
               句子层 · 句重点
             </h3>
             <ul className="space-y-1.5">
-              {looseSentence.map((record) => renderStructureRecord(record, 0, byId))}
+              {looseSentence.map((record) => renderStructureRecord(record, byId))}
             </ul>
           </section>
         )}
@@ -516,14 +573,19 @@ export default function KnowledgePanel({
                 <li key={record.id}>
                   <button
                     type="button"
-                    onClick={() => onFocus?.(record.id)}
+                    data-panel-record-id={record.id}
+                    onClick={() => onFocus?.(record.id, { openCard: false })}
                     title="点击定位原文"
-                    className="w-full rounded border border-dashed border-red-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-red-300"
+                    className={`w-full rounded border bg-white px-2.5 py-2 text-left transition-colors ${
+                      record.markKind === 'idiom'
+                        ? 'border-dashed border-red-200 hover:border-red-300'
+                        : 'border-red-200 hover:border-red-300'
+                    }`}
                   >
                     <span className="mr-1.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] text-red-600">
                       {MARK_KIND_LABELS[record.markKind] || '服务中心'}
                     </span>
-                    <span className="break-words text-xs leading-5 text-gray-800">{record.selectedText}</span>
+                    <MarkdownSnippet text={record.selectedText} className="inline align-middle text-xs leading-5 text-gray-800" />
                   </button>
                 </li>
               ))}
@@ -535,7 +597,7 @@ export default function KnowledgePanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#fafafa]">
+    <div ref={panelRef} className="flex h-full min-h-0 flex-col bg-[#fafafa]">
       <div className="border-b border-gray-200 bg-white">
         <div className="flex" role="tablist" aria-label="知识面板视图">
           {TABS.map((tab) => (
@@ -569,13 +631,29 @@ export default function KnowledgePanel({
         </div>
       )}
       {activeTab === 'explanations' && (
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
-          {renderExplanations()}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
+            {renderExplanations()}
+          </div>
+          {/* 导出就近放在解读 tab：与闪卡 tab 的 Anki 导出同构 */}
+          {onExportObsidian && (
+            <div className="shrink-0 border-t border-gray-100 px-2 py-1.5">
+              <button
+                type="button"
+                onClick={onExportObsidian}
+                disabled={explanations.length === 0}
+                className="flex items-center gap-1.5 text-[11px] text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-40"
+              >
+                <NotebookText size={12} aria-hidden="true" />
+                导出 Obsidian
+              </button>
+            </div>
+          )}
         </div>
       )}
       {activeTab === 'flashcards' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <FlashcardQuiz documentId={documentId} />
+          <FlashcardQuiz documentId={documentId} onExportAnki={onExportAnki} />
         </div>
       )}
     </div>

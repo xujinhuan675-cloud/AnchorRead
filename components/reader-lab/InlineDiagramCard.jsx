@@ -28,18 +28,18 @@ export default function InlineDiagramCard({ drawing, document, onCreateDrawing, 
   return (
     <aside
       className="my-5 overflow-hidden rounded-lg border border-indigo-200 bg-white"
-      aria-label={`锚定“${drawing.anchor?.source || drawing.title}”的文档图表`}
+      aria-label={`锚定“${drawing.anchor?.source || drawing.title}”的文档图解`}
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 bg-indigo-50/60 px-4 py-2.5">
         <PenTool size={13} className="shrink-0 text-indigo-700" aria-hidden="true" />
-        <span className="text-[11px] font-semibold text-indigo-800">文档图表</span>
+        <span className="text-[11px] font-semibold text-indigo-800">文档图解</span>
         <span className="truncate text-[11px] font-medium text-gray-600">
-          {drawing.title || '未命名图表'}
+          {drawing.title || '未命名图解'}
         </span>
         <div
           className="ml-auto flex shrink-0 items-center gap-1"
           role="group"
-          aria-label="图表视图控制"
+          aria-label="图解视图控制"
         >
           <button
             type="button"
@@ -50,7 +50,7 @@ export default function InlineDiagramCard({ drawing, document, onCreateDrawing, 
             <FileCode2 size={13} aria-hidden="true" />
             {showCode ? '收起源码' : '查看源码'}
           </button>
-          <div className="flex rounded border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="切换图表引擎">
+          <div className="flex rounded border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="切换图解引擎">
             {ENGINE_OPTIONS.map(({ value, label }) => (
               <button
                 key={value}

@@ -85,27 +85,7 @@ export default function Home() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 md:px-7">
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold text-gray-950">ANCHOR READ</h1>
-            <p className="truncate text-xs text-gray-500">专业文章阅读与概念理解工作台</p>
-          </div>
-          <div className="flex min-w-0 items-center gap-2">
-            {(usePassword || (config && isConfigValid(config))) && (
-              <div className="hidden max-w-64 items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 sm:flex">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
-                <span className="truncate text-xs font-medium text-emerald-900">
-                  {usePassword ? '密码访问已启用' : `${config.name || config.type} · ${config.model}`}
-                </span>
-              </div>
-            )}
-          </div>
-        </header>
-
-        <div className="flex min-h-8 shrink-0 items-center border-b border-gray-200 bg-gray-50 px-4 text-[11px] leading-4 text-gray-500 md:px-7">
-          越用越准确 · 术语记住了就不再解释 · 所有解读锚定原文
-        </div>
-
+        {/* 首页只保留一条顶栏：品牌词标、文档信息与工具都在工作区头部，避免多条栏堆叠 */}
         <WorkspaceNav
           mobile
           mode={mode}
@@ -124,6 +104,18 @@ export default function Home() {
             onCurrentDocumentChange={setCurrentDocument}
             onOpenHistory={() => setIsHistoryModalOpen(true)}
             historyDrawing={pendingHistory}
+            headerStatus={
+              usePassword || (config && isConfigValid(config))
+                ? (
+                  <div className="hidden max-w-64 items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 xl:flex">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
+                    <span className="truncate text-[11px] font-medium text-emerald-900">
+                      {usePassword ? '密码访问已启用' : `${config.name || config.type} · ${config.model}`}
+                    </span>
+                  </div>
+                )
+                : null
+            }
           />
         </main>
       </div>
