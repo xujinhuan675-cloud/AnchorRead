@@ -7,6 +7,7 @@ import { createDocumentDrawingId } from '@/lib/diagram-generation';
 // 右侧对话区：只保留图表对话与图表管理，画布与代码区在左侧主区域渲染
 export default function DocumentDiagramPanel({
   document,
+  standalone = false,
   drawings,
   activeDrawing,
   onSelectDrawing,
@@ -20,10 +21,11 @@ export default function DocumentDiagramPanel({
   const { engine, chartType, isGenerating, generate, handleEngineChange } = diagram;
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-white" aria-label="文档关系图对话">
+    <section className="flex h-full min-h-0 flex-col bg-white" aria-label={standalone ? '自由图解对话' : '文档关系图对话'}>
       <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-3 py-2.5">
         <Sparkles size={15} className="text-teal-700" aria-hidden="true" />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">文档关系图</h2>
+        {/* 独立图解工作区不绑定文档，标题与描述换成自由建图语境 */}
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">{standalone ? '自由图解' : '文档关系图'}</h2>
         <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: '未命名图解', engine: 'excalidraw', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-50" title="新建图解" aria-label="新建图解"><Plus size={15} /></button>
         <button type="button" onClick={onOpenHistory} className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 text-gray-600 hover:bg-gray-50" title="打开历史" aria-label="打开历史"><History size={15} /></button>
       </header>

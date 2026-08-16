@@ -35,7 +35,9 @@ import { getConfig, isConfigValid } from '@/lib/config';
 import {
   createDemoDocumentDiagram,
   createDocumentDrawingId,
+  createStandaloneDiagramDocument,
   finalizeDiagramSource,
+  STANDALONE_DIAGRAM_DOCUMENT_ID,
 } from '@/lib/diagram-generation';
 import { createDemoReaderAnalysis, readerRoleLayer } from '@/lib/reader-analysis';
 import {
@@ -57,6 +59,7 @@ import { isDefaultToolbarBuiltinTemplate, mergeToolbarBuiltins, toToolbarBuiltin
 import CustomActionsManager from '@/components/reader-lab/CustomActionsManager';
 import GlossaryManager from '@/components/reader-lab/GlossaryManager';
 import WorkspaceSyncPanel from '@/components/reader-lab/WorkspaceSyncPanel';
+import PrivacyNoticeBar from '@/components/reader-lab/PrivacyNoticeBar';
 import Modal from '@/components/ui/Modal';
 import {
   batchAnchorKey,
@@ -83,8 +86,10 @@ import { workspaceRepository } from '@/lib/local-workspace-db';
 import { mergeInboxPayload } from '@/lib/inbox-merge';
 import { isDerivationStale } from '@/lib/provenance';
 import { flashcardStore } from '@/lib/flashcard-store';
+import { historyManager } from '@/lib/history-manager';
+import { downloadWorkspaceFile, exportWorkspace, supportsSaveFilePicker, saveWorkspaceFileWithPicker } from '@/lib/workspace-file';
 import { buildAnkiText, downloadAnkiFile } from '@/lib/anki-export';
-import { buildObsidianVaultNotes, downloadObsidianZip } from '@/lib/obsidian-export';
+import { buildObsidianVaultNotes, downloadObsidianZip, supportsDirectoryPicker, saveObsidianNotesToDirectory } from '@/lib/obsidian-export';
 
 // 阅读辅助都是叠加在原文之上的可选层：多选多生效，全部关闭即纯原文
 const AID_OPTIONS = Object.freeze([
@@ -111,6 +116,19 @@ function readStoredLayerVisibility() {
     // 解析失败回退默认全开
   }
   return { ...DEFAULT_LAYERS };
+}
+
+// 白话解释深度档位：与重点层级同为阅读偏好，localStorage 持久化
+const EXPLANATION_DEPTH_OPTIONS = Object.freeze([
+  { id: 'light', label: '轻度：只解释生僻术语与缩写' },
+  { id: 'standard', label: '标准：术语与专业表达' },
+  { id: 'deep', label: '深度：复杂句式也拆解，含类比与背景' },
+]);
+
+function readStoredExplanationDepth() {
+  if (typeof window === 'undefined') return 'standard';
+  const stored = window.localStorage.getItem('anchor-read-explanation-depth') || '';
+  return EXPLANATION_DEPTH_OPTIONS.some((option) => option.id === stored) ? stored : 'standard';
 }
 
 // 浮动工具栏内置动作偏好（启用/改名）持久化，刷新后保持
@@ -223,6 +241,8 @@ export default function ReaderLabWorkspace({
   layout = 'reader-lab',
   started = false,
   requestedTool = 'read',
+  // 导航「图解」入口的独立图解工作区：图解挂在保留虚拟文档下，不绑定当前阅读文档
+  standaloneDiagram = false,
   onToolChange,
   onOpenHistory,
   onCurrentDocumentChange,
@@ -277,6 +297,9 @@ export default function ReaderLabWorkspace({
   // 层级重点可见性偏好持久化，刷新后保持
   const [layerVisibility, setLayerVisibility] = useState(readStoredLayerVisibility);
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  // 白话与重点同形态：入口是带下拉的 tab，档位选择收纳在下拉里
+  const [precisionMenuOpen, setPrecisionMenuOpen] = useState(false);
+  const [explanationDepth, setExplanationDepth] = useState(readStoredExplanationDepth);
   // 头部动作收纳：生成与管理合并进一个下拉，减少顶栏按钮数
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [internalHistoryOpen, setInternalHistoryOpen] = useState(false);
@@ -404,7 +427,12 @@ export default function ReaderLabWorkspace({
           (state.itemType === 'explanation' || state.id?.startsWith('reader-lab-review-')) &&
           byId.has(state.documentId)
         )));
-        setDrawings(storedDrawings.filter((drawing) => seedIds.has(drawing.documentId) || byId.has(drawing.documentId)));
+        setDrawings(storedDrawings.filter((drawing) => (
+          seedIds.has(drawing.documentId)
+          || byId.has(drawing.documentId)
+          // 独立图解工作区的自由图解挂在保留虚拟文档下，恢复时同样保留
+          || drawing.documentId === STANDALONE_DIAGRAM_DOCUMENT_ID
+        )));
         // 自定义动作与术语表为空时种子内置 Demo，让无 LLM 配置也能看到选区动作与背景定义的效果
         // 排序优先用显式 order 字段，存量数据回退创建时间
         const seededCustomActions = storedCustomActions.length > 0
@@ -443,6 +471,17 @@ export default function ReaderLabWorkspace({
   }, []);
 
   const currentDocument = documents.find((document) => document.id === currentDocumentId) || documents[0];
+
+  // 独立图解工作区把图解链路（画布/对话/历史）全部绑到保留虚拟文档，
+  // 与当前打开文档的绑定图解互不干扰
+  const diagramDocumentId = standaloneDiagram ? STANDALONE_DIAGRAM_DOCUMENT_ID : currentDocumentId;
+  const diagramDocument = standaloneDiagram ? createStandaloneDiagramDocument() : currentDocument;
+
+  // 切入独立图解工作区时恢复自由图解的活动项，不带入文档绑定图解的 activeDrawingId
+  useEffect(() => {
+    if (!standaloneDiagram) return;
+    setActiveDrawingId(sessionsRef.current[STANDALONE_DIAGRAM_DOCUMENT_ID]?.activeDrawingId || '');
+  }, [standaloneDiagram]);
   useEffect(() => {
     onCurrentDocumentChange?.(currentDocument || null);
   }, [currentDocument, onCurrentDocumentChange]);
@@ -502,7 +541,12 @@ export default function ReaderLabWorkspace({
     const nextDrawing = drawings.find((drawing) => drawing.documentId === documentId);
     setActiveDrawingId(sessions[documentId]?.activeDrawingId || nextDrawing?.id || '');
     saveSession(documentId, {}).catch(console.error);
-  }, [drawings, saveSession, sessions]);
+    // 在独立图解工作区里选文档意味着回去阅读：退出独立形态，图解回到文档绑定
+    if (standaloneDiagram) {
+      setRightPanelView('knowledge');
+      onToolChange?.('read');
+    }
+  }, [drawings, onToolChange, saveSession, sessions, standaloneDiagram]);
 
   // 多选辅助开关：任何变更立即持久化到当前文档会话，每篇文档记住自己的阅读组合
   const updateAids = useCallback((nextAids) => {
@@ -518,6 +562,14 @@ export default function ReaderLabWorkspace({
     setLayerVisibility(next);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('anchor-read-layer-visibility', JSON.stringify(next));
+    }
+  }, []);
+
+  // 白话解释深度：切换立即持久化，下次一键分析时随 payload 生效
+  const updateExplanationDepth = useCallback((depth) => {
+    setExplanationDepth(depth);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('anchor-read-explanation-depth', depth);
     }
   }, []);
 
@@ -748,6 +800,8 @@ export default function ReaderLabWorkspace({
       title: document.title,
       content: document.content,
       mode: 'plain',
+      // 解释深度档位随阅读偏好（白话下拉里选择），控制 mapping 密度与 display 详尽度
+      depth: explanationDepth,
       knownMasteredTerms,
       knownExplainedTerms,
       // 术语表单独交代定义背景：AI 沿用表中既定定义，不另造解释
@@ -773,7 +827,7 @@ export default function ReaderLabWorkspace({
       throw new Error(body.error || `全文分析失败 (${response.status})`);
     }
     return { result: await response.json(), isDemo: false };
-  }, [currentDocument, glossaryPayload, knownMasteredWithGlossary, terms, activePromptPresetId]);
+  }, [currentDocument, glossaryPayload, knownMasteredWithGlossary, terms, activePromptPresetId, explanationDepth]);
 
   const parseAndOpenDocument = useCallback(async ({ title, content, file }) => {
     setBusyAction('parse');
@@ -987,15 +1041,15 @@ export default function ReaderLabWorkspace({
   }, [currentDocumentId]);
 
   const currentDrawings = useMemo(
-    () => drawings.filter((drawing) => drawing.documentId === currentDocumentId),
-    [currentDocumentId, drawings]
+    () => drawings.filter((drawing) => drawing.documentId === diagramDocumentId),
+    [diagramDocumentId, drawings]
   );
   const activeDrawing = currentDrawings.find((drawing) => drawing.id === activeDrawingId) || currentDrawings[0] || null;
 
   const selectDrawing = useCallback((drawingId) => {
     setActiveDrawingId(drawingId);
-    saveSession(currentDocumentId, { activeDrawingId: drawingId }).catch(console.error);
-  }, [currentDocumentId, saveSession]);
+    saveSession(diagramDocumentId, { activeDrawingId: drawingId }).catch(console.error);
+  }, [diagramDocumentId, saveSession]);
 
   const createDrawing = useCallback(async (drawing) => {
     await workspaceRepository.drawings.save(drawing);
@@ -1009,7 +1063,8 @@ export default function ReaderLabWorkspace({
   // 自动按文档结构种子一张脑图，保证「图解」层始终有内容可见，不再只是空开关
   const seededDiagramDocsRef = useRef(new Set());
   useEffect(() => {
-    if (!currentDocument || currentDrawings.length > 0) return;
+    // 独立图解工作区没有正文，不需要按文档结构种子演示脑图
+    if (standaloneDiagram || !currentDocument || currentDrawings.length > 0) return;
     if (seededDiagramDocsRef.current.has(currentDocument.id)) return;
     const usePassword = hasPasswordMode();
     if (usePassword || isConfigValid(getConfig())) return; // 已配置 LLM 时交给用户主动生成
@@ -1033,13 +1088,13 @@ export default function ReaderLabWorkspace({
         setActiveDrawingId((currentId) => currentId || drawing.id);
       })
       .catch(console.error);
-  }, [currentDocument, currentDrawings.length]);
+  }, [currentDocument, currentDrawings.length, standaloneDiagram]);
 
   const applyHistoryDrawing = useCallback((history) => {
-    if (!currentDocument || !history?.generatedCode) return;
+    if (!diagramDocument || !history?.generatedCode) return;
     createDrawing({
-      id: `reader-drawing-${currentDocument.id}-${Date.now()}-history`,
-      documentId: currentDocument.id,
+      id: `reader-drawing-${diagramDocument.id}-${Date.now()}-history`,
+      documentId: diagramDocument.id,
       title: `历史图解 · ${new Date(history.timestamp || Date.now()).toLocaleString('zh-CN')}`,
       engine: history.engine || 'excalidraw',
       chartType: history.chartType || 'auto',
@@ -1049,16 +1104,16 @@ export default function ReaderLabWorkspace({
       updatedAt: Date.now(),
     }).catch((error) => setNotice({ type: 'error', message: error.message }));
     setInternalHistoryOpen(false);
-  }, [createDrawing, currentDocument]);
+  }, [createDrawing, diagramDocument]);
 
   useEffect(() => {
-    if (!historyDrawing || !currentDocument) return;
+    if (!historyDrawing || !diagramDocument) return;
     const requestKey = `${historyDrawing.id || ''}:${historyDrawing.nonce || ''}`;
     if (!requestKey || appliedHistoryRef.current === requestKey) return;
     appliedHistoryRef.current = requestKey;
     createDrawing({
-      id: `reader-drawing-${currentDocument.id}-${Date.now()}-history`,
-      documentId: currentDocument.id,
+      id: `reader-drawing-${diagramDocument.id}-${Date.now()}-history`,
+      documentId: diagramDocument.id,
       title: `历史图解 · ${new Date(historyDrawing.timestamp || Date.now()).toLocaleString('zh-CN')}`,
       engine: historyDrawing.engine || 'excalidraw',
       chartType: historyDrawing.chartType || 'auto',
@@ -1067,7 +1122,7 @@ export default function ReaderLabWorkspace({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }).catch((error) => setNotice({ type: 'error', message: error.message }));
-  }, [createDrawing, currentDocument, historyDrawing]);
+  }, [createDrawing, diagramDocument, historyDrawing]);
 
   const persistDrawing = useCallback(async (drawing) => {
     await workspaceRepository.drawings.save(drawing);
@@ -1079,8 +1134,8 @@ export default function ReaderLabWorkspace({
     const remaining = currentDrawings.filter((drawing) => drawing.id !== drawingId);
     setDrawings((current) => current.filter((drawing) => drawing.id !== drawingId));
     setActiveDrawingId(remaining[0]?.id || '');
-    await saveSession(currentDocumentId, { activeDrawingId: remaining[0]?.id || '' });
-  }, [currentDocumentId, currentDrawings, saveSession]);
+    await saveSession(diagramDocumentId, { activeDrawingId: remaining[0]?.id || '' });
+  }, [currentDrawings, diagramDocumentId, saveSession]);
 
   const handleDiagramSelection = useCallback((selection) => {
     if (!currentDocument) return;
@@ -1097,18 +1152,18 @@ export default function ReaderLabWorkspace({
 
   const openDiagram = useCallback((drawingId) => {
     setActiveDrawingId(drawingId);
-    saveSession(currentDocumentId, { activeDrawingId: drawingId }).catch(console.error);
+    saveSession(diagramDocumentId, { activeDrawingId: drawingId }).catch(console.error);
     setRightPanelView('diagram');
     onToolChange?.('diagram');
-  }, [currentDocumentId, onToolChange, saveSession]);
+  }, [diagramDocumentId, onToolChange, saveSession]);
 
   const clearDiagramAnchor = useCallback(() => setDiagramAnchor(null), []);
 
   // 图表状态在画布区与对话区之间共享，只实例化一次
   const diagramState = useDocumentDiagram({
-    document: currentDocument,
+    document: diagramDocument,
     activeDrawing,
-    anchor: diagramAnchor?.documentId === currentDocument?.id ? diagramAnchor : null,
+    anchor: diagramAnchor?.documentId === diagramDocument?.id ? diagramAnchor : null,
     onCreateDrawing: createDrawing,
     onPersistDrawing: persistDrawing,
     onClearAnchor: clearDiagramAnchor,
@@ -1347,6 +1402,27 @@ export default function ReaderLabWorkspace({
     setKnowledgeOpen(false);
   }, [aidVisibility, explanations, focusExplanation, updateAids]);
 
+  const exportBackup = useCallback(async () => {
+    try {
+      const payload = await exportWorkspace(workspaceRepository, {
+        flashcards: flashcardStore.getAll(),
+        diagramHistory: historyManager.getHistories(),
+      });
+      const suggested = `anchor-read-backup-${new Date().toISOString().slice(0, 10)}.anchorread`;
+      // 优先用保存对话框让用户自选位置落盘单个备份文件，不支持时回退浏览器下载
+      if (supportsSaveFilePicker()) {
+        const savedName = await saveWorkspaceFileWithPicker(payload, suggested);
+        setNotice({ type: 'success', message: `备份已保存为「${savedName}」。` });
+        return;
+      }
+      downloadWorkspaceFile(payload, suggested);
+      setNotice({ type: 'success', message: 'JSON 备份已开始下载。' });
+    } catch (error) {
+      if (error?.name === 'AbortError') return; // 用户在对话框取消，不提示
+      setNotice({ type: 'error', message: error.message });
+    }
+  }, []);
+
   // 浮动工具栏：保存（新建/更新）与删除，持久化到本地工作区
   const saveCustomAction = useCallback(async (input) => {
     const existing = input.id ? customActions.find((item) => item.id === input.id) : null;
@@ -1497,7 +1573,7 @@ export default function ReaderLabWorkspace({
     }
   }, []);
 
-  // 生态导出：解读/术语/闪卡 → Obsidian 笔记 zip（术语带双链）
+  // 生态导出：解读/术语/闪卡 → Obsidian 笔记（术语带双链），优先直接写入所选文件夹
   const exportObsidian = useCallback(async () => {
     try {
       const [documents, explanations, terms] = await Promise.all([
@@ -1515,9 +1591,17 @@ export default function ReaderLabWorkspace({
         setNotice({ type: 'error', message: '还没有解读、白话或闪卡，先产生派生内容再导出。' });
         return;
       }
+      const subFolder = `anchor-read-${new Date().toISOString().slice(0, 10)}`;
+      if (supportsDirectoryPicker()) {
+        const { folderName, count } = await saveObsidianNotesToDirectory(notes, subFolder);
+        setNotice({ type: 'success', message: `${count} 篇 Obsidian 笔记已写入「${folderName}」文件夹，直接纳入你的 vault 即可。` });
+        return;
+      }
+      // Firefox/Safari 等不支持目录选择的浏览器，回退为 zip 下载
       await downloadObsidianZip(notes, `anchor-read-obsidian-${new Date().toISOString().slice(0, 10)}.zip`);
-      setNotice({ type: 'success', message: `已打包 ${notes.length} 篇 Obsidian 笔记，解压后放入你的 vault 即可。` });
+      setNotice({ type: 'success', message: `当前浏览器不支持直接写文件夹，已打包 ${notes.length} 篇笔记，解压后放入你的 vault 即可。` });
     } catch (error) {
+      if (error?.name === 'AbortError') return; // 用户在选择器取消，不提示
       setNotice({ type: 'error', message: error.message });
     }
   }, []);
@@ -1550,6 +1634,8 @@ export default function ReaderLabWorkspace({
     return (
       <TooltipProvider>
         <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f3f5f4] text-gray-950">
+          {/* 隐私提示全局常驻：首页快速导入页同样显示 */}
+          <PrivacyNoticeBar onExport={exportBackup} />
           <ReaderQuickImport
             recentDocuments={recentDocuments}
             hasExistingDocuments={documents.length > 0}
@@ -1646,18 +1732,19 @@ export default function ReaderLabWorkspace({
   );
   const diagram = (
     <DocumentDiagramPanel
-      document={currentDocument}
+      document={diagramDocument}
+      standalone={standaloneDiagram}
       drawings={currentDrawings}
       activeDrawing={activeDrawing}
       onSelectDrawing={selectDrawing}
       onCreateDrawing={createDrawing}
       onDeleteDrawing={deleteDrawing}
       onNotice={setNotice}
-      anchor={diagramAnchor?.documentId === currentDocument.id ? diagramAnchor : null}
+      anchor={diagramAnchor?.documentId === diagramDocument.id ? diagramAnchor : null}
       onClearAnchor={clearDiagramAnchor}
       diagram={diagramState}
       onOpenHistory={() => {
-        if (onOpenHistory) onOpenHistory(currentDocument.id);
+        if (onOpenHistory) onOpenHistory(diagramDocument.id);
         else setInternalHistoryOpen(true);
       }}
     />
@@ -1669,6 +1756,8 @@ export default function ReaderLabWorkspace({
   return (
     <TooltipProvider>
       <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f3f5f4] text-gray-950">
+        <PrivacyNoticeBar onExport={exportBackup} />
+
         <header className="z-20 flex min-h-[62px] shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-3 sm:px-4 lg:px-6">
           <Tooltip content={isDesktop && !isHomeLayout ? (libraryCollapsed ? '展开文档库' : '折叠文档库') : '打开文档库'}>
             <button
@@ -1684,24 +1773,32 @@ export default function ReaderLabWorkspace({
             </button>
           </Tooltip>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-sm font-semibold text-gray-950 sm:text-base">{currentDocument.title}</h1>
-            <p className="mt-0.5 flex items-center gap-2 truncate text-[11px] text-gray-500">
-              <span>{currentDocument.category}</span>
-              <span aria-hidden="true">·</span>
-              <span>{currentDocument.readMinutes} 分钟</span>
-              <span className="hidden sm:inline" aria-hidden="true">·</span>
-              <span className="hidden sm:inline">更新于 {formatDate(currentDocument.updatedAt)}</span>
-            </p>
+            {/* 独立图解工作区不绑定文档：顶栏不再显示文档标题与元信息 */}
+            {standaloneDiagram ? (
+              <>
+                <h1 className="truncate text-sm font-semibold text-gray-950 sm:text-base">自由图解</h1>
+                <p className="mt-0.5 truncate text-[11px] text-gray-500">不绑定文档 · 在这里自由创建与管理图解</p>
+              </>
+            ) : (
+              <>
+                <h1 className="truncate text-sm font-semibold text-gray-950 sm:text-base">{currentDocument.title}</h1>
+                <p className="mt-0.5 flex items-center gap-2 truncate text-[11px] text-gray-500">
+                  <span>{currentDocument.category}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{currentDocument.readMinutes} 分钟</span>
+                  <span className="hidden sm:inline" aria-hidden="true">·</span>
+                  <span className="hidden sm:inline">更新于 {formatDate(currentDocument.updatedAt)}</span>
+                </p>
+              </>
+            )}
           </div>
           {/* 显示组：多选辅助 + 层级可见性常驻可见；生成/管理动作收纳进右侧下拉；图解画布下阅读区不存在，整组收起 */}
           {!diagramMode && (
           <div className="flex shrink-0 items-center gap-1 rounded-md border border-gray-200 bg-[#fafafa] p-1">
             <div className="flex items-center gap-1" aria-label="内联辅助显示">
-              {AID_OPTIONS.map((option) => {
+              {AID_OPTIONS.filter((option) => option.id !== 'precision').map((option) => {
                 const active = Boolean(aidVisibility[option.id]);
-                const tooltip = option.id === 'precision'
-                  ? (active ? '还原原文（关闭白话）' : '应用白话：把难懂表述换成易懂说法')
-                  : `在原文中${active ? '隐藏' : '显示'}${option.label}`;
+                const tooltip = `在原文中${active ? '隐藏' : '显示'}${option.label}`;
                 return (
                   <Tooltip key={option.id} content={tooltip}>
                     <button
@@ -1713,14 +1810,65 @@ export default function ReaderLabWorkspace({
                     >
                       {option.id === 'explanations'
                         ? <MessageSquareText size={14} />
-                        : option.id === 'diagrams'
-                          ? <Network size={14} />
-                          : <WandSparkles size={14} />}
+                        : <Network size={14} />}
                       {option.label}
                     </button>
                   </Tooltip>
                 );
               })}
+            </div>
+            <span className="h-5 w-px bg-gray-200" aria-hidden="true" />
+            {/* 白话与重点同形态：入口是带下拉的 tab，开关与解释深度档位收纳在下拉里 */}
+            <div className="relative">
+              <Tooltip content="应用白话：把难懂表述换成易懂说法，并选择解释深度档位">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPrecisionMenuOpen((open) => !open);
+                    setLayerMenuOpen(false);
+                    setMoreMenuOpen(false);
+                  }}
+                  aria-label="白话与解释深度"
+                  aria-expanded={precisionMenuOpen}
+                  className={`flex h-8 items-center gap-1.5 rounded border px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${aidVisibility.precision ? 'border-gray-300 bg-white text-gray-900 shadow-sm' : 'border-transparent text-gray-400 hover:bg-white'}`}
+                >
+                  <WandSparkles size={14} />
+                  白话
+                  <ChevronDown size={12} aria-hidden="true" />
+                </button>
+              </Tooltip>
+              {precisionMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setPrecisionMenuOpen(false)} />
+                  <div className="absolute right-0 top-9 z-50 w-60 rounded-md border border-zinc-200 bg-white p-2 shadow-lg">
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(aidVisibility.precision)}
+                        onChange={() => toggleAid('precision')}
+                        className="h-3.5 w-3.5 accent-teal-600"
+                      />
+                      {aidVisibility.precision ? '还原原文（关闭白话）' : '应用白话替换'}
+                    </label>
+                    <p className="px-2 pb-1 pt-1.5 text-[11px] text-gray-500">解释深度（下次一键生成时生效）</p>
+                    {EXPLANATION_DEPTH_OPTIONS.map((option) => (
+                      <label
+                        key={option.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                      >
+                        <input
+                          type="radio"
+                          name="explanation-depth"
+                          checked={explanationDepth === option.id}
+                          onChange={() => updateExplanationDepth(option.id)}
+                          className="h-3.5 w-3.5 accent-teal-600"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             <span className="h-5 w-px bg-gray-200" aria-hidden="true" />
             {/* 重点不是一个独立模式：层级是重点的内部选项，在重点下拉里多选叠加 */}
@@ -1731,6 +1879,7 @@ export default function ReaderLabWorkspace({
                   onClick={() => {
                     setLayerMenuOpen((open) => !open);
                     setMoreMenuOpen(false);
+                    setPrecisionMenuOpen(false);
                   }}
                   aria-label="重点可见层级"
                   aria-expanded={layerMenuOpen}
@@ -1781,8 +1930,8 @@ export default function ReaderLabWorkspace({
             </div>
           </div>
           )}
-          {/* 图解画布下提供返回阅读的显式出口，不靠刷新页面回阅读视图 */}
-          {diagramMode && (
+          {/* 图解画布下提供返回阅读的显式出口，不靠刷新页面回阅读视图；独立图解工作区用导航「阅读」返回 */}
+          {diagramMode && !standaloneDiagram && (
             <button
               type="button"
               onClick={() => {
@@ -1796,7 +1945,8 @@ export default function ReaderLabWorkspace({
               返回阅读
             </button>
           )}
-          {/* 更多：生成动作与管理项合并收纳，减少顶栏按钮；图解画布下仅保留生成图解 */}
+          {/* 更多：生成动作与管理项合并收纳，减少顶栏按钮；图解画布下仅保留生成图解；独立图解工作区的动作都在右侧面板，整个下拉收起 */}
+          {!standaloneDiagram && (
           <div className="relative shrink-0">
             <Tooltip content="生成 AI 辅助与管理项">
               <button
@@ -1804,6 +1954,7 @@ export default function ReaderLabWorkspace({
                 onClick={() => {
                   setMoreMenuOpen((open) => !open);
                   setLayerMenuOpen(false);
+                  setPrecisionMenuOpen(false);
                 }}
                 aria-label="更多"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-600 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400"
@@ -1909,6 +2060,7 @@ export default function ReaderLabWorkspace({
               </>
             )}
           </div>
+          )}
           {headerStatus}
           <Tooltip content="打开知识面板">
             <button
@@ -1921,16 +2073,6 @@ export default function ReaderLabWorkspace({
             </button>
           </Tooltip>
         </header>
-
-        {/* 首页宣传条：品牌词标与宣传语合在这一条，顶栏不再夹品牌信息 */}
-        {isHomeLayout && (
-          <div className="flex min-h-8 shrink-0 items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 text-[11px] leading-4 text-gray-500 md:px-7">
-            <span className="font-semibold tracking-[0.08em] text-gray-600">ANCHOR READ</span>
-            <span className="hidden shrink-0 text-gray-400 xl:inline">专业文章阅读与概念理解工作台</span>
-            <span className="hidden h-3 w-px shrink-0 bg-gray-200 lg:block" aria-hidden="true" />
-            <span className="truncate">越用越准确 · 术语记住了就不再解释 · 所有解读锚定原文</span>
-          </div>
-        )}
 
         {notice && (
           <div className={`flex min-h-9 shrink-0 items-center gap-2 border-b px-4 text-xs ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-700' : notice.type === 'demo' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-teal-200 bg-teal-50 text-teal-800'}`}>
@@ -1964,7 +2106,7 @@ export default function ReaderLabWorkspace({
               </ResizablePanel>
             </ResizablePanelGroup>
           ) : (
-            <section className="h-full min-h-0" aria-label={rightPanelView === 'diagram' ? '当前文档关系图' : '阅读区'}>
+            <section className="h-full min-h-0" aria-label={rightPanelView === 'diagram' ? (standaloneDiagram ? '自由图解画布' : '当前文档关系图') : '阅读区'}>
               {rightPanelView === 'diagram' ? diagramCanvas : readingSurface}
             </section>
           )}
@@ -1973,7 +2115,9 @@ export default function ReaderLabWorkspace({
         <footer className="flex min-h-8 shrink-0 items-center justify-between border-t border-gray-200 bg-white px-4 text-[11px] text-gray-500">
           <span className="flex min-w-0 items-center gap-1.5 truncate">
             <BookOpen size={13} className="shrink-0" />
-            {sessions[currentDocument.id]?.progress || 0}% · {currentExplanations.length} 条解读
+            {standaloneDiagram
+              ? `${currentDrawings.length} 张自由图解`
+              : `${sessions[currentDocument.id]?.progress || 0}% · ${currentExplanations.length} 条解读`}
           </span>
           <button
             type="button"
@@ -1989,14 +2133,14 @@ export default function ReaderLabWorkspace({
           <SheetContent title="文档库" side="left">{library}</SheetContent>
         </Sheet>
         <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
-          <SheetContent title={rightPanelView === 'diagram' ? '文档关系图' : '知识面板'} side="right">{rightPanel}</SheetContent>
+          <SheetContent title={rightPanelView === 'diagram' ? (standaloneDiagram ? '自由图解' : '文档关系图') : '知识面板'} side="right">{rightPanel}</SheetContent>
         </Sheet>
         {!onOpenHistory && (
           <HistoryModal
             isOpen={internalHistoryOpen}
             onClose={() => setInternalHistoryOpen(false)}
             onApply={applyHistoryDrawing}
-            documentId={currentDocument.id}
+            documentId={diagramDocumentId}
           />
         )}
         <WorkspaceSyncPanel isOpen={syncOpen} onClose={() => setSyncOpen(false)} />

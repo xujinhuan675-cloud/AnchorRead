@@ -74,6 +74,11 @@ export function useDocumentDiagram({
       const accessPassword = typeof window !== 'undefined' ? localStorage.getItem('smart-excalidraw-access-password') : '';
       const config = getConfig();
       if (!usePassword && !isConfigValid(config)) {
+        // 独立图解工作区没有可建模的文档：不种子演示脑图，交给画布自由绘制
+        if (document?.standaloneDiagram) {
+          onNotice?.({ type: 'demo', message: '未配置 LLM：可直接在画布上自由绘制，配置模型后支持 AI 生成。' });
+          return;
+        }
         // 无 LLM 配置时不阻断：按文档真实结构本地生成 Mermaid 脑图，保证图解链路可走通
         const finalCode = finalizeDiagramSource('mermaid', createDemoDocumentDiagram(document));
         setEngine('mermaid');
@@ -171,7 +176,7 @@ export function useDocumentDiagram({
         generatedCode: finalCode,
         engine: nextEngine,
       });
-      onNotice?.({ type: 'success', message: '图解已保存到当前文档。' });
+      onNotice?.({ type: 'success', message: document?.standaloneDiagram ? '图解已保存到自由画布。' : '图解已保存到当前文档。' });
     } catch (caughtError) {
       setError(caughtError.message || '图解生成失败。');
       onNotice?.({ type: 'error', message: caughtError.message || '图解生成失败。' });

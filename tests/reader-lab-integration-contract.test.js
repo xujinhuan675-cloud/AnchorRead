@@ -59,6 +59,26 @@ test('home keeps app navigation while diagrams live inside the shared document w
   }
 });
 
+test('nav diagram entry opens a standalone free-form diagram workspace', () => {
+  const diagramLib = readSource('../lib/diagram-generation.js');
+  // 独立图解的保留虚拟文档：自由图解挂在这里，与各文档绑定图解隔离
+  assert.match(diagramLib, /export const STANDALONE_DIAGRAM_DOCUMENT_ID = ['"]reader-lab-standalone-diagrams['"]/);
+  assert.match(diagramLib, /export function createStandaloneDiagramDocument/);
+  assert.match(diagramLib, /if \(document\?\.standaloneDiagram\)/);
+  // 导航「图解」进独立工作区；文档内触发的图解仍是文档绑定形态
+  assert.match(homePage, /setStandaloneDiagram\(true\)/);
+  assert.match(homePage, /standaloneDiagram=\{mode === 'diagram' && standaloneDiagram\}/);
+  assert.match(homePage, /if \(tool === 'diagram'\) setStandaloneDiagram\(false\)/);
+  // 工作区把图解链路绑到保留虚拟文档，恢复与切换都不丢自由图解
+  assert.match(readerLabWorkspace, /const diagramDocumentId = standaloneDiagram \? STANDALONE_DIAGRAM_DOCUMENT_ID : currentDocumentId/);
+  assert.match(readerLabWorkspace, /\|\| drawing\.documentId === STANDALONE_DIAGRAM_DOCUMENT_ID/);
+  // 独立形态下顶栏不再显示文档信息：返回阅读与文档动作下拉都收起
+  assert.match(readerLabWorkspace, /diagramMode && !standaloneDiagram/);
+  assert.match(readerLabWorkspace, /\{!standaloneDiagram && \([\s\S]*?<Tooltip content="生成 AI 辅助与管理项">/);
+  assert.match(readerLabWorkspace, /不绑定文档 · 在这里自由创建与管理图解/);
+  assert.match(documentDiagramPanel, /standalone \? '自由图解' : '文档关系图'/);
+});
+
 test('flashcard review lives in the knowledge panel and inline aids are user selectable', () => {
   assert.doesNotMatch(workspaceNav, /闪卡/);
   assert.doesNotMatch(homePage, /FlashcardReview|onOpenFlashcards/);
