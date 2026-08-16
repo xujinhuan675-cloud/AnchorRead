@@ -89,7 +89,7 @@ test('flashcard review lives in the knowledge panel and inline aids are user sel
   // 白话是叠加层而非互斥视图：不再整体清空装饰，改用文本匹配重锚定命中替换片段
   assert.doesNotMatch(readerSurfaceSource, /if \(aid\.precision\) return DecorationSet\.empty;/);
   assert.match(readerSurfaceSource, /function precisionSubstitutions\(records\)/);
-  assert.match(readerSurfaceSource, /resolveRecordRange\(record, doc, substitutions = \[\]\)/);
+  assert.match(readerSurfaceSource, /resolveRecordRange\(record, doc, substitutions = \[\], revealedKeys = null\)/);
   assert.doesNotMatch(readerSurfaceSource, /mode === 'interpretation'|mode === 'original'/);
 });
 
@@ -149,6 +149,26 @@ test('precision replacement is an optional overlay that keeps bracket markers in
   // 括号标记由替换工具直接写入替代文本，不再依赖内联装饰样式
   assert.match(readerLabLib, /『/);
   assert.match(readerLabLib, /』/);
+});
+
+test('precision markers become clickable cloze chips that flip between plain wording and the original term', () => {
+  const readerSurface = readSource('../components/reader-lab/ReaderSurface.jsx');
+  const derivedDraft = readSource('../components/reader-lab/DerivedDraft.jsx');
+  const readerLabLib = readSource('../lib/reader-lab.js');
+  const globalsCss = readSource('../app/globals.css');
+
+  // 翻转态参与派生文档计算：已翻开映射回写『原术语』，文档文本即状态
+  assert.match(readerLabLib, /export function clozeMappingKey\(mapping\)/);
+  assert.match(readerLabLib, /revealedKeys\.has\(clozeMappingKey\(mapping\)\)/);
+  assert.match(derivedDraft, /createPrecisionReplacementMarkdown\(document, explanations, revealedKeys = null\)/);
+  assert.match(readerSurface, /createPrecisionReplacementMarkdown\(document, explanations, revealedClozes\)/);
+  // 点击翻转走内联装饰 + 插件 handleClick，不用不存在的 Decoration.replace
+  assert.doesNotMatch(readerSurface, /Decoration\.replace\(/);
+  assert.match(readerSurface, /'data-cloze-key': key/);
+  assert.match(readerSurface, /callbacks\.onToggleCloze\?\.\(cloze\.dataset\.clozeKey\)/);
+  // chip 常态虚线下划线提示可翻，翻转态去下划线换底色
+  assert.match(globalsCss, /\.reader-lab-cloze \{/);
+  assert.match(globalsCss, /\.reader-lab-cloze-revealed \{/);
 });
 
 test('hierarchical key points: role layers, word marks and layer visibility controls', () => {

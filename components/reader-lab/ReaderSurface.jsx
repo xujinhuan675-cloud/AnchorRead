@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, ReactWidgetRenderer, useEditor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -65,11 +65,12 @@ function precisionSubstitutions(records) {
   return list;
 }
 
-function markedVariants(candidate, substitutions) {
+function markedVariants(candidate, substitutions, revealedKeys = null) {
   const variants = [];
   for (const { source, target } of substitutions) {
     if (!candidate.includes(source)) continue;
-    const marker = `『${target}』`;
+    // 填空已翻开的映射在派生文档里以『原术语』形态存在，重锚定需尝试该形态
+    const marker = revealedKeys?.has(`${source}\u0000${target}`) ? `『${source}』` : `『${target}』`;
     // 替换器对每个映射只换首个命中处，同时给出全部替换的变体兜底多重命中场景
     variants.push(candidate.replace(source, marker));
     variants.push(candidate.split(source).join(marker));
@@ -126,13 +127,13 @@ function expandRangeToPrecisionMarkers(range, doc) {
   return { from, to };
 }
 
-function resolveRecordRange(record, doc, substitutions = []) {
+function resolveRecordRange(record, doc, substitutions = [], revealedKeys = null) {
   if (substitutions.length === 0 && validRange(record, doc)) return record.range;
 
   const baseCandidates = candidateVariants(record?.source || record?.selectedText);
-  // 白话视图里原文已被替换，候选文本需同时尝试带“『大白话』”标记的形态
+  // 白话视图里原文已被替换，候选文本需同时尝试带“『大白话』”或已翻开“『原术语』”标记的形态
   const candidates = substitutions.length > 0
-    ? [...new Set([...baseCandidates, ...baseCandidates.flatMap((candidate) => markedVariants(candidate, substitutions))])]
+    ? [...new Set([...baseCandidates, ...baseCandidates.flatMap((candidate) => markedVariants(candidate, substitutions, revealedKeys))])]
     : baseCandidates;
   if (candidates.length === 0) return null;
 
@@ -157,7 +158,10 @@ function resolveRecordRange(record, doc, substitutions = []) {
   return null;
 }
 
-function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}) {
+// 填空翻转：『白话』片段的展开态由组件 state 持有并参与派生文档计算，
+// 已翻开的映射回写『原术语』，未翻开的保持『大白话』；文档文本即状态，无需 replace 装饰
+
+function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}, revealedKeys = null) {
   const { doc } = editor.state;
   // 白话视图与原文视图叠加同一套装饰：原文坐标失效后改用文本匹配重锚定，
   // 命中“『大白话』”替换片段时高亮直接包在替换文本上，行间解读卡照常挂载
@@ -173,7 +177,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
     const isWord = record.level === 'word';
     const layer = isWord ? 'word' : readerRoleLayer(record.role);
     const layerHidden = layers[layer] === false;
-    let range = resolveRecordRange(record, doc, substitutions);
+    let range = resolveRecordRange(record, doc, substitutions, revealedKeys);
     // 白话视图里命中的替换片段需整体框选，含两端的 『 』 角引号
     if (range && substitutions.length > 0) range = expandRangeToPrecisionMarkers(range, doc);
     if (!layerHidden && range && isWord) {
@@ -226,13 +230,56 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
     decorations.push(widget.toPMDecoration());
   }
 
+  // 填空翻转：白话视图下给每个『…』片段叠加可点击 chip 装饰——
+  // 未翻开映射命中『大白话』，已翻开映射命中『原术语』；点击由插件 handleClick 统一翻转
+  if (substitutions.length > 0) {
+    const keyByTarget = new Map();
+    const keyBySource = new Map();
+    for (const { source, target } of substitutions) {
+      const key = `${source}\u0000${target}`;
+      keyByTarget.set(target, key);
+      keyBySource.set(source, key);
+    }
+    for (const block of textblockSegments(doc)) {
+      for (const segment of block.segments) {
+        PRECISION_MARKER_PATTERN.lastIndex = 0;
+        let match;
+        while ((match = PRECISION_MARKER_PATTERN.exec(segment.text)) !== null) {
+          const inner = match[0].slice(1, -1);
+          const hiddenKey = keyByTarget.get(inner);
+          const revealedKey = keyBySource.get(inner);
+          let state = null;
+          let key = '';
+          if (hiddenKey && !revealedKeys?.has(hiddenKey)) {
+            state = 'hidden';
+            key = hiddenKey;
+          } else if (revealedKey && revealedKeys?.has(revealedKey)) {
+            state = 'revealed';
+            key = revealedKey;
+          }
+          if (!state) continue;
+          const from = segment.from + match.index;
+          const to = from + match[0].length;
+          decorations.push(Decoration.inline(from, to, {
+            class: `reader-lab-cloze${state === 'revealed' ? ' reader-lab-cloze-revealed' : ''}`,
+            'data-cloze-key': key,
+            'data-cloze-state': state,
+            role: 'button',
+            tabindex: '0',
+            title: state === 'revealed' ? '点击收回白话' : '点击显示原文术语',
+          }));
+        }
+      }
+    }
+  }
+
   // 带锚点的图表在内联卡片形式插入对应原文下方，与行间解读保持一致；
   // 无锚点的全文图解挂在文档顶部，保证「图解」开关打开时一定有图可见；
   // 图表卡同样保持挂载（隐藏时用 CSS），避免销毁重建触发 flushSync
   for (const drawing of drawings) {
       let end = null;
       if (drawing.anchor?.source) {
-        const range = resolveRecordRange({ source: drawing.anchor.source }, doc, substitutions);
+        const range = resolveRecordRange({ source: drawing.anchor.source }, doc, substitutions, revealedKeys);
         if (!range) continue;
         const resolvedEnd = doc.resolve(range.to);
         end = resolvedEnd.depth > 0 ? resolvedEnd.after(1) : range.to;
@@ -271,10 +318,16 @@ function createDecorationsPlugin(editor, getSource) {
     key: READER_LAB_DECORATIONS_KEY,
     props: {
       decorations() {
-        const { records, mastery, callbacks, drawings, aid, layers } = getSource();
-        return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers);
+        const { records, mastery, callbacks, drawings, aid, layers, revealed } = getSource();
+        return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers, revealed);
       },
       handleClick(_view, _position, event) {
+        // 填空 chip 优先于高亮定位：点击『大白话』/『原术语』翻转展开态
+        const cloze = event.target?.closest?.('[data-cloze-key]');
+        if (cloze) {
+          getSource().callbacks.onToggleCloze?.(cloze.dataset.clozeKey);
+          return true;
+        }
         const marker = event.target?.closest?.('[data-reader-explanation-id]');
         if (!marker) return false;
         getSource().callbacks.onFocus?.(marker.dataset.readerExplanationId);
@@ -282,6 +335,12 @@ function createDecorationsPlugin(editor, getSource) {
       },
       handleKeyDown(_view, event) {
         if (event.key !== 'Enter' && event.key !== ' ') return false;
+        const cloze = event.target?.closest?.('[data-cloze-key]');
+        if (cloze) {
+          getSource().callbacks.onToggleCloze?.(cloze.dataset.clozeKey);
+          event.preventDefault();
+          return true;
+        }
         const marker = event.target?.closest?.('[data-reader-explanation-id]');
         if (!marker) return false;
         getSource().callbacks.onFocus?.(marker.dataset.readerExplanationId);
@@ -318,12 +377,27 @@ export default function ReaderSurface({
   analysisBusy,
 }) {
   const precisionEnabled = Boolean(aidVisibility?.precision);
+  // 填空翻转态：已翻开映射的 key 集合，参与派生文档计算（回写『原术语』）
+  const [revealedClozes, setRevealedClozes] = useState(() => new Set());
+  const toggleCloze = useCallback((key) => {
+    if (!key) return;
+    setRevealedClozes((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
   const sourceMarkdown = useMemo(
     () => precisionEnabled
-      ? createPrecisionReplacementMarkdown(document, explanations)
+      ? createPrecisionReplacementMarkdown(document, explanations, revealedClozes)
       : document.content,
-    [document, explanations, precisionEnabled]
+    [document, explanations, precisionEnabled, revealedClozes]
   );
+  // 白话关闭时清空填空翻转状态，下次开启从“全部盖住”重新开始
+  useEffect(() => {
+    if (!precisionEnabled) setRevealedClozes((prev) => (prev.size > 0 ? new Set() : prev));
+  }, [precisionEnabled]);
   // 精准替代开启但无可用映射时不再静默显示原文，给出明确提示并引导重新分析
   const precisionNotice = useMemo(() => {
     if (!precisionEnabled) return '';
@@ -384,10 +458,11 @@ export default function ReaderSurface({
     decorationsSourceRef.current = {
       records: explanations,
       mastery,
-      callbacks: { onMaster, onDelete, onFocus, onOpenDiagram, document, onCreateDrawing, onPersistDrawing, onNotice },
+      callbacks: { onMaster, onDelete, onFocus, onOpenDiagram, document, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze: toggleCloze },
       drawings,
       aid: aidVisibility,
       layers: layerVisibility,
+      revealed: revealedClozes,
     };
   });
 
@@ -413,7 +488,7 @@ export default function ReaderSurface({
       editor.view.dispatch(editor.state.tr.setMeta('readerLabDecorationsRefresh', true));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [editor, explanations, mastery, precisionEnabled, drawings, document, aidVisibility, layerVisibility, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice]);
+  }, [editor, explanations, mastery, precisionEnabled, drawings, document, aidVisibility, layerVisibility, revealedClozes, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed || !focusRange) return;

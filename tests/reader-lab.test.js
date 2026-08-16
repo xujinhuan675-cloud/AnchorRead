@@ -6,6 +6,7 @@ import {
   calculateReadingProgress,
   collectKnownTerms,
   combineKnownMasteredTerms,
+  clozeMappingKey,
   createDemoFlashcards,
   createReaderLabAnalysisRecords,
   createReaderLabExplanation,
@@ -214,6 +215,24 @@ test('local replacements bracket only mapped source or target text', () => {
   assert.equal(
     applyReaderLabReplacements(source, [{ source: '不存在', target: '不会出现' }], 'target'),
     source
+  );
+});
+
+test('cloze flip writes the original term back into the derived plain view', () => {
+  const source = '服务端必须使用幂等键识别同一次支付意图。';
+  const mappings = [{ source: '幂等键', target: '识别同一笔业务请求的唯一标记' }];
+  const key = clozeMappingKey(mappings[0]);
+  assert.equal(key, '幂等键\u0000识别同一笔业务请求的唯一标记');
+
+  // 未翻开：白话视图写入『大白话』
+  assert.equal(
+    applyReaderLabReplacements(source, mappings, 'target'),
+    '服务端必须使用『识别同一笔业务请求的唯一标记』识别同一次支付意图。'
+  );
+  // 已翻开：同一视图回写『原术语』，形成填空答案
+  assert.equal(
+    applyReaderLabReplacements(source, mappings, 'target', 0, new Set([key])),
+    '服务端必须使用『幂等键』识别同一次支付意图。'
   );
 });
 
