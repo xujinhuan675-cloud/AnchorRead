@@ -27,6 +27,7 @@ test('normalizes reader analysis requests without changing source offsets', () =
       title: '示例文档',
       content: '  原文保留空格  ',
       mode: 'plain',
+      depth: 'standard',
       knownMasteredTerms: [],
       knownExplainedTerms: [],
       glossary: [],
@@ -42,6 +43,37 @@ test('normalizes reader analysis requests without changing source offsets', () =
     () => normalizeReaderAnalysisRequest({ title: '标题', content: '正文', mode: 'unknown' }),
     /mode 必须是/
   );
+});
+
+test('normalizes explanation depth with standard fallback and rejects invalid values', () => {
+  assert.equal(
+    normalizeReaderAnalysisRequest({ ...request, depth: 'deep' }).depth,
+    'deep'
+  );
+  assert.equal(
+    normalizeReaderAnalysisRequest({ ...request, depth: '' }).depth,
+    'standard'
+  );
+  assert.throws(
+    () => normalizeReaderAnalysisRequest({ ...request, depth: 'verbose' }),
+    /depth 必须是/
+  );
+});
+
+test('injects exactly one depth clause matching the requested level', () => {
+  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'light' }), /12\. 解释深度为轻度/);
+  assert.doesNotMatch(buildReaderAnalysisPrompt({ ...request, depth: 'light' }), /解释深度为标准|解释深度为深度/);
+  assert.match(buildReaderAnalysisPrompt(request), /12\. 解释深度为标准/);
+  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'deep' }), /12\. 解释深度为深度/);
+  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'deep' }), /"depth":"deep"/);
+});
+
+test('demo explanation coverage follows the requested depth', () => {
+  const longContent = Array.from({ length: 12 }, (_, index) => `第${index + 1}段正文，包含幂等键等术语。`).join('\n\n');
+  const longRequest = { title: '多段文档', content: longContent, mode: 'plain' };
+  assert.equal(createDemoReaderAnalysis({ ...longRequest, depth: 'light' }).explanations.length, 3);
+  assert.equal(createDemoReaderAnalysis(longRequest).explanations.length, 5);
+  assert.equal(createDemoReaderAnalysis({ ...longRequest, depth: 'deep' }).explanations.length, 8);
 });
 
 test('normalizes glossary entries and ignores malformed input', () => {
