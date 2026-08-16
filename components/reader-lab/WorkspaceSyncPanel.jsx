@@ -11,7 +11,7 @@ import {
 } from '@/lib/sync-storage';
 import { pushWorkspace, pullWorkspace, peekRemoteExportedAt } from '@/lib/sync-manager';
 import { workspaceRepository } from '@/lib/local-workspace-db';
-import { exportWorkspace, downloadWorkspaceFile } from '@/lib/workspace-file';
+import { exportWorkspace, downloadWorkspaceFile, supportsSaveFilePicker, saveWorkspaceFileWithPicker } from '@/lib/workspace-file';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { historyManager } from '@/lib/history-manager';
 
@@ -60,7 +60,7 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
     }
   };
 
-  // 本地备份：把整个工作区导出为 .anchorread 文件，不依赖同步存储
+  // 本地备份：把整个工作区导出为单个 .anchorread 文件，优先让用户自选位置落盘，不依赖同步存储
   const exportLocal = async () => {
     setBusy('export');
     setMessage(null);
@@ -69,9 +69,16 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
         flashcards: flashcardStore.getAll(),
         diagramHistory: historyManager.getHistories(),
       });
-      downloadWorkspaceFile(payload, `anchor-read-backup-${new Date().toISOString().slice(0, 10)}.anchorread`);
+      const suggested = `anchor-read-backup-${new Date().toISOString().slice(0, 10)}.anchorread`;
+      if (supportsSaveFilePicker()) {
+        const savedName = await saveWorkspaceFileWithPicker(payload, suggested);
+        setMessage({ type: 'success', text: `备份已保存为「${savedName}」。` });
+        return;
+      }
+      downloadWorkspaceFile(payload, suggested);
       setMessage({ type: 'success', text: 'JSON 备份已开始下载。' });
     } catch (error) {
+      if (error?.name === 'AbortError') return; // 用户在对话框取消，不提示
       setMessage({ type: 'error', text: error?.message || '导出失败。' });
     } finally {
       setBusy('');
@@ -104,6 +111,9 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
       <div className="space-y-4 text-sm text-gray-800">
         <p className="text-xs leading-5 text-gray-500">
           同步会把整个工作区（文档、解读、术语、闪卡、自定义动作）作为一个备份整体推送/拉回，拉取会替换本地数据。
+        </p>
+        <p className="text-[11px] leading-4 text-gray-400">
+          数据仅保存在此浏览器本地，浏览器数据可能被清除，请定期推送或导出备份；仅当你主动生成 AI 解读时，相关内容才会发送到所配置模型服务。
         </p>
 
         <label className="block">
