@@ -18,7 +18,7 @@
     "test:parse-e2e": "node --experimental-default-type=module tests/parse-api.e2e.js",
     "test:import": "node --experimental-default-type=module --test tests/html-to-markdown.test.js tests/epub-import.test.js",
     "test:api": "node --experimental-default-type=module --test tests/api-auth.test.js",
-    "test:actions": "node --experimental-default-type=module --test tests/custom-actions.test.js",
+    "test:actions": "node --experimental-default-type=module --test tests/custom-actions.test.js tests/toolbar-builtins.test.js",
     "test:sync": "node --experimental-default-type=module --test tests/sync-storage.test.js",
     "test:inbox": "node --experimental-default-type=module --test tests/inbox-merge.test.js",
     "test:i18n": "node --experimental-default-type=module --test tests/i18n.test.js",

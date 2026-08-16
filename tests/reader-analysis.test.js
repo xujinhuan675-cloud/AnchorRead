@@ -311,11 +311,20 @@ test('creates an explicitly labelled local demo with the canonical shape', () =>
   assert.equal(result.isDemo, true);
   assert.ok(result.anchors.length > 0);
   assert.ok(result.explanations.length > 0);
-  // Demo 现在自带替换映射以驱动“精准替代”模式，source 必须是逐字可定位的原文
-  const mapping = result.explanations[0].mappings[0];
-  assert.ok(mapping);
+  // Demo 用内置术语词典驱动“精准替代”：映射是真实术语→大白话，source 逐字可定位，不再出现占位示例文案
+  const explained = result.explanations.find((explanation) => explanation.mappings.length > 0);
+  assert.ok(explained);
+  const mapping = explained.mappings[0];
+  assert.equal(mapping.source, '幂等键');
   assert.equal(request.content.slice(mapping.start, mapping.end), mapping.source);
-  assert.ok(mapping.target.includes('本地示例替换'));
+  assert.equal(mapping.target, '同一次操作的去重凭证');
+  // 解读与摘要直接提炼原文真实内容，无 Demo 占位文案，也不带任何题头前缀
+  assert.ok(result.explanations.every((explanation) => (
+    explanation.display
+    && !explanation.display.includes('通俗解读')
+    && !explanation.display.includes('示例')
+  )));
+  assert.ok(!result.summary.includes('示例'));
   // Demo 同样演示层级结构：中心论点 + 服务于它的论据/对策 + 词语层标记
   const core = result.anchors.find((anchor) => anchor.role === 'core');
   const word = result.anchors.find((anchor) => anchor.level === 'word');

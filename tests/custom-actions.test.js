@@ -7,6 +7,8 @@ import {
   MAX_CUSTOM_ACTION_TEMPLATE_LENGTH,
   CustomActionError,
   createCustomAction,
+  createDemoCustomActions,
+  createDemoCustomActionResult,
   renderCustomActionPrompt,
   normalizeCustomActions,
 } from '../lib/custom-actions.js';
@@ -57,6 +59,16 @@ test('createCustomAction 保留已有 id 与 createdAt，支持禁用', () => {
   assert.equal(action.enabled, false);
 });
 
+test('createCustomAction 保留显式 order，缺省用创建时间兼容存量数据', () => {
+  const withOrder = createCustomAction(
+    { name: '排序', promptTemplate: VALID_TEMPLATE, order: 3 },
+    { now: 100 }
+  );
+  assert.equal(withOrder.order, 3);
+  const fallback = createCustomAction({ name: '排序', promptTemplate: VALID_TEMPLATE }, { now: 100 });
+  assert.equal(fallback.order, 100);
+});
+
 test('renderCustomActionPrompt 替换 selection 与 context 占位符', () => {
   const action = { promptTemplate: '背景：{{context}}\n问题：{{selection}}\n再看：{{selection}}' };
   const prompt = renderCustomActionPrompt(action, { selection: ' 锚点 ', context: ' 阅读 ' });
@@ -80,4 +92,37 @@ test('normalizeCustomActions 过滤非法条目并保留合法动作', () => {
   assert.equal(normalized.length, 1);
   assert.equal(normalized[0].name, '翻译');
   assert.deepEqual(normalizeCustomActions(undefined), []);
+});
+
+test('createDemoCustomActions returns 3 built-in actions with selection placeholder', () => {
+  const actions = createDemoCustomActions({ now: 100 });
+  assert.equal(actions.length, 3);
+  for (const action of actions) {
+    assert.equal(typeof action.id, 'string');
+    assert.equal(action.enabled, true);
+    assert.ok(action.promptTemplate.includes(CUSTOM_ACTION_SELECTION_PLACEHOLDER));
+    assert.equal(action.createdAt >= 100, true);
+    assert.equal(action.order >= 100, true);
+  }
+  assert.equal(actions[0].name, '提炼要点');
+  assert.equal(actions[1].name, '反问检验');
+  assert.equal(actions[2].name, '类比联想');
+});
+
+test('createDemoCustomActionResult produces real responses based on action name and selection', () => {
+  const selection = '检索增强生成系统的上线判断不能只看回答是否流畅。还要看证据。';
+  const extract = createDemoCustomActionResult({ name: '提炼要点' }, selection);
+  assert.ok(extract.startsWith('核心要点：'));
+  assert.ok(extract.includes('检索增强生成系统的上线判断不能只看回答是否流畅。'));
+
+  const challenge = createDemoCustomActionResult({ name: '反问检验' }, selection);
+  assert.ok(challenge.startsWith('针对「'));
+  assert.ok(challenge.includes('前提'));
+
+  const analogy = createDemoCustomActionResult({ name: '类比联想' }, selection);
+  assert.ok(analogy.startsWith('可以类比为：'));
+
+  // 未知动作名走通用兜底，仍包含选区首句
+  const generic = createDemoCustomActionResult({ name: '自定义动作' }, selection);
+  assert.ok(generic.includes('检索增强生成系统的上线判断不能只看回答是否流畅。'));
 });

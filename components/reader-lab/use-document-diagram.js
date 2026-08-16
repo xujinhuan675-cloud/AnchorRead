@@ -5,6 +5,7 @@ import { historyManager } from '@/lib/history-manager';
 import { getConfig, isConfigValid } from '@/lib/config';
 import {
   buildDocumentDiagramMessage,
+  createDemoDocumentDiagram,
   createDocumentDrawingId,
   finalizeDiagramSource,
   parseExcalidrawElements,
@@ -73,7 +74,36 @@ export function useDocumentDiagram({
       const accessPassword = typeof window !== 'undefined' ? localStorage.getItem('smart-excalidraw-access-password') : '';
       const config = getConfig();
       if (!usePassword && !isConfigValid(config)) {
-        throw new Error('请先配置 LLM 提供商，或启用访问密码。');
+        // 无 LLM 配置时不阻断：按文档真实结构本地生成 Mermaid 脑图，保证图解链路可走通
+        const finalCode = finalizeDiagramSource('mermaid', createDemoDocumentDiagram(document));
+        setEngine('mermaid');
+        setChartType('mindmap');
+        setCode(finalCode);
+        setElements([]);
+        const drawing = {
+          id: createDocumentDrawingId(document.id),
+          documentId: document.id,
+          title: `结构脑图 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
+          engine: 'mermaid',
+          chartType: 'mindmap',
+          source: finalCode,
+          prompt: '本地结构图：按文档标题与正文首句自动生成',
+          anchor: anchor ? { from: anchor.from, to: anchor.to, source: anchor.source } : null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        await onCreateDrawing(drawing);
+        onClearAnchor?.();
+        historyManager.addHistory({
+          documentId: document.id,
+          drawingId: drawing.id,
+          chartType: 'mindmap',
+          userInput: drawing.prompt,
+          generatedCode: finalCode,
+          engine: 'mermaid',
+        });
+        onNotice?.({ type: 'success', message: '已按文档结构生成本地脑图（配置 LLM 后可自由提问生成）。' });
+        return;
       }
       // 锚定选区时让模型重点围绕该段落建模
       const anchoredMessage = anchor && typeof message === 'string'
@@ -93,7 +123,7 @@ export function useDocumentDiagram({
           engine: nextEngine,
         }),
       });
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `图表生成失败 (${response.status})`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `图解生成失败 (${response.status})`);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -141,10 +171,10 @@ export function useDocumentDiagram({
         generatedCode: finalCode,
         engine: nextEngine,
       });
-      onNotice?.({ type: 'success', message: '图表已保存到当前文档。' });
+      onNotice?.({ type: 'success', message: '图解已保存到当前文档。' });
     } catch (caughtError) {
-      setError(caughtError.message || '图表生成失败。');
-      onNotice?.({ type: 'error', message: caughtError.message || '图表生成失败。' });
+      setError(caughtError.message || '图解生成失败。');
+      onNotice?.({ type: 'error', message: caughtError.message || '图解生成失败。' });
     } finally {
       setIsGenerating(false);
     }
