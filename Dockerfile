@@ -4,15 +4,21 @@
 
 FROM node:22-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# 关闭 corepack 首次下载 pnpm 的交互确认，避免非交互构建挂起
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# 项目使用 pnpm-lock.yaml（lockfileVersion 9.0），经 corepack 固定 pnpm 9 并按锁文件安装，保证构建依赖与本地一致
+RUN corepack enable && corepack prepare pnpm@9 --activate
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 FROM node:22-alpine AS builder
 WORKDIR /app
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable && corepack prepare pnpm@9 --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN pnpm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
