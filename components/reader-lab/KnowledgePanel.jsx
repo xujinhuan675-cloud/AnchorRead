@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { Brain, CheckCircle2, Eye, GraduationCap, NotebookText, Trash2 } from 'lucide-react';
+import { Brain, Check, Eye, GraduationCap, NotebookText, Trash2, X } from 'lucide-react';
 import { flashcardStore } from '@/lib/flashcard-store';
 import { formatDue, RATING, RATING_LABELS } from '@/lib/fsrs';
 import { readerRoleLayer } from '@/lib/reader-analysis';
@@ -364,15 +364,16 @@ export default function KnowledgePanel({
                           event.stopPropagation();
                           onMasterTerm(term);
                         }}
+                        aria-pressed={mastered}
                         aria-label={mastered ? '取消懂了' : '标记为懂了'}
-                        className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${
+                        title={mastered ? '已懂（点击取消）' : '懂了'}
+                        className={`flex h-5 w-5 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${
                           mastered
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'bg-teal-100 text-teal-700'
+                            : 'text-gray-400 hover:bg-teal-100 hover:text-teal-700'
                         }`}
                       >
-                        <CheckCircle2 size={12} aria-hidden="true" />
-                        {mastered ? '已懂' : '懂了'}
+                        <Check size={12} aria-hidden="true" />
                       </button>
                     )}
                   </div>
@@ -431,22 +432,23 @@ export default function KnowledgePanel({
                     </span>
                   )}
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-0.5">
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
                       onMaster?.(record.id);
                     }}
-                    aria-label={mastery[record.id] ? '取消理解标记' : '标记为懂了'}
-                    className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium ${
+                    aria-pressed={Boolean(mastery[record.id])}
+                    aria-label={mastery[record.id] ? '取消懂了' : '标记为懂了'}
+                    title={mastery[record.id] ? '已懂（点击取消）' : '懂了'}
+                    className={`flex h-5 w-5 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${
                       mastery[record.id]
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        ? 'bg-teal-100 text-teal-700'
+                        : 'text-gray-400 hover:bg-teal-100 hover:text-teal-700'
                     }`}
                   >
-                    <CheckCircle2 size={12} aria-hidden="true" />
-                    {mastery[record.id] ? '已懂' : '懂了'}
+                    <Check size={12} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -456,9 +458,9 @@ export default function KnowledgePanel({
                     }}
                     aria-label="删除解读"
                     title="删除解读"
-                    className="flex items-center justify-center rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                    className="flex h-5 w-5 items-center justify-center rounded text-gray-400 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-500"
                   >
-                    <Trash2 size={13} aria-hidden="true" />
+                    <X size={12} aria-hidden="true" />
                   </button>
                 </div>
               </div>

@@ -1,14 +1,7 @@
 'use client';
 
-import { Check, Trash2 } from 'lucide-react';
+import { Check } from 'lucide-react';
 import MarkdownSnippet from './MarkdownSnippet';
-
-const ROLE_LABELS = Object.freeze({
-  core: '核心观点',
-  concept: '概念定义',
-  evidence: '关键论据',
-  conclusion: '结论推断',
-});
 
 export default function InlineExplanation({ record, mastered, onMaster, onDelete }) {
   const explanation = record.explanation || {};
@@ -17,56 +10,29 @@ export default function InlineExplanation({ record, mastered, onMaster, onDelete
   return (
     <aside
       id={`reader-note-${record.id}`}
-      className="group reader-lab-inline-note my-3 border-l-2 border-teal-600 bg-teal-50/70 px-3 py-2"
+      // 上下间隙对齐正文行距（≈14px）：负上边距抵消前段 1.1em 底边距，下边距补足到行距
+      className="group reader-lab-inline-note relative -mt-1 mb-3.5 border-l-2 border-teal-600 bg-teal-50/70 px-3 py-1"
       aria-label={`关于“${record.selectedText}”的解读`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          {(ROLE_LABELS[record.role] || record.isDemo) && (
-          <div className="flex flex-wrap items-center gap-2">
-            {ROLE_LABELS[record.role] && (
-              <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
-                {ROLE_LABELS[record.role]}
-              </span>
-            )}
-            {record.isDemo && (
-              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                Demo
-              </span>
-            )}
-          </div>
-          )}
-        </div>
-        {/* 操作按钮悬浮时才显示，降低阅读流中的视觉干扰；键盘聚焦时同样可见 */}
-        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
-          <button
-            type="button"
-            onClick={() => onMaster(record)}
-            aria-pressed={mastered}
-            className={`flex h-7 items-center gap-1 rounded px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${mastered ? 'bg-teal-700 text-white' : 'border border-teal-200 bg-white text-teal-800 hover:bg-teal-100'}`}
-          >
-            <Check size={14} aria-hidden="true" />
-            {mastered ? '已懂' : '懂了'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onDelete(record)}
-            aria-label="删除这条解读"
-            title="删除解读"
-            className="flex h-7 w-7 items-center justify-center rounded text-gray-400 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-500"
-          >
-            <Trash2 size={15} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-      {/* 解读正文是卡片主角：字号略大于标签/按钮，拉开视觉重点层次 */}
-      <div className="mt-1.5 text-[15px] leading-7 text-gray-900">
+      {/* 删除是不可逆的低频管理动作，只在知识面板提供；行间卡只留高频可逆的“懂了” */}
+      <button
+        type="button"
+        onClick={() => onMaster(record)}
+        aria-pressed={mastered}
+        aria-label={mastered ? '取消懂了' : '标记为懂了'}
+        title={mastered ? '已懂（点击取消）' : '懂了'}
+        className={`absolute right-1.5 top-1 flex h-5 w-5 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${mastered ? 'bg-teal-100 text-teal-700' : 'text-gray-400 hover:bg-teal-100 hover:text-teal-700'}`}
+      >
+        <Check size={12} aria-hidden="true" />
+      </button>
+      {/* 解读正文刻意小于正文，避免卡片过高反衬正文显得小 */}
+      <div className="pr-6 text-[13px] leading-6 text-gray-800">
         <MarkdownSnippet text={display} />
       </div>
       {explanation.context && (
         <MarkdownSnippet
           text={explanation.context}
-          className="mt-2 text-xs leading-5 text-gray-500"
+          className="mt-1 pr-6 text-xs leading-5 text-gray-500"
         />
       )}
     </aside>
