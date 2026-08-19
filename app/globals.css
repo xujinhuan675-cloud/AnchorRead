@@ -565,6 +565,129 @@ body {
   font-size: 1.25rem;
 }
 
+/* 阅读正文暗色覆盖：正文/标题/表格等换深色底浅字；高亮笔触、填空 chip、代码块等
+   语义配色刻意保留，仅调整对比度不足的青色系与浅底元素 */
+.dark .reader-lab-prosemirror,
+.dark .reader-lab-derived-source {
+  color: #d6d3d1;
+}
+
+.dark .reader-lab-prosemirror h1,
+.dark .reader-lab-prosemirror h2,
+.dark .reader-lab-prosemirror h3,
+.dark .reader-lab-derived-source h1,
+.dark .reader-lab-derived-source h2,
+.dark .reader-lab-derived-source h3 {
+  color: #f5f5f4;
+}
+
+.dark .reader-lab-prosemirror blockquote,
+.dark .reader-lab-derived-source blockquote {
+  color: #a8a29e;
+}
+
+.dark .reader-lab-derived-source blockquote {
+  border-left-color: #14b8a6;
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.dark .reader-lab-prosemirror code,
+.dark .reader-lab-derived-source code {
+  background: #27272a;
+  color: #fda4af;
+}
+
+/* 深色代码块在暗色下与页面底色过近，补一圈边线维持轮廓 */
+.dark .reader-lab-prosemirror pre,
+.dark .reader-lab-derived-source pre {
+  border-color: #3f3f46;
+}
+
+.dark .reader-lab-prosemirror th,
+.dark .reader-lab-prosemirror td,
+.dark .reader-lab-derived-source th,
+.dark .reader-lab-derived-source td {
+  border-color: #3f3f46;
+}
+
+.dark .reader-lab-prosemirror th,
+.dark .reader-lab-derived-source th {
+  background: #27272a;
+  color: #f5f5f4;
+}
+
+/* 暗色下浅青字对比不足，提亮到青绿 400/500 级；揭示态与焦点环同步 */
+.dark .reader-lab-cloze {
+  color: #2dd4bf;
+  background-color: rgba(20, 184, 166, 0.1);
+  border-color: rgba(45, 212, 191, 0.4);
+}
+
+.dark .reader-lab-cloze:hover {
+  background-color: rgba(20, 184, 166, 0.18);
+}
+
+.dark .reader-lab-cloze:focus-visible {
+  outline-color: #2dd4bf;
+}
+
+.dark .reader-lab-cloze-revealed {
+  color: #99f6e4;
+  background-color: rgba(20, 184, 166, 0.16);
+  border-color: rgba(45, 212, 191, 0.5);
+}
+
+.dark .reader-lab-cloze.reader-lab-cloze-swap::before {
+  color: #2dd4bf;
+}
+
+.dark .reader-lab-cloze-original {
+  border-color: rgba(45, 212, 191, 0.45);
+}
+
+.dark .reader-lab-cloze-original:hover::before {
+  color: #2dd4bf;
+}
+
+.dark .reader-lab-highlight:focus-visible {
+  outline-color: #2dd4bf;
+}
+
+/* 高亮笔触 pastel 底色刻意保留；暗色下正文浅字落在浅底上对比不足，
+   笔触覆盖区内的文字压回深色维持可读 */
+.dark .reader-lab-highlight-fill,
+.dark .reader-lab-highlight-fill-soft,
+.dark .reader-lab-word-mark {
+  color: #1c1917;
+}
+
+/* 小字号 Markdown（知识面板/行间卡）暗色元素 */
+.dark .reader-lab-md th,
+.dark .reader-lab-md td {
+  border-color: #3f3f46;
+}
+
+.dark .reader-lab-md th {
+  background: #27272a;
+}
+
+.dark .reader-lab-md code {
+  background: #27272a;
+  color: #fda4af;
+}
+
+.dark .reader-lab-md blockquote {
+  border-left-color: #57534e;
+}
+
+.dark .reader-lab-md a {
+  color: #2dd4bf;
+}
+
+.dark .reader-lab-md hr {
+  border-top-color: #3f3f46;
+}
+
 @media (max-width: 639px) {
   .reader-lab-prosemirror,
   .reader-lab-derived-source {

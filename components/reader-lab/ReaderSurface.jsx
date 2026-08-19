@@ -17,6 +17,7 @@ import { readerRoleLayer } from '@/lib/reader-analysis';
 import { createPrecisionReplacementMarkdown } from './DerivedDraft';
 import InlineExplanation from './InlineExplanation';
 import InlineDiagramCard, { InlineDiagramPlaceholder } from './InlineDiagramCard';
+import { useLocale } from '@/components/LocaleProvider';
 
 const READER_LAB_DECORATIONS_KEY = new PluginKey('anchorReaderLabDecorations');
 
@@ -223,7 +224,8 @@ function splitRangeAroundClozes(range, clozeRanges) {
   return parts;
 }
 
-function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}, cloze = null, pendingDiagram = null) {
+// 装饰 title 等文案经 t 渲染时翻译：t 由组件经数据源 ref 传入，切换语言随刷新重建
+function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}, cloze = null, pendingDiagram = null, t = (key) => key) {
   const { doc } = editor.state;
   // 白话视图与原文视图叠加同一套装饰：原文坐标失效后改用文本匹配重锚定，
   // 命中“『大白话』”替换片段时高亮直接包在替换文本上，行间解读卡照常挂载
@@ -260,7 +262,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
         'data-reader-explanation-id': record.id,
         role: 'button',
         tabindex: '0',
-        title: record.reason || '词语标记',
+        title: record.reason || t('reader.wordMarkTitle'),
       }));
     }
     // 解读锚点 = 下划线形态，跟随解读开关：这一行有解读就划上，
@@ -271,7 +273,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
         'data-reader-explanation-id': record.id,
         role: 'button',
         tabindex: '0',
-        title: record.reason || '查看对应解读',
+        title: record.reason || t('reader.viewExplanation'),
       }));
     }
     // 重点 = 高亮笔触形态，跟随重点层级开关；importance 调节笔触浓淡：>=4 实笔触，其余淡笔触
@@ -282,7 +284,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
         'data-reader-explanation-id': record.id,
         role: 'button',
         tabindex: '0',
-        title: record.reason || '查看对应解读',
+        title: record.reason || t('reader.viewExplanation'),
       }));
     }
 
@@ -359,7 +361,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
             'data-cloze-alt': alt,
             role: 'button',
             tabindex: '0',
-            title: state === 'revealed' ? '悬浮预览白话，点击收回' : '悬浮预览原文，点击显示并记住',
+            title: state === 'revealed' ? t('reader.clozeTipPlainCollapse') : t('reader.clozeTipOriginalReveal'),
           }));
         }
       }
@@ -387,7 +389,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
               'data-cloze-alt': target,
               role: 'button',
               tabindex: '0',
-              title: revealed ? '悬浮预览原文，点击收回' : '悬浮预览白话，点击显示并记住',
+              title: revealed ? t('reader.clozeTipOriginalCollapse') : t('reader.clozeTipPlainReveal'),
             }));
           }
           index = compactBlock.indexOf(source, index + source.length);
@@ -485,8 +487,8 @@ function createDecorationsPlugin(editor, getSource) {
     key: READER_LAB_DECORATIONS_KEY,
     props: {
       decorations() {
-        const { records, mastery, callbacks, drawings, aid, layers, cloze, pendingDiagram } = getSource();
-        return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers, cloze, pendingDiagram);
+        const { records, mastery, callbacks, drawings, aid, layers, cloze, pendingDiagram, t } = getSource();
+        return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers, cloze, pendingDiagram, t);
       },
       handleClick(_view, _position, event) {
         // 填空 chip 优先于高亮定位：两种呈现方式点击语义一致 = “我需要记住”，
@@ -579,9 +581,12 @@ export default function ReaderSurface({
   onProgress,
   initialScrollTop = 0,
   focusRange,
+  // 白话 Tab 定位信号：{ term, nonce }，无坐标词条按术语文本匹配定位到首次出现处
+  focusTermSignal,
   onAnalyzeDocument,
   analysisBusy,
 }) {
+  const { t } = useLocale();
   const precisionEnabled = Boolean(aidVisibility?.precision);
   // 原文优先：原文直显，术语框选交给装饰层，不生成替换后的派生文档
   const originalFirst = precisionEnabled && clozePresentation === 'original';
@@ -604,10 +609,10 @@ export default function ReaderSurface({
   const precisionNotice = useMemo(() => {
     if (!precisionEnabled) return '';
     const stats = precisionReplacementStats(explanations);
-    if (stats.batchRecords === 0) return '当前文档还没有全文分析记录，白话暂显示原文。';
-    if (stats.mappingCount === 0) return '当前分析记录不含可替换映射，白话暂显示原文。';
+    if (stats.batchRecords === 0) return t('reader.precisionNoRecords');
+    if (stats.mappingCount === 0) return t('reader.precisionNoMappings');
     return '';
-  }, [explanations, precisionEnabled]);
+  }, [explanations, precisionEnabled, t]);
   const safeHtml = useMemo(() => markdownToSafeHtml(sourceMarkdown), [sourceMarkdown]);
   // 目录随当前渲染文本（白话模式下跟随替换后文本）提取，顺序与编辑器内 heading 节点一一对应
   const outline = useMemo(() => extractMarkdownOutline(sourceMarkdown), [sourceMarkdown]);
@@ -627,7 +632,7 @@ export default function ReaderSurface({
       attributes: {
         class: 'reader-lab-prosemirror',
         role: 'document',
-        'aria-label': `${document.title}原文`,
+        'aria-label': t('reader.documentAria', { title: document.title }),
       },
       // 解读/图表内联卡片里的 Mermaid、Excalidraw、代码编辑器会异步改写自身 DOM，
       // 这些变更不能被 ProseMirror 当成用户编辑回解析，否则会触发文档重置与装饰重建循环
@@ -639,6 +644,12 @@ export default function ReaderSurface({
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // 正文 aria-label 随语言与文档标题同步（editorProps 只在创建时生效一次）
+    editor.view.dom.setAttribute('aria-label', t('reader.documentAria', { title: document.title }));
+  }, [editor, t, document.title]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -666,6 +677,8 @@ export default function ReaderSurface({
       aid: aidVisibility,
       layers: layerVisibility,
       cloze: { presentation: clozePresentation, revealedKeys: effectiveRevealed, masteredTerms: masteredClozeTerms },
+      // 装饰文案渲染时翻译：t 随 locale 变化，refresh effect 依赖 t 触发重建
+      t,
     };
   });
 
@@ -691,7 +704,7 @@ export default function ReaderSurface({
       editor.view.dispatch(editor.state.tr.setMeta('readerLabDecorationsRefresh', true));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [editor, explanations, mastery, precisionEnabled, drawings, pendingDiagram, document, aidVisibility, layerVisibility, effectiveRevealed, masteredClozeTerms, clozePresentation, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze]);
+  }, [editor, explanations, mastery, precisionEnabled, drawings, pendingDiagram, document, aidVisibility, layerVisibility, effectiveRevealed, masteredClozeTerms, clozePresentation, t, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed || !focusRange) return;
@@ -700,6 +713,29 @@ export default function ReaderSurface({
     if (to > editor.state.doc.content.size) return;
     editor.chain().setTextSelection({ from, to }).scrollIntoView().run();
   }, [editor, focusRange]);
+
+  // 白话 Tab 定位：无坐标词条（批量术语、点击回灌词条）按术语文本匹配首次出现处，
+  // 选中并滚动到视口；紧凑化匹配与装饰层重锚定同一套规则。
+  // 工作台触发前已还原原文，但编辑器内容更新在 setTimeout(0) 宏任务里，此处同样延迟一个宏任务等内容上屏
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !focusTermSignal) return;
+    const needle = normalizeCandidate(focusTermSignal.term);
+    if (!needle) return;
+    const timer = window.setTimeout(() => {
+      if (editor.isDestroyed) return;
+      for (const block of textBlockSegments(editor.state.doc)) {
+        const compactBlock = block.text.replace(/\s+/gu, ' ').trim();
+        const match = compactBlock.indexOf(needle);
+        if (match === -1) continue;
+        const from = mapTextOffset(block.segments, match);
+        const to = mapTextOffset(block.segments, match + needle.length);
+        if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from) continue;
+        editor.chain().setTextSelection({ from, to }).scrollIntoView().run();
+        return;
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [editor, focusTermSignal]);
 
   const runSelectionAction = useCallback((action) => {
     if (!editor || editor.state.selection.empty) return;
@@ -766,7 +802,7 @@ export default function ReaderSurface({
     <div
       ref={restoreScroll}
       onScroll={handleScroll}
-      className={`reader-lab-scroll h-full min-h-0 overflow-y-auto bg-white${hideExplanations ? ' reader-lab-hide-explanations' : ''}${hideDiagrams ? ' reader-lab-hide-diagrams' : ''}`}
+      className={`reader-lab-scroll h-full min-h-0 overflow-y-auto bg-white dark:bg-stone-950${hideExplanations ? ' reader-lab-hide-explanations' : ''}${hideDiagrams ? ' reader-lab-hide-diagrams' : ''}`}
     >
       {editor && visibleToolbarActions.length > 0 && (
         <BubbleMenu
@@ -775,7 +811,7 @@ export default function ReaderSurface({
           updateDelay={80}
           shouldShow={({ state }) => !state.selection.empty}
           options={{ placement: 'top', offset: 8 }}
-          className="flex items-center gap-1 rounded-md border border-stone-200 dark:border-stone-800 bg-white p-1 shadow-xl"
+          className="flex items-center gap-1 rounded-md border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 p-1 shadow-xl"
         >
           {visibleToolbarActions.map((item, index) => {
             const BuiltinIcon = BUILTIN_TOOLBAR_ICONS[item.id];
@@ -820,7 +856,7 @@ export default function ReaderSurface({
 
       <div className="mx-auto w-full max-w-[780px] px-5 pb-24 pt-8 sm:px-8 lg:px-12 lg:pt-12">
         {precisionNotice && (
-          <div role="status" className="mb-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div role="status" className="mb-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
             <TriangleAlert size={14} className="shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1">{precisionNotice}</span>
             {onAnalyzeDocument && (
@@ -828,9 +864,9 @@ export default function ReaderSurface({
                 type="button"
                 onClick={onAnalyzeDocument}
                 disabled={Boolean(analysisBusy)}
-                className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 font-medium text-amber-800 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50"
+                className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 font-medium text-amber-800 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
               >
-                {analysisBusy ? '生成中…' : '一键生成'}
+                {analysisBusy ? t('reader.analyzeBusy') : t('workspace.oneClick')}
               </button>
             )}
           </div>
@@ -841,10 +877,10 @@ export default function ReaderSurface({
 
     {/* 目录抽屉：覆盖在阅读区左侧，不挤占布局；开关在顶栏，这里不重复关闭按钮 */}
     {outlineOpen && outline.length > 0 && (
-      <nav aria-label="文档目录" className="absolute inset-y-0 left-0 z-20 flex w-60 flex-col border-r border-stone-200 dark:border-stone-800 bg-white/95 shadow-lg backdrop-blur-sm">
+      <nav aria-label={t('reader.outlineNav')} className="absolute inset-y-0 left-0 z-20 flex w-60 flex-col border-r border-stone-200 dark:border-stone-800 bg-white/95 dark:bg-stone-900/95 shadow-lg backdrop-blur-sm">
         <div className="flex shrink-0 items-center gap-2 border-b border-stone-200 dark:border-stone-800 px-3 py-2">
-          <span className="text-xs font-semibold text-stone-700 dark:text-stone-300">目录</span>
-          <span className="ml-auto text-[11px] text-stone-400">{outline.length} 个标题</span>
+          <span className="text-xs font-semibold text-stone-700 dark:text-stone-300">{t('reader.outlineHeading')}</span>
+          <span className="ml-auto text-[11px] text-stone-400">{t('reader.outlineCount', { count: outline.length })}</span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {outline.map((item, index) => (

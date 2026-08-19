@@ -284,8 +284,10 @@ test('precision markers become clickable cloze chips that flip between plain wor
   assert.match(readerSurface, /callbacks\.onToggleCloze\?\.\(clozeEl\.dataset\.clozeKey\)/);
   // 悬浮预览：chip 携带对侧文本 data-cloze-alt，插件滞回类驱动换显不翻转状态，点击才写入翻转态
   assert.match(readerSurface, /'data-cloze-alt': alt/);
-  // 悬浮文案精简且体现“点击=记住”语义：点击显示另一面，并记住
-  assert.match(readerSurface, /点击显示并记住/);
+  // 悬浮文案精简且体现“点击=记住”语义：文案走 i18n 键，中文文案含“点击显示并记住”
+  assert.match(readerSurface, /reader\.clozeTipPlainReveal/);
+  assert.match(readerSurface, /reader\.clozeTipOriginalReveal/);
+  assert.match(readSource('../lib/i18n/zh-CN.js'), /点击显示并记住/);
   // 换显由插件滞回类 reader-lab-cloze-swap 驱动（不用 :hover）：宿主折叠空白收掉，
   // 外层高亮沿内联盒自然只包预览=“跳过收起部分”，不整条消失
   assert.match(globalsCss, /\.reader-lab-cloze\.reader-lab-cloze-swap \{[\s\S]*?font-size: 0/);
@@ -324,6 +326,12 @@ test('precision markers become clickable cloze chips that flip between plain wor
   // 首页宣传该闭环为术语沉淀的核心卖点
   const readerHome = readSource('../components/reader-lab/ReaderHome.jsx');
   assert.match(readerHome, /点击不懂的词自动记入术语表，掌握后白话辅助自动撤下/);
+  // 白话 Tab 点击定位原文：面板传词条 id，工作台先取回 term 对象；
+  // 有坐标走 focusRange，无坐标无关联解读的词条（批量/点击回灌）走 focusTermSignal 文本匹配定位
+  assert.match(readerLabWorkspace, /onFocusTerm=\{focusTerm\}/);
+  assert.match(readerLabWorkspace, /setFocusTermSignal\(\{ term: term\.term, nonce: Date\.now\(\) \}\)/);
+  assert.match(readerLabWorkspace, /focusTermSignal=\{focusTermSignal\}/);
+  assert.match(readerSurface, /focusTermSignal/);
   // 三形态区分类别：重点=高亮笔触、解读=下划线 bar、白话=圆角卡片框；
   // 白话 chip 常态虚线框提示可翻，翻转态实线框+底色；同一内容多形态重叠时才叠加
   assert.match(globalsCss, /\.reader-lab-cloze \{[\s\S]*?border: 1px solid/);
@@ -460,8 +468,8 @@ test('the outline drawer is a reading-scene navigation overlay owned by the read
   assert.match(readerLabWorkspace, /onToggleOutline=\{toggleOutline\}/);
   assert.match(readerLabWorkspace, /outlineHidden=\{diagramMode\}/);
   assert.match(documentLibrary, /aria-label=\{outlineOpen \? '收起目录' : '打开目录'\}/);
-  // 抽屉覆盖在阅读区左侧不挤占布局，点击按 heading 顺序定位
-  assert.match(readerSurfaceSource, /aria-label="文档目录"/);
+  // 抽屉覆盖在阅读区左侧不挤占布局，点击按 heading 顺序定位；aria-label 走 i18n 键
+  assert.match(readerSurfaceSource, /aria-label=\{t\('reader\.outlineNav'\)\}/);
   assert.match(readerSurfaceSource, /scrollToOutlineIndex/);
 });
 

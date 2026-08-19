@@ -365,6 +365,9 @@ export default function ReaderLabWorkspace({
   const [isDesktop, setIsDesktop] = useState(false);
   const [isWide, setIsWide] = useState(false);
   const [focusRange, setFocusRange] = useState(null);
+  // 白话 Tab 定位：无坐标/无关联解读的词条（批量术语、点击回灌词条）交给阅读面按文本匹配定位，
+  // nonce 支持重复触发同一条
+  const [focusTermSignal, setFocusTermSignal] = useState(null);
   // 左→右定位信号：点击原文高亮/框线后驱动知识面板滚到对应卡片，nonce 支持重复触发同一条
   const [panelFocus, setPanelFocus] = useState(null);
   const [rightPanelView, setRightPanelView] = useState(requestedTool === 'diagram' ? 'diagram' : 'knowledge');
@@ -1659,17 +1662,29 @@ export default function ReaderLabWorkspace({
     setPanelFocus({ id: recordId, nonce: Date.now() });
   }, [isDesktop]);
 
-  const focusTerm = useCallback((term) => {
-    const record = term?.explanationId
+  // 白话 Tab 点击定位原文：面板传来的是词条 id，先取回 term 对象（此前按对象处理字符串导致永远提前返回）
+  const focusTerm = useCallback((termOrId) => {
+    const term = typeof termOrId === 'string'
+      ? terms.find((item) => item.id === termOrId)
+      : termOrId;
+    if (!term) return;
+    const record = term.explanationId
       ? explanations.find((item) => item.id === term.explanationId)
       : null;
-    if (!term?.range && !record) return;
-    // 精准替代视图里的文本坐标已变，定位前先还原原文
-    if (aidVisibility.precision) updateAids({ ...aidVisibility, precision: false });
-    if (term.range) setFocusRange({ ...term.range, nonce: Date.now() });
-    else if (record) focusExplanation(record.id);
+    if (term.range) {
+      // 自带原文坐标（划词术语）：精准替代视图里坐标已变，定位前先还原原文
+      if (aidVisibility.precision) updateAids({ ...aidVisibility, precision: false });
+      setFocusRange({ ...term.range, nonce: Date.now() });
+    } else if (!record) {
+      // 批量术语与点击回灌词条没有坐标也没有关联解读：交给阅读面按术语文本匹配定位；
+      // 精准替代视图里术语文本已被替换，定位前先还原原文（与坐标路径一致）
+      if (aidVisibility.precision) updateAids({ ...aidVisibility, precision: false });
+      setFocusTermSignal({ term: term.term, nonce: Date.now() });
+    } else {
+      focusExplanation(record.id);
+    }
     setKnowledgeOpen(false);
-  }, [aidVisibility, explanations, focusExplanation, updateAids]);
+  }, [aidVisibility, explanations, focusExplanation, terms, updateAids]);
 
   const exportBackup = useCallback(async () => {
     try {
@@ -2018,6 +2033,7 @@ export default function ReaderLabWorkspace({
       onProgress={persistProgress}
       initialScrollTop={sessions[currentDocument.id]?.scrollTop || 0}
       focusRange={focusRange}
+      focusTermSignal={focusTermSignal}
       onAnalyzeDocument={analyzeDocument}
       analysisBusy={Boolean(busyAction)}
     />
