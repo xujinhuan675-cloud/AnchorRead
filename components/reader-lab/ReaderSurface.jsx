@@ -599,6 +599,11 @@ export default function ReaderSurface({
     }
     return merged;
   }, [precisionEnabled, originalFirst, masteredClozeTerms, revealedClozes, explanations]);
+  // 白话映射列表：白话 Tab 定位候选要尝试『白话/原术语』标记形态（不做掌握过滤，已掌握术语原位即术语本身）
+  const mappings = useMemo(
+    () => (precisionEnabled ? precisionSubstitutions(explanations) : []),
+    [precisionEnabled, explanations]
+  );
   const sourceMarkdown = useMemo(
     () => (precisionEnabled && !originalFirst
       ? createPrecisionReplacementMarkdown(document, explanations, effectiveRevealed)
@@ -714,28 +719,38 @@ export default function ReaderSurface({
     editor.chain().setTextSelection({ from, to }).scrollIntoView().run();
   }, [editor, focusRange]);
 
-  // 白话 Tab 定位：无坐标词条（批量术语、点击回灌词条）按术语文本匹配首次出现处，
+  // 白话 Tab 定位：无坐标词条（批量术语、点击回灌词条）按文本匹配首次出现处，
   // 选中并滚动到视口；紧凑化匹配与装饰层重锚定同一套规则。
-  // 工作台触发前已还原原文，但编辑器内容更新在 setTimeout(0) 宏任务里，此处同样延迟一个宏任务等内容上屏
+  // 白话替代视图里术语原位已被替换成『白话』（翻开为『原术语』），定位不取消模式：
+  // 候选 = 术语名本身 + 对应映射的标记形态，逐个尝试。
+  // 编辑器内容更新在 setTimeout(0) 宏任务里，此处同样延迟一个宏任务等内容上屏
   useEffect(() => {
     if (!editor || editor.isDestroyed || !focusTermSignal) return;
     const needle = normalizeCandidate(focusTermSignal.term);
     if (!needle) return;
+    const candidates = [needle];
+    for (const { source, target } of mappings) {
+      if (source !== needle) continue;
+      const key = clozeMappingKey({ source, target });
+      candidates.push(effectiveRevealed?.has(key) ? `『${source}』` : `『${target}』`);
+    }
     const timer = window.setTimeout(() => {
       if (editor.isDestroyed) return;
       for (const block of textBlockSegments(editor.state.doc)) {
         const compactBlock = block.text.replace(/\s+/gu, ' ').trim();
-        const match = compactBlock.indexOf(needle);
-        if (match === -1) continue;
-        const from = mapTextOffset(block.segments, match);
-        const to = mapTextOffset(block.segments, match + needle.length);
-        if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from) continue;
-        editor.chain().setTextSelection({ from, to }).scrollIntoView().run();
-        return;
+        for (const candidate of candidates) {
+          const match = compactBlock.indexOf(candidate);
+          if (match === -1) continue;
+          const from = mapTextOffset(block.segments, match);
+          const to = mapTextOffset(block.segments, match + candidate.length);
+          if (!Number.isInteger(from) || !Number.isInteger(to) || to <= from) continue;
+          editor.chain().setTextSelection({ from, to }).scrollIntoView().run();
+          return;
+        }
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [editor, focusTermSignal]);
+  }, [editor, focusTermSignal, mappings, effectiveRevealed]);
 
   const runSelectionAction = useCallback((action) => {
     if (!editor || editor.state.selection.empty) return;

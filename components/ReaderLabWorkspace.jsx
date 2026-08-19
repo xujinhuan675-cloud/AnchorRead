@@ -1614,6 +1614,16 @@ export default function ReaderLabWorkspace({
     if (nextStatus === 'mastered') fadeRevealedForTerms([nextTerm]);
   }, [fadeRevealedForTerms]);
 
+  // 词条删除：术语表里的显式管理动作——词条移出落盘，同时清掉其全工作区持久揭示态
+  // （删掉的词不应再占着白话替换/揭示位）；正文白话映射来自批量分析记录，不受影响
+  const deleteTerm = useCallback(async (term) => {
+    if (!term) return;
+    await workspaceRepository.terms.remove(term.id);
+    setTerms((current) => current.filter((item) => item.id !== term.id));
+    fadeRevealedForTerms([term]);
+    setNotice({ type: 'success', messageKey: 'workspace.notice.termDeleted' });
+  }, [fadeRevealedForTerms]);
+
   const deleteExplanation = useCallback(async (record) => {
     await Promise.all([
       workspaceRepository.explanations.remove(record.id),
@@ -1662,7 +1672,8 @@ export default function ReaderLabWorkspace({
     setPanelFocus({ id: recordId, nonce: Date.now() });
   }, [isDesktop]);
 
-  // 白话 Tab 点击定位原文：面板传来的是词条 id，先取回 term 对象（此前按对象处理字符串导致永远提前返回）
+  // 白话 Tab 点击定位原文：面板传来的是词条 id，先取回 term 对象（此前按对象处理字符串导致永远提前返回）；
+  // 白话替代开启时不取消模式——定位保持当前视图，由阅读面按文本/『白话』标记匹配
   const focusTerm = useCallback((termOrId) => {
     const term = typeof termOrId === 'string'
       ? terms.find((item) => item.id === termOrId)
@@ -1671,20 +1682,20 @@ export default function ReaderLabWorkspace({
     const record = term.explanationId
       ? explanations.find((item) => item.id === term.explanationId)
       : null;
-    if (term.range) {
-      // 自带原文坐标（划词术语）：精准替代视图里坐标已变，定位前先还原原文
-      if (aidVisibility.precision) updateAids({ ...aidVisibility, precision: false });
+    if (aidVisibility.precision) {
+      // 白话视图里术语文本已被替换、坐标已变：统一走文本匹配信号，视图模式保持不变
+      setFocusTermSignal({ term: term.term, nonce: Date.now() });
+    } else if (term.range) {
+      // 原文视图 + 自带坐标（划词术语）：精准定位
       setFocusRange({ ...term.range, nonce: Date.now() });
     } else if (!record) {
-      // 批量术语与点击回灌词条没有坐标也没有关联解读：交给阅读面按术语文本匹配定位；
-      // 精准替代视图里术语文本已被替换，定位前先还原原文（与坐标路径一致）
-      if (aidVisibility.precision) updateAids({ ...aidVisibility, precision: false });
+      // 批量术语与点击回灌词条没有坐标也没有关联解读：交给阅读面按术语文本匹配定位
       setFocusTermSignal({ term: term.term, nonce: Date.now() });
     } else {
       focusExplanation(record.id);
     }
     setKnowledgeOpen(false);
-  }, [aidVisibility, explanations, focusExplanation, terms, updateAids]);
+  }, [aidVisibility, explanations, focusExplanation, terms]);
 
   const exportBackup = useCallback(async () => {
     try {
@@ -1982,6 +1993,7 @@ export default function ReaderLabWorkspace({
       onDelete={deleteExplanation}
       onFocusTerm={focusTerm}
       onMasterTerm={toggleTermMastery}
+      onDeleteTerm={deleteTerm}
       onExportAnki={exportAnki}
       onExportObsidian={exportObsidian}
       isStale={isDerivationStale}

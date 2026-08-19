@@ -14,7 +14,7 @@ export function ToggleGroup({ className = '', ...props }) {
 export function ToggleGroupItem({ className = '', ...props }) {
   return (
     <ToggleGroupPrimitive.Item
-      className={`h-7 whitespace-nowrap rounded px-3 text-xs font-medium text-stone-500 outline-none transition-colors hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400 data-[state=on]:bg-white data-[state=on]:text-stone-950 data-[state=on]:shadow-sm ${className}`}
+      className={`h-7 whitespace-nowrap rounded px-3 text-xs font-medium text-stone-500 dark:text-stone-400 outline-none transition-colors hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400 data-[state=on]:bg-white data-[state=on]:text-stone-950 data-[state=on]:shadow-sm data-[state=on]:dark:bg-stone-800 data-[state=on]:dark:text-stone-100 ${className}`}
       {...props}
     />
   );

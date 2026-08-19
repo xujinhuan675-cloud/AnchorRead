@@ -163,14 +163,15 @@ test('flashcard review lives in the knowledge panel and inline aids are user sel
   assert.doesNotMatch(homePage, /FlashcardReview|onOpenFlashcards/);
   assert.doesNotMatch(readerLabWorkspace, /FlashcardReview/);
 
-  assert.match(knowledgePanel, /label: ['"]闪卡['"]/);
+  assert.match(knowledgePanel, /labelKey: 'panel\.tab\.flashcards'/);
   // Sheet 关闭按钮内联进页签行尾部槽位（closeSlot）：构造上不与页签重叠，桌面不注入槽位
   assert.match(knowledgePanel, /flex flex-1" role="tablist"/);
   assert.match(knowledgePanel, /\{closeSlot\}/);
   assert.match(knowledgePanel, /flashcardStore\.getDueCards/);
   assert.match(knowledgePanel, /flashcardStore\.review\(/);
   assert.match(knowledgePanel, /handleSkip/);
-  assert.match(knowledgePanel, /跳过/);
+  // 复习会话“跳过”按钮文案走 i18n 键
+  assert.match(knowledgePanel, /panel\.quizSkip/);
   assert.match(knowledgePanel, /flashcards-changed/);
 
   assert.match(readerLabWorkspace, /documentId=\{currentDocument\.id\}/);
@@ -327,11 +328,22 @@ test('precision markers become clickable cloze chips that flip between plain wor
   const readerHome = readSource('../components/reader-lab/ReaderHome.jsx');
   assert.match(readerHome, /点击不懂的词自动记入术语表，掌握后白话辅助自动撤下/);
   // 白话 Tab 点击定位原文：面板传词条 id，工作台先取回 term 对象；
-  // 有坐标走 focusRange，无坐标无关联解读的词条（批量/点击回灌）走 focusTermSignal 文本匹配定位
+  // 原文视图有坐标走 focusRange，无坐标词条走 focusTermSignal 文本匹配定位；
+  // 白话替代开启时定位不取消模式，阅读面同时匹配『白话』/『原术语』标记形态
   assert.match(readerLabWorkspace, /onFocusTerm=\{focusTerm\}/);
   assert.match(readerLabWorkspace, /setFocusTermSignal\(\{ term: term\.term, nonce: Date\.now\(\) \}\)/);
   assert.match(readerLabWorkspace, /focusTermSignal=\{focusTermSignal\}/);
+  assert.match(readerLabWorkspace, /白话视图里术语文本已被替换、坐标已变/);
   assert.match(readerSurface, /focusTermSignal/);
+  assert.match(readerSurface, /candidates\.push\(effectiveRevealed\?\.has\(key\)/);
+  // 白话列表独立滚动容器：内容滚动时页签行固定置顶
+  assert.match(knowledgePanel, /termsListRef/);
+  // 词条卡与解读卡同构：懂了（对号）+ 删除（叉号）；删除走 terms.remove 并清揭示态
+  assert.match(knowledgePanel, /onDeleteTerm/);
+  assert.match(readerLabWorkspace, /const deleteTerm = useCallback/);
+  assert.match(readerLabWorkspace, /onDeleteTerm=\{deleteTerm\}/);
+  assert.match(readerLabWorkspace, /await workspaceRepository\.terms\.remove\(term\.id\)/);
+  assert.match(readSource('../lib/i18n/zh-CN.js'), /panel\.deleteTerm/);
   // 三形态区分类别：重点=高亮笔触、解读=下划线 bar、白话=圆角卡片框；
   // 白话 chip 常态虚线框提示可翻，翻转态实线框+底色；同一内容多形态重叠时才叠加
   assert.match(globalsCss, /\.reader-lab-cloze \{[\s\S]*?border: 1px solid/);
@@ -390,7 +402,7 @@ test('hierarchical key points: role layers, word marks and layer visibility cont
   assert.match(readerLabWorkspace, /LAYER_OPTIONS/);
   assert.match(readerLabWorkspace, /layerVisibility=\{layerVisibility\}/);
   // 重点页签按层分组并渲染 serves 嵌套
-  assert.match(knowledgePanel, /\{ id: 'structure', label: '重点' \}/);
+  assert.match(knowledgePanel, /\{ id: 'structure', labelKey: 'panel\.tab\.structure' \}/);
   assert.match(knowledgePanel, /servesTo/);
 });
 

@@ -18,7 +18,7 @@ export function TabsList({ className = '', ...props }) {
 export function TabsTrigger({ className = '', ...props }) {
   return (
     <TabsPrimitive.Trigger
-      className={`min-w-0 flex-1 rounded px-3 py-1.5 text-xs font-medium text-stone-500 outline-none transition-colors hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400 data-[state=active]:bg-white data-[state=active]:text-stone-900 data-[state=active]:shadow-sm ${className}`}
+      className={`min-w-0 flex-1 rounded px-3 py-1.5 text-xs font-medium text-stone-500 dark:text-stone-400 outline-none transition-colors hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400 data-[state=active]:bg-white data-[state=active]:text-stone-900 data-[state=active]:shadow-sm data-[state=active]:dark:bg-stone-800 data-[state=active]:dark:text-stone-100 ${className}`}
       {...props}
     />
   );
