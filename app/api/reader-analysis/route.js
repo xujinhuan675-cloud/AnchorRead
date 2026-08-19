@@ -13,8 +13,8 @@ import {
  * POST /api/reader-analysis
  * Input: { title, content, mode?, config? } or x-access-password.
  * Output: grounded anchors and block-bound display + mappings explanations.
- * Missing LLM configuration remains a 400; callers may explicitly use the
- * exported createDemoReaderAnalysis pure function for a labelled local demo.
+ * Missing LLM configuration remains a 400; the client surfaces the error
+ * and asks the user to configure a model first (no local demo fallback).
  */
 export async function POST(request) {
   const denied = authorizeApiRequest(request);

@@ -1,9 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import Link from 'next/link';
 import {
-  ArrowLeft,
   ClipboardPaste,
   Clock3,
   FileText,
@@ -35,15 +33,15 @@ function DocumentRow({ document, current, session, onSelect }) {
       type="button"
       onClick={() => onSelect(document.id)}
       aria-current={current ? 'page' : undefined}
-      className={`w-full border-l-2 px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-600 ${current ? 'border-teal-700 bg-teal-50' : 'border-transparent hover:bg-gray-100'}`}
+      className={`w-full border-l-2 px-3 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-stone-950 dark:ring-stone-100 ${current ? 'border-stone-950 dark:border-stone-100 bg-stone-100 dark:bg-white/10' : 'border-transparent hover:bg-stone-100 dark:bg-white/10'}`}
     >
       <div className="flex items-start gap-2.5">
-        <FileText size={16} className={`mt-0.5 shrink-0 ${current ? 'text-teal-700' : 'text-gray-400'}`} />
+        <FileText size={16} className={`mt-0.5 shrink-0 ${current ? 'text-stone-950 dark:text-stone-100' : 'text-stone-400'}`} />
         <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 break-words text-sm font-medium leading-5 text-gray-900">
+          <p className="line-clamp-2 break-words text-sm font-medium leading-5 text-stone-900 dark:text-stone-100">
             {document.title}
           </p>
-          <p className="mt-1.5 truncate text-[11px] text-gray-500">
+          <p className="mt-1.5 truncate text-[11px] text-stone-500">
             {formatUpdatedAt(session?.updatedAt || document.updatedAt)}
           </p>
         </div>
@@ -54,7 +52,6 @@ function DocumentRow({ document, current, session, onSelect }) {
 
 export default function DocumentLibrary({
   documents,
-  homeHref = null,
   outlineOpen = false,
   onToggleOutline = null,
   outlineHidden = false,
@@ -102,28 +99,13 @@ export default function DocumentLibrary({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f8f8]">
-      <header className="shrink-0 border-b border-gray-200 px-4 pb-3 pt-4">
+    <div className="flex h-full min-h-0 flex-col bg-[#f5f7f6]">
+      <header className="shrink-0 border-b border-stone-200 dark:border-stone-800 px-4 pb-3 pt-4">
         <div className="flex items-center justify-between gap-3 pr-8 lg:pr-0">
-          {homeHref ? (
-            <Link
-              href={homeHref}
-              aria-label="回到首页"
-              title="回到首页"
-              className="flex min-w-0 items-center gap-1.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-            >
-              <ArrowLeft size={14} className="shrink-0 text-gray-400" aria-hidden="true" />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-950">AnchorRead</p>
-                <p className="mt-0.5 text-[11px] text-gray-500">本地阅读工作区</p>
-              </div>
-            </Link>
-          ) : (
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-950">AnchorRead</p>
-              <p className="mt-0.5 text-[11px] text-gray-500">本地阅读工作区</p>
-            </div>
-          )}
+          {/* 全局顶栏已承担品牌与回首页职责：库头部只留面板标题 */}
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-stone-950 dark:text-stone-100">文档库</p>
+          </div>
           {/* 添加文档收纳到头部行：导入与粘贴两项通过下拉展开 */}
           <div className="relative shrink-0">
             <Tooltip content="添加文档">
@@ -131,7 +113,7 @@ export default function DocumentLibrary({
                 type="button"
                 onClick={() => setAddOpen((open) => !open)}
                 aria-label="添加文档"
-                className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
+                className="flex h-8 w-8 items-center justify-center rounded border border-stone-200 dark:border-stone-800 bg-white text-stone-500 outline-none hover:text-stone-900 dark:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
               >
                 {importBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
               </button>
@@ -144,7 +126,7 @@ export default function DocumentLibrary({
                     type="button"
                     onClick={() => { setAddOpen(false); fileInputRef.current?.click(); }}
                     disabled={!onImportFile}
-                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <FileUp size={14} className="shrink-0" />
                     导入文件
@@ -153,7 +135,7 @@ export default function DocumentLibrary({
                     type="button"
                     onClick={() => { setAddOpen(false); setPasteOpen(true); }}
                     disabled={!onCreateDocument}
-                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <ClipboardPaste size={14} className="shrink-0" />
                     粘贴文本
@@ -171,27 +153,18 @@ export default function DocumentLibrary({
           className="sr-only"
           tabIndex={-1}
         />
-        <button
-          type="button"
-          onClick={onAnalyzeDocument}
-          disabled={!onAnalyzeDocument || analysisBusy || analysisDisabled || !currentDocumentId}
-          className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded bg-teal-700 px-3 text-xs font-medium text-white outline-none hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
-          title="一键生成图解、重点、解读、白话与闪卡"
-        >
-          {analysisBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
-          {analysisBusy ? '生成中…' : '一键生成'}
-        </button>
         {importError ? <p role="alert" className="mt-2 text-xs leading-5 text-red-700">{importError}</p> : null}
-        <div className="mt-4 flex items-center gap-2">
+        {/* 头部行重排：搜索与目录优先，一键生成沉底作为收尾动作 */}
+        <div className="mt-3 flex items-center gap-2">
           <label className="relative flex-1">
             <span className="sr-only">搜索文档</span>
-            <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-gray-400" />
+            <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-stone-400" />
             <input
               type="search"
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder="搜索文档"
-              className="h-9 w-full rounded border border-gray-200 bg-white pl-9 pr-3 text-xs text-gray-900 outline-none placeholder:text-gray-400 focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+              className="h-9 w-full rounded border border-stone-200 dark:border-stone-800 bg-white pl-9 pr-3 text-xs text-stone-900 dark:text-stone-100 outline-none placeholder:text-stone-400 focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100"
             />
           </label>
           {/* 目录开关收进文档库：与搜索并列，顶栏不再留按钮；图解画布下不展示 */}
@@ -202,19 +175,29 @@ export default function DocumentLibrary({
                 onClick={onToggleOutline}
                 aria-pressed={outlineOpen}
                 aria-label={outlineOpen ? '收起目录' : '打开目录'}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${outlineOpen ? 'border-gray-300 bg-white text-gray-900 shadow-sm' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border outline-none focus-visible:ring-2 focus-visible:ring-stone-400 ${outlineOpen ? 'border-stone-300 dark:border-stone-700 bg-white text-stone-900 dark:text-stone-100 shadow-sm' : 'border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:bg-white/5'}`}
               >
                 <List size={15} aria-hidden="true" />
               </button>
             </Tooltip>
           )}
         </div>
+        <button
+          type="button"
+          onClick={onAnalyzeDocument}
+          disabled={!onAnalyzeDocument || analysisBusy || analysisDisabled || !currentDocumentId}
+          className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded bg-stone-950 dark:bg-stone-100 px-3 text-xs font-medium text-white outline-none hover:bg-stone-800 dark:hover:bg-stone-300 focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-stone-300 dark:bg-white/20"
+          title="一键生成图解、重点、解读、白话与闪卡"
+        >
+          {analysisBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
+          {analysisBusy ? '生成中…' : '一键生成'}
+        </button>
       </header>
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="py-3">
           <section aria-labelledby="reader-recent-title">
-            <h2 id="reader-recent-title" className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-semibold text-gray-500">
+            <h2 id="reader-recent-title" className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-semibold text-stone-500">
               <Clock3 size={13} aria-hidden="true" />
               最近阅读
             </h2>
@@ -231,8 +214,8 @@ export default function DocumentLibrary({
 
           <section className="mt-4" aria-labelledby="reader-all-title">
             <div className="flex items-center justify-between px-4 py-2">
-              <h2 id="reader-all-title" className="text-[11px] font-semibold text-gray-500">全部文档</h2>
-              <span className="text-[10px] tabular-nums text-gray-400">{filtered.length}</span>
+              <h2 id="reader-all-title" className="text-[11px] font-semibold text-stone-500">全部文档</h2>
+              <span className="text-[10px] tabular-nums text-stone-400">{filtered.length}</span>
             </div>
             {filtered.length > 0 ? filtered.map((document) => (
               <DocumentRow
@@ -243,7 +226,7 @@ export default function DocumentLibrary({
                 onSelect={onSelect}
               />
             )) : (
-              <p className="px-4 py-8 text-center text-xs text-gray-500">没有匹配的文档</p>
+              <p className="px-4 py-8 text-center text-xs text-stone-500">没有匹配的文档</p>
             )}
           </section>
         </div>

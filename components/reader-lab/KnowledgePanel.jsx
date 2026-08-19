@@ -19,7 +19,7 @@ const DEMO_NOTICE = '以下为本地 Demo 示例解读，仅用于演示功能�
 const RATING_STYLES = {
   [RATING.AGAIN]: 'border-red-200 text-red-700 hover:bg-red-50',
   [RATING.HARD]: 'border-amber-200 text-amber-700 hover:bg-amber-50',
-  [RATING.GOOD]: 'border-teal-200 text-teal-700 hover:bg-teal-50',
+  [RATING.GOOD]: 'border-stone-200 dark:border-stone-700 text-stone-950 dark:text-stone-100 hover:bg-stone-100 dark:bg-white/10',
   [RATING.EASY]: 'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
 };
 
@@ -128,7 +128,7 @@ function FlashcardQuiz({ documentId, onExportAnki = null }) {
           <button type="button" onClick={startSession} className="h-8 rounded border border-emerald-300 bg-white px-3 text-xs font-medium text-emerald-800 hover:bg-emerald-100">
             再查一批到期卡
           </button>
-          <button type="button" onClick={() => setSession(null)} className="h-8 rounded border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:bg-gray-50">
+          <button type="button" onClick={() => setSession(null)} className="h-8 rounded border border-stone-200 dark:border-stone-800 bg-white px-3 text-xs font-medium text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:bg-white/5">
             返回
           </button>
         </div>
@@ -140,27 +140,27 @@ function FlashcardQuiz({ documentId, onExportAnki = null }) {
     const current = session.queue[session.index];
     return (
       <div className="p-4" aria-label="闪卡">
-        <div className="flex items-center justify-between text-[11px] text-gray-400">
+        <div className="flex items-center justify-between text-[11px] text-stone-400">
           <span>第 {session.index + 1}/{session.queue.length} 张 · 已复习 {session.reviewed}</span>
           <span className="flex items-center gap-3">
-            <button type="button" onClick={handleSkip} className="font-medium text-gray-500 hover:text-gray-800">跳过</button>
-            <button type="button" onClick={() => setSession(null)} className="font-medium text-gray-500 hover:text-gray-800">退出</button>
+            <button type="button" onClick={handleSkip} className="font-medium text-stone-500 hover:text-stone-800 dark:text-stone-200">跳过</button>
+            <button type="button" onClick={() => setSession(null)} className="font-medium text-stone-500 hover:text-stone-800 dark:text-stone-200">退出</button>
           </span>
         </div>
         <button
           type="button"
           onClick={() => setSession({ ...session, revealed: true })}
-          className="mt-3 flex min-h-32 w-full flex-col items-center justify-center rounded-lg border border-gray-200 bg-white p-5 text-center transition-colors hover:border-teal-300"
+          className="mt-3 flex min-h-32 w-full flex-col items-center justify-center rounded-lg border border-stone-200 dark:border-stone-800 bg-white p-5 text-center transition-colors hover:border-stone-400 dark:hover:border-stone-500"
         >
-          <p className="text-sm font-medium leading-6 text-gray-900">
+          <p className="text-sm font-medium leading-6 text-stone-900 dark:text-stone-100">
             <MarkdownSnippet text={current.front} />
           </p>
-          {!session.revealed && <span className="mt-3 text-xs text-gray-400">点击卡片显示答案</span>}
+          {!session.revealed && <span className="mt-3 text-xs text-stone-400">点击卡片显示答案</span>}
         </button>
         {session.revealed && (
           <>
-            <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-4">
-              <div className="text-sm leading-6 text-teal-900">
+            <div className="mt-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-100 dark:bg-white/10 p-4">
+              <div className="text-sm leading-6 text-stone-900 dark:text-stone-200">
                 <MarkdownSnippet text={current.back} />
               </div>
             </div>
@@ -184,15 +184,15 @@ function FlashcardQuiz({ documentId, onExportAnki = null }) {
 
   return (
     <div className="p-4" aria-label="闪卡">
-      <div className="flex items-center justify-between text-xs text-gray-600">
+      <div className="flex items-center justify-between text-xs text-stone-600 dark:text-stone-400">
         <span>{stats.due} 张待复习 · 卡库 {stats.total} 张</span>
-        <span className="text-gray-400">今日已复习 {stats.reviewedToday}</span>
+        <span className="text-stone-400">今日已复习 {stats.reviewedToday}</span>
       </div>
       <button
         type="button"
         onClick={startSession}
         disabled={stats.due === 0}
-        className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded bg-gray-900 text-xs font-medium text-white outline-none hover:bg-gray-700 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
+        className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded bg-stone-900 text-xs font-medium text-white outline-none hover:bg-stone-700 dark:bg-stone-300 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:bg-stone-200 dark:bg-white/15 disabled:text-stone-400"
       >
         <Brain size={14} aria-hidden="true" />
         {stats.due > 0 ? `开始复习（${stats.due}）` : '当前文档暂无到期闪卡'}
@@ -202,14 +202,14 @@ function FlashcardQuiz({ documentId, onExportAnki = null }) {
           type="button"
           onClick={onExportAnki}
           disabled={stats.total === 0}
-          className="mt-2 flex items-center gap-1.5 text-[11px] text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-40"
+          className="mt-2 flex items-center gap-1.5 text-[11px] text-stone-500 outline-none hover:text-stone-900 dark:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:opacity-40"
         >
           <GraduationCap size={12} aria-hidden="true" />
           导出 Anki
         </button>
       )}
       {stats.total === 0 && (
-        <p className="mt-3 rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
+        <p className="mt-3 rounded border border-dashed border-stone-200 dark:border-stone-800 bg-white p-3 text-xs leading-5 text-stone-500">
           还没有为这篇文档生成闪卡。阅读时在顶部工具栏点击「生成闪卡」，即可把重点转成间隔复习卡片。
         </p>
       )}
@@ -218,29 +218,29 @@ function FlashcardQuiz({ documentId, onExportAnki = null }) {
         type="button"
         onClick={() => setLibraryOpen((open) => !open)}
         aria-expanded={libraryOpen}
-        className="mt-4 flex w-full items-center justify-between text-xs font-medium text-gray-500 hover:text-gray-800"
+        className="mt-4 flex w-full items-center justify-between text-xs font-medium text-stone-500 hover:text-stone-800 dark:text-stone-200"
       >
         卡片库（{libraryCards.length}）
         <Eye size={13} aria-hidden="true" />
       </button>
       {libraryOpen && (
         libraryCards.length === 0 ? (
-          <p className="mt-2 text-xs text-gray-400">暂无闪卡。</p>
+          <p className="mt-2 text-xs text-stone-400">暂无闪卡。</p>
         ) : (
           <ul className="mt-2 space-y-2">
             {libraryCards.map((card) => (
-              <li key={card.id} className="flex items-start justify-between gap-2 rounded border border-gray-200 bg-white p-2.5">
+              <li key={card.id} className="flex items-start justify-between gap-2 rounded border border-stone-200 dark:border-stone-800 bg-white p-2.5">
                 <div className="min-w-0">
-                  <div className="break-words text-xs leading-5 text-gray-700">
+                  <div className="break-words text-xs leading-5 text-stone-700 dark:text-stone-300">
                     <MarkdownSnippet text={card.front} />
                   </div>
-                  <p className="mt-0.5 text-[10px] text-gray-400">{formatDue(card.due)} · 已复习 {card.reps} 次</p>
+                  <p className="mt-0.5 text-[10px] text-stone-400">{formatDue(card.due)} · 已复习 {card.reps} 次</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => flashcardStore.remove(card.id)}
                   aria-label={`删除闪卡"${card.front}"`}
-                  className="shrink-0 rounded p-1 text-gray-300 hover:bg-red-50 hover:text-red-600"
+                  className="shrink-0 rounded p-1 text-stone-300 dark:text-stone-600 hover:bg-red-50 hover:text-red-600"
                 >
                   <Trash2 size={13} />
                 </button>
@@ -330,7 +330,7 @@ export default function KnowledgePanel({
   const renderTerms = () => (
     <div className="p-4" aria-label="白话列表">
       {terms.length === 0 ? (
-        <p className="rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
+        <p className="rounded border border-dashed border-stone-200 dark:border-stone-800 bg-white p-3 text-xs leading-5 text-stone-500">
           还没有生成白话。选中原文后使用「生成白话」。
         </p>
       ) : (
@@ -345,10 +345,10 @@ export default function KnowledgePanel({
                 data-panel-record-id={term.id}
                 onClick={() => focusTerm(term.id)}
                 title="点击定位原文"
-                className="cursor-pointer rounded border border-gray-200 bg-white p-3 shadow-sm transition-colors hover:border-gray-300"
+                className="cursor-pointer rounded border border-stone-200 dark:border-stone-800 bg-white p-3 shadow-sm transition-colors hover:border-stone-300 dark:border-stone-700"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="min-w-0 truncate text-xs font-semibold text-gray-800">
+                  <p className="min-w-0 truncate text-xs font-semibold text-stone-800 dark:text-stone-200">
                     {term.term || term.name}
                   </p>
                   <div className="flex shrink-0 items-center gap-2">
@@ -367,10 +367,10 @@ export default function KnowledgePanel({
                         aria-pressed={mastered}
                         aria-label={mastered ? '取消懂了' : '标记为懂了'}
                         title={mastered ? '已懂（点击取消）' : '懂了'}
-                        className={`flex h-5 w-5 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${
+                        className={`flex h-5 w-5 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 ${
                           mastered
-                            ? 'bg-teal-100 text-teal-700'
-                            : 'text-gray-400 hover:bg-teal-100 hover:text-teal-700'
+                            ? 'bg-stone-200 dark:bg-white/15 text-stone-950 dark:text-stone-100'
+                            : 'text-stone-400 hover:bg-stone-200 dark:hover:bg-white/15 hover:text-stone-950 dark:text-stone-100'
                         }`}
                       >
                         <Check size={12} aria-hidden="true" />
@@ -378,13 +378,13 @@ export default function KnowledgePanel({
                     )}
                   </div>
                 </div>
-                <div className="mt-2 break-words text-xs leading-5 text-gray-600">
+                <div className="mt-2 break-words text-xs leading-5 text-stone-600 dark:text-stone-400">
                   <MarkdownSnippet text={term.explanation} />
                 </div>
                 {aliasList.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {aliasList.map((alias) => (
-                      <span key={alias} className="rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-500">
+                      <span key={alias} className="rounded bg-stone-50 dark:bg-white/5 px-1.5 py-0.5 text-[10px] text-stone-500">
                         {alias}
                       </span>
                     ))}
@@ -406,7 +406,7 @@ export default function KnowledgePanel({
         </p>
       )}
       {sentenceRecords.length === 0 ? (
-        <p className="rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
+        <p className="rounded border border-dashed border-stone-200 dark:border-stone-800 bg-white p-3 text-xs leading-5 text-stone-500">
           还没有解读记录。选中原文后使用「解释这段」。
         </p>
       ) : (
@@ -419,11 +419,11 @@ export default function KnowledgePanel({
               data-panel-record-id={record.id}
               onClick={() => onFocus?.(record.id)}
               title="点击定位原文"
-              className="cursor-pointer rounded border border-gray-200 bg-white p-3 shadow-sm transition-colors hover:border-gray-300"
+              className="cursor-pointer rounded border border-stone-200 dark:border-stone-800 bg-white p-3 shadow-sm transition-colors hover:border-stone-300 dark:border-stone-700"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5">
-                  <span className="rounded bg-gray-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  <span className="rounded bg-stone-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                     {roleLabel(record)}
                   </span>
                   {stale && (
@@ -442,10 +442,10 @@ export default function KnowledgePanel({
                     aria-pressed={Boolean(mastery[record.id])}
                     aria-label={mastery[record.id] ? '取消懂了' : '标记为懂了'}
                     title={mastery[record.id] ? '已懂（点击取消）' : '懂了'}
-                    className={`flex h-5 w-5 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-teal-600 ${
+                    className={`flex h-5 w-5 items-center justify-center rounded outline-none focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 ${
                       mastery[record.id]
-                        ? 'bg-teal-100 text-teal-700'
-                        : 'text-gray-400 hover:bg-teal-100 hover:text-teal-700'
+                        ? 'bg-stone-200 dark:bg-white/15 text-stone-950 dark:text-stone-100'
+                        : 'text-stone-400 hover:bg-stone-200 dark:hover:bg-white/15 hover:text-stone-950 dark:text-stone-100'
                     }`}
                   >
                     <Check size={12} aria-hidden="true" />
@@ -458,24 +458,24 @@ export default function KnowledgePanel({
                     }}
                     aria-label="删除解读"
                     title="删除解读"
-                    className="flex h-5 w-5 items-center justify-center rounded text-gray-400 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-500"
+                    className="flex h-5 w-5 items-center justify-center rounded text-stone-400 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-500"
                   >
                     <X size={12} aria-hidden="true" />
                   </button>
                 </div>
               </div>
-              <div className="mt-2 break-words text-xs font-medium leading-5 text-gray-800">
+              <div className="mt-2 break-words text-xs font-medium leading-5 text-stone-800 dark:text-stone-200">
                 <MarkdownSnippet text={record.selectedText} />
               </div>
               <MarkdownSnippet
                 text={record.explanation?.summary || record.explanation?.display || record.explanation?.plainExplanation || ''}
-                className="mt-2 text-xs leading-5 text-gray-600"
+                className="mt-2 text-xs leading-5 text-stone-600 dark:text-stone-400"
               />
               <MarkdownSnippet
                 text={record.explanation?.context || ''}
-                className="mt-2 text-xs leading-5 text-gray-500"
+                className="mt-2 text-xs leading-5 text-stone-500"
               />
-              <p className="mt-2 text-[11px] text-gray-400">
+              <p className="mt-2 text-[11px] text-stone-400">
                 {formatDate(record.createdAt)}
                 {demoLabel(record) ? ` · ${demoLabel(record)}` : ''}
                 {record.source === 'api' ? ' · AI 解读' : ''}
@@ -486,7 +486,7 @@ export default function KnowledgePanel({
         </ul>
       )}
       {sentenceRecords.length > 0 && (
-        <p className="mt-4 text-center text-[11px] text-gray-400">
+        <p className="mt-4 text-center text-[11px] text-stone-400">
           已懂 {masteredCount}/{sentenceRecords.length} 条 · 「懂了」只影响你的复习清单，不会删除解读。
         </p>
       )}
@@ -506,12 +506,12 @@ export default function KnowledgePanel({
           data-panel-record-id={record.id}
           onClick={() => onFocus?.(record.id, { openCard: false })}
           title="点击定位原文"
-          className="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-gray-300"
+          className="w-full rounded border border-stone-200 dark:border-stone-800 bg-white px-2.5 py-2 text-left transition-colors hover:border-stone-300 dark:border-stone-700"
         >
-          <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">
+          <span className="mr-1.5 rounded bg-stone-100 dark:bg-white/10 px-1.5 py-0.5 text-[10px] text-stone-600 dark:text-stone-400">
             {roleLabel(record)}
           </span>
-          <MarkdownSnippet text={record.selectedText} className="inline align-middle text-xs leading-5 text-gray-800" />
+          <MarkdownSnippet text={record.selectedText} className="inline align-middle text-xs leading-5 text-stone-800 dark:text-stone-200" />
         </button>
         {children.length > 0 && (
           <ul className="mt-1.5 space-y-1.5">
@@ -533,7 +533,7 @@ export default function KnowledgePanel({
     if (explanations.length === 0) {
       return (
         <div className="p-4">
-          <p className="rounded border border-dashed border-gray-200 bg-white p-3 text-xs leading-5 text-gray-500">
+          <p className="rounded border border-dashed border-stone-200 dark:border-stone-800 bg-white p-3 text-xs leading-5 text-stone-500">
             还没有重点。点击顶栏「生成」里的「生成重点」或「生成解读」，AI 会按文章/段落/句子/词语分层标注原文。
           </p>
         </div>
@@ -587,7 +587,7 @@ export default function KnowledgePanel({
                     <span className="mr-1.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] text-red-600">
                       {MARK_KIND_LABELS[record.markKind] || '服务中心'}
                     </span>
-                    <MarkdownSnippet text={record.selectedText} className="inline align-middle text-xs leading-5 text-gray-800" />
+                    <MarkdownSnippet text={record.selectedText} className="inline align-middle text-xs leading-5 text-stone-800 dark:text-stone-200" />
                   </button>
                 </li>
               ))}
@@ -600,7 +600,7 @@ export default function KnowledgePanel({
 
   return (
     <div ref={panelRef} className="flex h-full min-h-0 flex-col bg-[#fafafa]">
-      <div className="border-b border-gray-200 bg-white">
+      <div className="border-b border-stone-200 dark:border-stone-800 bg-white">
         <div className="flex" role="tablist" aria-label="知识面板视图">
           {TABS.map((tab) => (
             <button
@@ -611,8 +611,8 @@ export default function KnowledgePanel({
               onClick={() => setActiveTab(tab.id)}
               className={`relative flex-1 border-b-2 px-2 py-2.5 text-xs font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'border-gray-900 text-gray-900'
-                  : 'border-transparent text-gray-400 hover:text-gray-700'
+                  ? 'border-stone-900 dark:border-stone-100 text-stone-900 dark:text-stone-100'
+                  : 'border-transparent text-stone-400 hover:text-stone-700 dark:text-stone-300'
               }`}
             >
               {tab.label}
@@ -639,12 +639,12 @@ export default function KnowledgePanel({
           </div>
           {/* 导出就近放在解读 tab：与闪卡 tab 的 Anki 导出同构 */}
           {onExportObsidian && (
-            <div className="shrink-0 border-t border-gray-100 px-2 py-1.5">
+            <div className="shrink-0 border-t border-stone-100 dark:border-stone-800 px-2 py-1.5">
               <button
                 type="button"
                 onClick={onExportObsidian}
                 disabled={explanations.length === 0}
-                className="flex items-center gap-1.5 text-[11px] text-gray-500 outline-none hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-40"
+                className="flex items-center gap-1.5 text-[11px] text-stone-500 outline-none hover:text-stone-900 dark:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:opacity-40"
               >
                 <NotebookText size={12} aria-hidden="true" />
                 导出 Obsidian

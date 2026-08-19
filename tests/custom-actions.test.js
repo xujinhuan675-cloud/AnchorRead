@@ -8,7 +8,6 @@ import {
   CustomActionError,
   createCustomAction,
   createDemoCustomActions,
-  createDemoCustomActionResult,
   renderCustomActionPrompt,
   normalizeCustomActions,
 } from '../lib/custom-actions.js';
@@ -73,6 +72,12 @@ test('renderCustomActionPrompt 替换 selection 与 context 占位符', () => {
   const action = { promptTemplate: '背景：{{context}}\n问题：{{selection}}\n再看：{{selection}}' };
   const prompt = renderCustomActionPrompt(action, { selection: ' 锚点 ', context: ' 阅读 ' });
   assert.equal(prompt, '背景：阅读\n问题：锚点\n再看：锚点');
+
+  // 未提供的可选上下文代入为空字符串
+  assert.equal(
+    renderCustomActionPrompt(action, { selection: '锚点' }),
+    '背景：\n问题：锚点\n再看：锚点'
+  );
 });
 
 test('renderCustomActionPrompt 空选区或非法动作抛错', () => {
@@ -107,22 +112,4 @@ test('createDemoCustomActions returns 3 built-in actions with selection placehol
   assert.equal(actions[0].name, '提炼要点');
   assert.equal(actions[1].name, '反问检验');
   assert.equal(actions[2].name, '类比联想');
-});
-
-test('createDemoCustomActionResult produces real responses based on action name and selection', () => {
-  const selection = '检索增强生成系统的上线判断不能只看回答是否流畅。还要看证据。';
-  const extract = createDemoCustomActionResult({ name: '提炼要点' }, selection);
-  assert.ok(extract.startsWith('核心要点：'));
-  assert.ok(extract.includes('检索增强生成系统的上线判断不能只看回答是否流畅。'));
-
-  const challenge = createDemoCustomActionResult({ name: '反问检验' }, selection);
-  assert.ok(challenge.startsWith('针对「'));
-  assert.ok(challenge.includes('前提'));
-
-  const analogy = createDemoCustomActionResult({ name: '类比联想' }, selection);
-  assert.ok(analogy.startsWith('可以类比为：'));
-
-  // 未知动作名走通用兜底，仍包含选区首句
-  const generic = createDemoCustomActionResult({ name: '自定义动作' }, selection);
-  assert.ok(generic.includes('检索增强生成系统的上线判断不能只看回答是否流畅。'));
 });

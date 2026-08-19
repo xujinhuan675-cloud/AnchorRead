@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react';
 import { EditorContent, ReactWidgetRenderer, useEditor } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -9,19 +9,22 @@ import { TableKit } from '@tiptap/extension-table';
 import { UniqueID } from '@tiptap/extension-unique-id';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
-import { BookOpenCheck, LoaderCircle, PenTool, ScanText, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react';
+import { LoaderCircle, MessageCircleQuestion, PenTool, ScanText, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react';
 import { markdownToSafeHtml } from '@/lib/document-content';
 import { isDefaultToolbarBuiltinTemplate } from '@/lib/toolbar-builtins';
 import { extractMarkdownOutline, precisionReplacementStats } from '@/lib/reader-lab';
 import { readerRoleLayer } from '@/lib/reader-analysis';
 import { createPrecisionReplacementMarkdown } from './DerivedDraft';
 import InlineExplanation from './InlineExplanation';
-import InlineDiagramCard from './InlineDiagramCard';
+import InlineDiagramCard, { InlineDiagramPlaceholder } from './InlineDiagramCard';
 
 const READER_LAB_DECORATIONS_KEY = new PluginKey('anchorReaderLabDecorations');
 
+// 原文优先下悬浮记为难点前的停留阈值：快速划过不算“想了解”
+const HOVER_LOOKUP_DELAY_MS = 600;
+
 // 浮动工具栏内置动作图标：按内置动作 id 映射
-const BUILTIN_TOOLBAR_ICONS = Object.freeze({ explain: Sparkles, term: ScanText, diagram: PenTool });
+const BUILTIN_TOOLBAR_ICONS = Object.freeze({ explain: Sparkles, term: ScanText, diagram: PenTool, ask: MessageCircleQuestion });
 
 function validRange(record, doc) {
   const from = record?.range?.from;
@@ -161,11 +164,14 @@ function resolveRecordRange(record, doc, substitutions = [], revealedKeys = null
 // 填空翻转：『白话』片段的展开态由组件 state 持有并参与派生文档计算，
 // 已翻开的映射回写『原术语』，未翻开的保持『大白话』；文档文本即状态，无需 replace 装饰
 
-function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}, revealedKeys = null) {
+function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}, cloze = null, pendingDiagram = null) {
   const { doc } = editor.state;
   // 白话视图与原文视图叠加同一套装饰：原文坐标失效后改用文本匹配重锚定，
   // 命中“『大白话』”替换片段时高亮直接包在替换文本上，行间解读卡照常挂载
-  const substitutions = aid.precision ? precisionSubstitutions(records) : [];
+  const { presentation = 'plain', revealedKeys = null, lookupKeys = null } = cloze || {};
+  // 映射列表两种呈现共用：白话优先（plain）用于重锚定替换文本，原文优先（original）用于框选术语位置
+  const mappings = aid.precision ? precisionSubstitutions(records) : [];
+  const substitutions = presentation === 'original' ? [] : mappings;
   const showExplanations = aid.explanations !== false;
   const showDiagrams = aid.diagrams !== false;
 
@@ -223,6 +229,8 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
         mastered: Boolean(mastery[record.id]),
         onMaster: callbacks.onMaster,
         onDelete: callbacks.onDelete,
+        onRegisterCandidate: callbacks.onRegisterCandidate,
+        onDismissCandidate: callbacks.onDismissCandidate,
       },
     });
     // 行间解读卡始终保持挂载，显隐由容器的 reader-lab-hide-explanations CSS 控制：
@@ -231,14 +239,15 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
   }
 
   // 填空翻转：白话视图下给每个『…』片段叠加可点击 chip 装饰——
-  // 未翻开映射命中『大白话』，已翻开映射命中『原术语』；点击由插件 handleClick 统一翻转
+  // 未翻开映射命中『大白话』，已翻开映射命中『原术语』；点击由插件 handleClick 统一翻转；
+  // data-cloze-alt 携带对侧文本供悬浮纯 CSS 换显预览，不改文档也不翻转状态
   if (substitutions.length > 0) {
-    const keyByTarget = new Map();
-    const keyBySource = new Map();
+    const hiddenByTarget = new Map();
+    const revealedBySource = new Map();
     for (const { source, target } of substitutions) {
       const key = `${source}\u0000${target}`;
-      keyByTarget.set(target, key);
-      keyBySource.set(source, key);
+      hiddenByTarget.set(target, { key, alt: source });
+      revealedBySource.set(source, { key, alt: target });
     }
     for (const block of textblockSegments(doc)) {
       for (const segment of block.segments) {
@@ -246,16 +255,19 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
         let match;
         while ((match = PRECISION_MARKER_PATTERN.exec(segment.text)) !== null) {
           const inner = match[0].slice(1, -1);
-          const hiddenKey = keyByTarget.get(inner);
-          const revealedKey = keyBySource.get(inner);
+          const hidden = hiddenByTarget.get(inner);
+          const revealed = revealedBySource.get(inner);
           let state = null;
           let key = '';
-          if (hiddenKey && !revealedKeys?.has(hiddenKey)) {
+          let alt = '';
+          if (hidden && !revealedKeys?.has(hidden.key)) {
             state = 'hidden';
-            key = hiddenKey;
-          } else if (revealedKey && revealedKeys?.has(revealedKey)) {
+            key = hidden.key;
+            alt = hidden.alt;
+          } else if (revealed && revealedKeys?.has(revealed.key)) {
             state = 'revealed';
-            key = revealedKey;
+            key = revealed.key;
+            alt = revealed.alt;
           }
           if (!state) continue;
           const from = segment.from + match.index;
@@ -264,10 +276,40 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
             class: `reader-lab-cloze${state === 'revealed' ? ' reader-lab-cloze-revealed' : ''}`,
             'data-cloze-key': key,
             'data-cloze-state': state,
+            'data-cloze-alt': alt,
             role: 'button',
             tabindex: '0',
-            title: state === 'revealed' ? '点击收回白话' : '点击显示原文术语',
+            title: state === 'revealed' ? '悬浮预览白话，点击收回' : '悬浮预览原文术语，点击保持显示',
           }));
+        }
+      }
+    }
+  }
+
+  // 原文优先：原文不动，给每个映射的术语位置（全部命中处）叠框选 chip——
+  // 悬浮纯 CSS 换显『白话』，停留满阈值由插件记为难点；已记录的换实线框形成难点地图
+  if (presentation === 'original' && mappings.length > 0) {
+    for (const { source, target } of mappings) {
+      const key = `${source}\u0000${target}`;
+      const looked = lookupKeys?.has(key);
+      for (const block of textblockSegments(doc)) {
+        const compactBlock = block.text.replace(/\s+/gu, ' ').trim();
+        let index = compactBlock.indexOf(source);
+        while (index !== -1) {
+          const from = mapTextOffset(block.segments, index);
+          const to = mapTextOffset(block.segments, index + source.length);
+          if (Number.isInteger(from) && Number.isInteger(to) && to > from) {
+            decorations.push(Decoration.inline(from, to, {
+              class: `reader-lab-cloze reader-lab-cloze-original${looked ? ' reader-lab-cloze-looked' : ''}`,
+              'data-cloze-key': key,
+              'data-cloze-state': looked ? 'looked' : 'unseen',
+              'data-cloze-alt': target,
+              role: 'button',
+              tabindex: '0',
+              title: looked ? '悬浮查看白话，点击移出难点' : '悬浮查看白话，点击记为难点',
+            }));
+          }
+          index = compactBlock.indexOf(source, index + source.length);
         }
       }
     }
@@ -310,22 +352,48 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
       // 与行间解读卡同理：图表卡保持挂载，显隐由 reader-lab-hide-diagrams CSS 控制
     decorations.push(diagramWidget.toPMDecoration());
   }
+
+  // 划词图解生成中：先在选区下方挂占位卡，完成后被正式图解卡替换；
+  // 同样保持挂载，显隐跟随 reader-lab-hide-diagrams CSS
+  if (pendingDiagram?.source) {
+    const pendingRange = resolveRecordRange({ source: pendingDiagram.source }, doc, substitutions, revealedKeys);
+    if (pendingRange) {
+      const resolvedEnd = doc.resolve(pendingRange.to);
+      const pendingEnd = resolvedEnd.depth > 0 ? resolvedEnd.after(1) : pendingRange.to;
+      const pendingWidget = ReactWidgetRenderer(InlineDiagramPlaceholder, {
+        editor,
+        pos: pendingEnd,
+        key: 'reader-lab-diagram-pending',
+        as: 'div',
+        className: 'reader-lab-widget reader-lab-diagram-widget',
+        side: 1,
+        ignoreSelection: true,
+        stopEvent: () => true,
+        props: { source: pendingDiagram.source },
+      });
+      decorations.push(pendingWidget.toPMDecoration());
+    }
+  }
   return DecorationSet.create(doc, decorations);
 }
 
 function createDecorationsPlugin(editor, getSource) {
+  // 原文优先下悬浮记难点的计时器：mouseover 启动、mouseout/换目标重置，插件卸载时清理
+  let hoverLookupTimer = null;
   return new Plugin({
     key: READER_LAB_DECORATIONS_KEY,
     props: {
       decorations() {
-        const { records, mastery, callbacks, drawings, aid, layers, revealed } = getSource();
-        return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers, revealed);
+        const { records, mastery, callbacks, drawings, aid, layers, cloze, pendingDiagram } = getSource();
+        return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers, cloze, pendingDiagram);
       },
       handleClick(_view, _position, event) {
-        // 填空 chip 优先于高亮定位：点击『大白话』/『原术语』翻转展开态
-        const cloze = event.target?.closest?.('[data-cloze-key]');
-        if (cloze) {
-          getSource().callbacks.onToggleCloze?.(cloze.dataset.clozeKey);
+        // 填空 chip 优先于高亮定位：白话优先点击翻转展开态，原文优先点击切换难点标记
+        const clozeEl = event.target?.closest?.('[data-cloze-key]');
+        if (clozeEl) {
+          const source = getSource();
+          if (source.cloze?.presentation === 'original') source.callbacks.onToggleClozeLookup?.(clozeEl.dataset.clozeKey);
+          else source.callbacks.onToggleCloze?.(clozeEl.dataset.clozeKey);
           return true;
         }
         const marker = event.target?.closest?.('[data-reader-explanation-id]');
@@ -335,9 +403,11 @@ function createDecorationsPlugin(editor, getSource) {
       },
       handleKeyDown(_view, event) {
         if (event.key !== 'Enter' && event.key !== ' ') return false;
-        const cloze = event.target?.closest?.('[data-cloze-key]');
-        if (cloze) {
-          getSource().callbacks.onToggleCloze?.(cloze.dataset.clozeKey);
+        const clozeEl = event.target?.closest?.('[data-cloze-key]');
+        if (clozeEl) {
+          const source = getSource();
+          if (source.cloze?.presentation === 'original') source.callbacks.onToggleClozeLookup?.(clozeEl.dataset.clozeKey);
+          else source.callbacks.onToggleCloze?.(clozeEl.dataset.clozeKey);
           event.preventDefault();
           return true;
         }
@@ -346,6 +416,26 @@ function createDecorationsPlugin(editor, getSource) {
         getSource().callbacks.onFocus?.(marker.dataset.readerExplanationId);
         event.preventDefault();
         return true;
+      },
+      // 原文优先下悬浮即“想了解”：停留满阈值记为难点（快速划过不记），移开取消计时
+      handleDOMEvents: {
+        mouseover(_view, event) {
+          const target = event.target?.closest?.('[data-cloze-key]');
+          if (!target) return false;
+          const source = getSource();
+          if (source.cloze?.presentation !== 'original') return false;
+          window.clearTimeout(hoverLookupTimer);
+          const key = target.dataset.clozeKey;
+          hoverLookupTimer = window.setTimeout(() => {
+            source.callbacks.onHoverClozeLookup?.(key);
+          }, HOVER_LOOKUP_DELAY_MS);
+          return false;
+        },
+        mouseout(_view, event) {
+          if (!event.target?.closest?.('[data-cloze-key]')) return false;
+          window.clearTimeout(hoverLookupTimer);
+          return false;
+        },
       },
     },
   });
@@ -364,11 +454,24 @@ export default function ReaderSurface({
   onPersistDrawing,
   onNotice,
   drawings = [],
+  // 划词图解生成中的锚点：在选区下方挂占位卡，完成后被正式图解卡替换
+  pendingDiagram = null,
   toolbarActions = [],
   aidVisibility,
   layerVisibility,
+  // 白话呈现方式与填空状态均由工作台持有并持久化：
+  // plain=替换成白话悬浮看原文（翻开态 revealedClozes），original=原文不动悬浮看白话（难点标记 clozeLookups）
+  clozePresentation = 'plain',
+  revealedClozes = null,
+  clozeLookups = null,
+  onToggleCloze,
+  onToggleClozeLookup,
+  onHoverClozeLookup,
   onMaster,
   onDelete,
+  // 提问候选词条审阅：入库/忽略都在行间卡上就近处理
+  onRegisterCandidate,
+  onDismissCandidate,
   onFocus,
   onProgress,
   initialScrollTop = 0,
@@ -377,27 +480,14 @@ export default function ReaderSurface({
   analysisBusy,
 }) {
   const precisionEnabled = Boolean(aidVisibility?.precision);
-  // 填空翻转态：已翻开映射的 key 集合，参与派生文档计算（回写『原术语』）
-  const [revealedClozes, setRevealedClozes] = useState(() => new Set());
-  const toggleCloze = useCallback((key) => {
-    if (!key) return;
-    setRevealedClozes((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // 原文优先：原文直显，术语框选交给装饰层，不生成替换后的派生文档
+  const originalFirst = precisionEnabled && clozePresentation === 'original';
   const sourceMarkdown = useMemo(
-    () => precisionEnabled
+    () => (precisionEnabled && !originalFirst
       ? createPrecisionReplacementMarkdown(document, explanations, revealedClozes)
-      : document.content,
-    [document, explanations, precisionEnabled, revealedClozes]
+      : document.content),
+    [document, explanations, precisionEnabled, originalFirst, revealedClozes]
   );
-  // 白话关闭时清空填空翻转状态，下次开启从“全部盖住”重新开始
-  useEffect(() => {
-    if (!precisionEnabled) setRevealedClozes((prev) => (prev.size > 0 ? new Set() : prev));
-  }, [precisionEnabled]);
   // 精准替代开启但无可用映射时不再静默显示原文，给出明确提示并引导重新分析
   const precisionNotice = useMemo(() => {
     if (!precisionEnabled) return '';
@@ -458,11 +548,12 @@ export default function ReaderSurface({
     decorationsSourceRef.current = {
       records: explanations,
       mastery,
-      callbacks: { onMaster, onDelete, onFocus, onOpenDiagram, document, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze: toggleCloze },
+      callbacks: { onMaster, onDelete, onRegisterCandidate, onDismissCandidate, onFocus, onOpenDiagram, document, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze, onToggleClozeLookup, onHoverClozeLookup },
       drawings,
+      pendingDiagram,
       aid: aidVisibility,
       layers: layerVisibility,
-      revealed: revealedClozes,
+      cloze: { presentation: clozePresentation, revealedKeys: revealedClozes, lookupKeys: clozeLookups },
     };
   });
 
@@ -488,7 +579,7 @@ export default function ReaderSurface({
       editor.view.dispatch(editor.state.tr.setMeta('readerLabDecorationsRefresh', true));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [editor, explanations, mastery, precisionEnabled, drawings, document, aidVisibility, layerVisibility, revealedClozes, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice]);
+  }, [editor, explanations, mastery, precisionEnabled, drawings, pendingDiagram, document, aidVisibility, layerVisibility, revealedClozes, clozeLookups, clozePresentation, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze, onToggleClozeLookup, onHoverClozeLookup]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed || !focusRange) return;
@@ -572,22 +663,22 @@ export default function ReaderSurface({
           updateDelay={80}
           shouldShow={({ state }) => !state.selection.empty}
           options={{ placement: 'top', offset: 8 }}
-          className="flex items-center gap-1 rounded-md border border-gray-200 bg-white p-1 shadow-xl"
+          className="flex items-center gap-1 rounded-md border border-stone-200 dark:border-stone-800 bg-white p-1 shadow-xl"
         >
           {visibleToolbarActions.map((item, index) => {
             const BuiltinIcon = BUILTIN_TOOLBAR_ICONS[item.id];
             const busyKey = BuiltinIcon ? item.id : `custom:${item.id}`;
             if (BuiltinIcon) {
-              // 图解模板被修改后改按模板执行，只有默认模板才走选区锚定链路
+              // 图解模板被修改后改按模板执行，只有默认模板才走选区锚定链路；提问等其余内置动作选区即触发直出
               const isDiagram = item.id === 'diagram' && isDefaultToolbarBuiltinTemplate(item);
               return (
                 <Fragment key={item.id}>
-                  {index > 0 && <span className="h-5 w-px bg-gray-200" aria-hidden="true" />}
+                  {index > 0 && <span className="h-5 w-px bg-stone-200 dark:bg-white/15" aria-hidden="true" />}
                   <button
                     type="button"
                     onClick={() => (isDiagram ? runDiagramSelection() : runSelectionAction(item.id))}
                     disabled={Boolean(busyAction)}
-                    className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
+                    className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-stone-800 dark:text-stone-200 outline-none hover:bg-stone-100 dark:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:opacity-50"
                     title={item.description}
                   >
                     {busyAction === busyKey ? <LoaderCircle size={14} className="animate-spin" /> : <BuiltinIcon size={14} />}
@@ -598,12 +689,12 @@ export default function ReaderSurface({
             }
             return (
               <Fragment key={item.id}>
-                {index > 0 && <span className="h-5 w-px bg-gray-200" aria-hidden="true" />}
+                {index > 0 && <span className="h-5 w-px bg-stone-200 dark:bg-white/15" aria-hidden="true" />}
                 <button
                   type="button"
                   onClick={() => runSelectionAction(`custom:${item.id}`)}
                   disabled={Boolean(busyAction)}
-                  className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-gray-800 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50"
+                  className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-stone-800 dark:text-stone-200 outline-none hover:bg-stone-100 dark:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:opacity-50"
                   title={item.description || item.name}
                 >
                   {busyAction === busyKey ? <LoaderCircle size={14} className="animate-spin" /> : <WandSparkles size={14} />}
@@ -632,22 +723,16 @@ export default function ReaderSurface({
             )}
           </div>
         )}
-        <div className="mb-7 flex items-center gap-2 text-xs text-gray-400">
-          <BookOpenCheck size={15} aria-hidden="true" />
-          <span>{precisionEnabled
-            ? ['白话', !hideExplanations && '解读', !hideDiagrams && '图解'].filter(Boolean).join(' · ')
-            : ['原文', !hideExplanations && '解读', !hideDiagrams && '图解'].filter(Boolean).join(' · ')}</span>
-        </div>
         <EditorContent editor={editor} />
       </div>
     </div>
 
     {/* 目录抽屉：覆盖在阅读区左侧，不挤占布局；开关在顶栏，这里不重复关闭按钮 */}
     {outlineOpen && outline.length > 0 && (
-      <nav aria-label="文档目录" className="absolute inset-y-0 left-0 z-20 flex w-60 flex-col border-r border-gray-200 bg-white/95 shadow-lg backdrop-blur-sm">
-        <div className="flex shrink-0 items-center gap-2 border-b border-gray-200 px-3 py-2">
-          <span className="text-xs font-semibold text-gray-700">目录</span>
-          <span className="ml-auto text-[11px] text-gray-400">{outline.length} 个标题</span>
+      <nav aria-label="文档目录" className="absolute inset-y-0 left-0 z-20 flex w-60 flex-col border-r border-stone-200 dark:border-stone-800 bg-white/95 shadow-lg backdrop-blur-sm">
+        <div className="flex shrink-0 items-center gap-2 border-b border-stone-200 dark:border-stone-800 px-3 py-2">
+          <span className="text-xs font-semibold text-stone-700 dark:text-stone-300">目录</span>
+          <span className="ml-auto text-[11px] text-stone-400">{outline.length} 个标题</span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {outline.map((item, index) => (
@@ -656,7 +741,7 @@ export default function ReaderSurface({
               type="button"
               onClick={() => scrollToOutlineIndex(index)}
               style={{ paddingLeft: `${8 + (item.level - 1) * 12}px` }}
-              className={`w-full rounded pr-2 py-1.5 text-left text-xs leading-5 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-gray-400 ${item.level <= 1 ? 'font-medium text-gray-900' : 'text-gray-600'}`}
+              className={`w-full rounded pr-2 py-1.5 text-left text-xs leading-5 outline-none hover:bg-stone-100 dark:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400 ${item.level <= 1 ? 'font-medium text-stone-900 dark:text-stone-100' : 'text-stone-600 dark:text-stone-400'}`}
             >
               {item.text}
             </button>

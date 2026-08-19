@@ -4,9 +4,9 @@ import {
   ReaderAnalysisRequestError,
   ReaderAnalysisResponseError,
   buildReaderAnalysisPrompt,
-  createDemoReaderAnalysis,
   createReaderAnalysisBlocks,
   locateExactQuote,
+  locateFuzzyQuote,
   normalizeReaderAnalysisRequest,
   normalizeReaderAnalysisResponse,
 } from '../lib/reader-analysis.js';
@@ -61,19 +61,22 @@ test('normalizes explanation depth with standard fallback and rejects invalid va
 });
 
 test('injects exactly one depth clause matching the requested level', () => {
-  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'light' }), /12\. 解释深度为轻度/);
-  assert.doesNotMatch(buildReaderAnalysisPrompt({ ...request, depth: 'light' }), /解释深度为标准|解释深度为深度/);
-  assert.match(buildReaderAnalysisPrompt(request), /12\. 解释深度为标准/);
-  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'deep' }), /12\. 解释深度为深度/);
+  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'light' }), /12\. 解释深度为熟练掌握/);
+  assert.doesNotMatch(buildReaderAnalysisPrompt({ ...request, depth: 'light' }), /解释深度为有所接触|解释深度为初次接触/);
+  assert.match(buildReaderAnalysisPrompt(request), /12\. 解释深度为有所接触/);
+  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'deep' }), /12\. 解释深度为初次接触/);
   assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'deep' }), /"depth":"deep"/);
 });
 
-test('demo explanation coverage follows the requested depth', () => {
-  const longContent = Array.from({ length: 12 }, (_, index) => `第${index + 1}段正文，包含幂等键等术语。`).join('\n\n');
-  const longRequest = { title: '多段文档', content: longContent, mode: 'plain' };
-  assert.equal(createDemoReaderAnalysis({ ...longRequest, depth: 'light' }).explanations.length, 3);
-  assert.equal(createDemoReaderAnalysis(longRequest).explanations.length, 5);
-  assert.equal(createDemoReaderAnalysis({ ...longRequest, depth: 'deep' }).explanations.length, 8);
+test('depth clause coverage scope stays aligned with the UI labels', () => {
+  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'light' }), /只为真正的生僻术语、缩写与专业表达/);
+  assert.match(buildReaderAnalysisPrompt(request), /优先解释术语、缩写、生僻词与专业表达/);
+  assert.match(buildReaderAnalysisPrompt({ ...request, depth: 'deep' }), /复杂句式、隐含前提与背景知识也要通过 display 拆解/);
+});
+
+test('demo analysis fallback is removed: lib no longer exposes createDemoReaderAnalysis', async () => {
+  const lib = await import('../lib/reader-analysis.js');
+  assert.equal(lib.createDemoReaderAnalysis, undefined);
 });
 
 test('normalizes glossary entries and ignores malformed input', () => {
@@ -123,6 +126,46 @@ test('locates exact repeated quotes and refuses invalid occurrences', () => {
   });
   assert.equal(locateExactQuote('一次，一次', '一次', 2), null);
   assert.equal(locateExactQuote('原文', '改写', 0), null);
+});
+
+test('fuzzy relocation tolerates whitespace and full-width punctuation drift, mapping back to true ranges', () => {
+  // 模型把全角标点写成半角、增删空格：仍命中并映射回原文真实区间
+  assert.deepEqual(
+    locateFuzzyQuote('检索增强生成（RAG），先检索再生成。', '检索增强生成(RAG),先检索再生成'),
+    { start: 0, end: 18 }
+  );
+  assert.deepEqual(locateFuzzyQuote('幂等键 应绑定 业务意图。', '幂等键应绑定业务意图'), { start: 0, end: 12 });
+  // offset 透传：区间换算到全文坐标
+  assert.deepEqual(locateFuzzyQuote('业务意图。', '业务意图', 40), { start: 40, end: 44 });
+  // 真正不在原文中的引用仍然返回 null
+  assert.equal(locateFuzzyQuote('原文内容', '凭空捏造'), null);
+});
+
+test('drifted quotes are re-anchored in responses; fuzzy fallback keeps anchors and mappings alive', () => {
+  const driftedRequest = {
+    title: '标点漂移',
+    content: '检索增强生成（RAG），先检索资料再生成回答。',
+    mode: 'plain',
+  };
+  const result = normalizeReaderAnalysisResponse({
+    summary: '先检索再生成。',
+    // anchor 回引用了半角括号：精确匹配失败，模糊重锚定接住
+    anchors: [{ source: '检索增强生成(RAG),先检索资料再生成回答', role: 'core', importance: 5 }],
+    explanations: [{
+      blockId: 'reader-analysis-block-0',
+      mode: 'plain',
+      display: '先检索资料再生成回答。',
+      // mapping 回引同样带半角括号：模糊命中后区间必须落回原文全角括号位置
+      mappings: [{ source: '检索增强生成(RAG)', target: '先检索资料再生成回答', note: '' }],
+    }],
+  }, driftedRequest);
+  assert.equal(result.anchors[0].start, 0);
+  assert.equal(result.anchors[0].end, '检索增强生成（RAG），先检索资料再生成回答'.length);
+  assert.equal(result.explanations[0].mappings.length, 1);
+  assert.deepEqual(
+    { start: result.explanations[0].mappings[0].start, end: result.explanations[0].mappings[0].end },
+    { start: 0, end: '检索增强生成（RAG）'.length }
+  );
 });
 
 test('uses occurrence to ground repeated anchor and mapping quotes', () => {
@@ -302,7 +345,7 @@ test('accepts matching prepared blocks and rejects stale block metadata', () => 
   );
 });
 
-test('rejects invented anchors, cross-block mappings, and malformed structures', () => {
+test('rejects invented anchors and malformed structures; unlocatable mappings are dropped, not fatal', () => {
   const validExplanation = {
     blockId: 'reader-analysis-block-1',
     mode: 'plain',
@@ -317,17 +360,17 @@ test('rejects invented anchors, cross-block mappings, and malformed structures',
     }, request),
     /不是原文中的连续片段/
   );
-  assert.throws(
-    () => normalizeReaderAnalysisResponse({
-      summary: '摘要',
-      anchors: [{ source: '幂等键', role: 'concept', importance: 4 }],
-      explanations: [{
-        ...validExplanation,
-        mappings: [{ source: '业务意图', target: '一次业务操作', note: '' }],
-      }],
-    }, request),
-    /不在对应原文块中/
-  );
+  // 跨块回引的 mapping 不再阻断整篇分析：只丢弃该条，解读 display 保留
+  const dropped = normalizeReaderAnalysisResponse({
+    summary: '摘要',
+    anchors: [{ source: '幂等键', role: 'concept', importance: 4 }],
+    explanations: [{
+      ...validExplanation,
+      mappings: [{ source: '业务意图', target: '一次业务操作', note: '' }],
+    }],
+  }, request);
+  assert.equal(dropped.explanations[0].display, '解释');
+  assert.deepEqual(dropped.explanations[0].mappings, []);
   assert.throws(
     () => normalizeReaderAnalysisResponse({
       summary: '摘要',
@@ -336,33 +379,6 @@ test('rejects invented anchors, cross-block mappings, and malformed structures',
     }, request),
     ReaderAnalysisResponseError
   );
-});
-
-test('creates an explicitly labelled local demo with the canonical shape', () => {
-  const result = createDemoReaderAnalysis(request);
-  assert.equal(result.isDemo, true);
-  assert.ok(result.anchors.length > 0);
-  assert.ok(result.explanations.length > 0);
-  // Demo 用内置术语词典驱动“精准替代”：映射是真实术语→大白话，source 逐字可定位，不再出现占位示例文案
-  const explained = result.explanations.find((explanation) => explanation.mappings.length > 0);
-  assert.ok(explained);
-  const mapping = explained.mappings[0];
-  assert.equal(mapping.source, '幂等键');
-  assert.equal(request.content.slice(mapping.start, mapping.end), mapping.source);
-  assert.equal(mapping.target, '同一次操作的去重凭证');
-  // 解读与摘要直接提炼原文真实内容，无 Demo 占位文案，也不带任何题头前缀
-  assert.ok(result.explanations.every((explanation) => (
-    explanation.display
-    && !explanation.display.includes('通俗解读')
-    && !explanation.display.includes('示例')
-  )));
-  assert.ok(!result.summary.includes('示例'));
-  // Demo 同样演示层级结构：中心论点 + 服务于它的论据/对策 + 词语层标记
-  const core = result.anchors.find((anchor) => anchor.role === 'core');
-  const word = result.anchors.find((anchor) => anchor.level === 'word');
-  assert.ok(core);
-  assert.ok(word);
-  assert.deepEqual(word.serves, { start: core.start, end: core.end });
 });
 
 test('normalizes hierarchical anchors: word-level marks and serves references', () => {

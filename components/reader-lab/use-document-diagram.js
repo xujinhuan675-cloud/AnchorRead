@@ -5,7 +5,6 @@ import { historyManager } from '@/lib/history-manager';
 import { getConfig, isConfigValid } from '@/lib/config';
 import {
   buildDocumentDiagramMessage,
-  createDemoDocumentDiagram,
   createDocumentDrawingId,
   finalizeDiagramSource,
   parseExcalidrawElements,
@@ -27,7 +26,8 @@ export function useDocumentDiagram({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isApplyingCode, setIsApplyingCode] = useState(false);
   const [isOptimizingCode, setIsOptimizingCode] = useState(false);
-  const [engine, setEngine] = useState(activeDrawing?.engine || 'excalidraw');
+  // 默认引擎为 Mermaid：存量图解按自身 engine 恢复，无记录时兜底 mermaid
+  const [engine, setEngine] = useState(activeDrawing?.engine || 'mermaid');
   const [chartType, setChartType] = useState(activeDrawing?.chartType || 'auto');
   const [code, setCode] = useState(activeDrawing?.source || '');
   const [elements, setElements] = useState(() => {
@@ -37,7 +37,7 @@ export function useDocumentDiagram({
   const saveTimerRef = useRef(null);
 
   useEffect(() => {
-    setEngine(activeDrawing?.engine || 'excalidraw');
+    setEngine(activeDrawing?.engine || 'mermaid');
     setChartType(activeDrawing?.chartType || 'auto');
     setCode(activeDrawing?.source || '');
     try {
@@ -65,8 +65,11 @@ export function useDocumentDiagram({
     saveTimerRef.current = window.setTimeout(() => onPersistDrawing(next), 400);
   }, [activeDrawing, chartType, code, engine, onPersistDrawing]);
 
-  const generate = useCallback(async (message, nextChartType, sourceType, nextEngine) => {
+  // anchorOverride：划词图解不跳转，锚点在同一次调用里随参数传入，
+  // 不等 hook 的 anchor prop 下一帧生效
+  const generate = useCallback(async (message, nextChartType, sourceType, nextEngine, anchorOverride = null) => {
     if (isGenerating || !document) return;
+    const effectiveAnchor = anchorOverride || anchor;
     setIsGenerating(true);
     setError('');
     try {
@@ -74,45 +77,14 @@ export function useDocumentDiagram({
       const accessPassword = typeof window !== 'undefined' ? localStorage.getItem('smart-excalidraw-access-password') : '';
       const config = getConfig();
       if (!usePassword && !isConfigValid(config)) {
-        // 独立图解工作区没有可建模的文档：不种子演示脑图，交给画布自由绘制
-        if (document?.standaloneDiagram) {
-          onNotice?.({ type: 'demo', message: '未配置 LLM：可直接在画布上自由绘制，配置模型后支持 AI 生成。' });
-          return;
-        }
-        // 无 LLM 配置时不阻断：按文档真实结构本地生成 Mermaid 脑图，保证图解链路可走通
-        const finalCode = finalizeDiagramSource('mermaid', createDemoDocumentDiagram(document));
-        setEngine('mermaid');
-        setChartType('mindmap');
-        setCode(finalCode);
-        setElements([]);
-        const drawing = {
-          id: createDocumentDrawingId(document.id),
-          documentId: document.id,
-          title: `结构脑图 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
-          engine: 'mermaid',
-          chartType: 'mindmap',
-          source: finalCode,
-          prompt: '本地结构图：按文档标题与正文首句自动生成',
-          anchor: anchor ? { from: anchor.from, to: anchor.to, source: anchor.source } : null,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        await onCreateDrawing(drawing);
-        onClearAnchor?.();
-        historyManager.addHistory({
-          documentId: document.id,
-          drawingId: drawing.id,
-          chartType: 'mindmap',
-          userInput: drawing.prompt,
-          generatedCode: finalCode,
-          engine: 'mermaid',
-        });
-        onNotice?.({ type: 'success', message: '已按文档结构生成本地脑图（配置 LLM 后可自由提问生成）。' });
-        return;
+        // AI 生成依赖模型配置：未配置时直接报错；独立画布仍可自由手绘
+        throw new Error(document?.standaloneDiagram
+          ? '未配置 LLM：AI 图解不可用，可直接在画布上自由绘制。'
+          : '未检测到可用模型配置，请先在设置中配置模型后再生成图解。');
       }
       // 锚定选区时让模型重点围绕该段落建模
-      const anchoredMessage = anchor && typeof message === 'string'
-        ? `${message}\n\n请重点围绕以下原文段落建模：「${anchor.source}」`
+      const anchoredMessage = effectiveAnchor && typeof message === 'string'
+        ? `${message}\n\n请重点围绕以下原文段落建模：「${effectiveAnchor.source}」`
         : message;
       setEngine(nextEngine);
       setChartType(nextChartType);
@@ -160,7 +132,7 @@ export function useDocumentDiagram({
         chartType: nextChartType,
         source: finalCode,
         prompt: typeof message === 'string' ? message : message?.text || '',
-        anchor: anchor ? { from: anchor.from, to: anchor.to, source: anchor.source } : null,
+        anchor: effectiveAnchor ? { from: effectiveAnchor.from, to: effectiveAnchor.to, source: effectiveAnchor.source } : null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -244,6 +216,7 @@ export function useDocumentDiagram({
   return {
     engine,
     chartType,
+    setChartType,
     code,
     elements,
     error,

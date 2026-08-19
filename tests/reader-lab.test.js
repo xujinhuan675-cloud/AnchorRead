@@ -7,7 +7,6 @@ import {
   collectKnownTerms,
   combineKnownMasteredTerms,
   clozeMappingKey,
-  createDemoFlashcards,
   createReaderLabAnalysisRecords,
   createReaderLabExplanation,
   createReaderLabSeedDocuments,
@@ -32,8 +31,36 @@ import {
   createMemoryWorkspaceAdapter,
   createWorkspaceRepository,
 } from '../lib/local-workspace-db.js';
-import { createDemoReaderAnalysis } from '../lib/reader-analysis.js';
-import { createDemoDocumentDiagram } from '../lib/diagram-generation.js';
+import { createReaderAnalysisBlocks, normalizeReaderAnalysisResponse } from '../lib/reader-analysis.js';
+
+/**
+ * Demo 兜底已移除：测试用导出的块切分与响应规整函数组装标准分析结果，
+ * 形态与 /api/reader-analysis 的真实输出一致
+ */
+function createAnalysisFixture(document) {
+  const blocks = createReaderAnalysisBlocks(document.content);
+  const bodyBlocks = blocks.filter(
+    (block) => !/^\s*#{1,6}\s+/u.test(block.source) && block.source.trim().length >= 8
+  );
+  const coreBlock = bodyBlocks[0];
+  const evidenceBlock = bodyBlocks[1] || coreBlock;
+  const firstSentence = (block) => `${block.source.split(/[。！？!?；;]/u)[0]}。`;
+  const termOf = (block) => block.source.match(/[\u4e00-\u9fff]{2,6}/u)?.[0] || firstSentence(block).slice(0, 4);
+  return normalizeReaderAnalysisResponse({
+    summary: firstSentence(coreBlock),
+    anchors: [
+      { source: firstSentence(coreBlock), role: 'core', importance: 5, reason: '中心论点' },
+      { source: firstSentence(evidenceBlock), role: 'evidence', importance: 4, reason: '支撑中心论点', serves: 0 },
+      { source: termOf(evidenceBlock), role: 'background', importance: 2, reason: '句子服务中心', level: 'word', markKind: 'center', serves: 0 },
+    ],
+    explanations: [coreBlock, evidenceBlock].map((block) => ({
+      blockId: block.id,
+      mode: 'plain',
+      display: firstSentence(block),
+      mappings: [{ source: termOf(block), target: '术语的大白话解释', note: '' }],
+    })),
+  }, { title: document.title, content: document.content, mode: 'plain' });
+}
 
 const response = {
   plainExplanation: '这是派生解释。',
@@ -598,8 +625,8 @@ test('createReaderLabAnalysisRecords skips glossary-covered terms like mastered 
 
 test('analysis records carry hierarchical structure: word marks and servesTo resolve to record ids', () => {
   const [document] = createReaderLabSeedDocuments({ now: 100 });
-  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
-  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: true, now: 200 });
+  const analysis = createAnalysisFixture(document);
+  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: false, now: 200 });
 
   const core = records.find((record) => record.role === 'core');
   const evidence = records.find((record) => record.role === 'evidence');
@@ -617,45 +644,16 @@ test('analysis records carry hierarchical structure: word marks and servesTo res
 
 test('highlights batch also generates word-level marks without explanations', () => {
   const [document] = createReaderLabSeedDocuments({ now: 100 });
-  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
-  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: true, now: 200, kind: 'highlights' });
+  const analysis = createAnalysisFixture(document);
+  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: false, now: 200, kind: 'highlights' });
 
   assert.ok(records.some((record) => record.level === 'word'));
   assert.ok(records.every((record) => record.explanation === null));
 });
 
-test('local demo flashcards extract real role and term content from analysis records', () => {
-  const [document] = createReaderLabSeedDocuments({ now: 100 });
-  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
-  const records = createReaderLabAnalysisRecords({ document, analysis, isDemo: true, now: 200 });
-
-  const cards = createDemoFlashcards(records, document.title);
-  assert.ok(cards.length > 0);
-  // 角色卡：问真实摘录属于哪一层，背面是可记忆的角色定义
-  const roleCard = cards.find((card) => card.front.includes('属于哪一层重点'));
-  assert.ok(roleCard);
-  assert.match(roleCard.back, /中心论点|分论点|论据|对策|案例|概念|结论|背景/);
-  // 术语卡：真实术语→大白话，不出现占位示例文案
-  const termCard = cards.find((card) => card.front.includes('用大白话怎么理解'));
-  assert.ok(termCard);
-  assert.ok(cards.every((card) => !card.front.includes('示例') && !card.back.includes('本地示例替换')));
-});
-
-test('local demo diagram builds a mermaid mindmap from real document structure', () => {
-  const [document] = createReaderLabSeedDocuments({ now: 100 });
-  const source = createDemoDocumentDiagram(document);
-
-  assert.ok(source.startsWith('mindmap\n'));
-  assert.match(source, /root\(\(.+\)\)/u);
-  // 章节标题与正文首句都是真实内容，且括号等会触发形状解析的字符已被清理
-  const heading = document.content.split('\n').find((line) => /^#{1,6}\s+/u.test(line)).replace(/^#{1,6}\s+/u, '');
-  assert.ok(source.includes(heading.replace(/[()（）[\]{}【】<>《》"'`|]/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 18)));
-  assert.doesNotMatch(source, /^\s{4,}\S*[()（）[\]{}]/gmu);
-});
-
 test('batch analysis records are deduped per anchor with inline explanations preferred', () => {
   const [document] = createReaderLabSeedDocuments({ now: 100 });
-  const analysis = createDemoReaderAnalysis({ title: document.title, content: document.content, mode: 'plain' });
+  const analysis = createAnalysisFixture(document);
   // 同一分析的两种批量共存时，同一锚点只保留携带解读的一条
   const highlightRecords = createReaderLabAnalysisRecords({ document, analysis, now: 200, kind: 'highlights' });
   const inlineRecords = createReaderLabAnalysisRecords({ document, analysis, now: 300, kind: 'inline' });
