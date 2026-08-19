@@ -12,16 +12,20 @@ import {
   toToolbarBuiltinOverrides,
 } from '../lib/toolbar-builtins.js';
 
-test('createDefaultToolbarBuiltins 返回解释/白话/图解三个默认启用的内置动作', () => {
+test('createDefaultToolbarBuiltins 返回解释/白话/图解/提问四个默认启用的内置动作', () => {
   const builtins = createDefaultToolbarBuiltins();
-  assert.equal(builtins.length, 3);
-  assert.deepEqual(builtins.map((item) => item.id), ['explain', 'term', 'diagram']);
+  assert.equal(builtins.length, 4);
+  assert.deepEqual(builtins.map((item) => item.id), ['explain', 'term', 'diagram', 'ask']);
   for (const item of builtins) {
     assert.equal(item.enabled, true);
     assert.ok(item.name);
     assert.ok(item.description);
     assert.ok(item.promptTemplate.includes(CUSTOM_ACTION_SELECTION_PLACEHOLDER));
   }
+  // 提问为内置提示词直出：模板不携带问题占位符，选区即触发
+  const ask = builtins.find((item) => item.id === 'ask');
+  assert.doesNotMatch(ask.promptTemplate, /\{\{question\}\}/);
+  assert.match(ask.promptTemplate, /核心概念或机制/);
 });
 
 test('isDefaultToolbarBuiltinTemplate 区分默认模板与用户修改', () => {
@@ -49,7 +53,7 @@ test('mergeToolbarBuiltins 接受改名、改说明、改模板与禁用，非�
     diagram: { enabled: false, promptTemplate: '   ' },
     unknown: { name: '无效条目' },
   });
-  assert.equal(merged.length, 3);
+  assert.equal(merged.length, 4);
 
   const explain = merged.find((item) => item.id === 'explain');
   assert.equal(explain.name, '深度解读');
