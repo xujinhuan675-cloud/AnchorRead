@@ -12,7 +12,7 @@ export function ScrollArea({ className = '', children, ...props }) {
         orientation="vertical"
         className="flex w-2.5 touch-none select-none p-0.5"
       >
-        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-gray-300" />
+        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-stone-300 dark:bg-white/20" />
       </ScrollAreaPrimitive.Scrollbar>
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>

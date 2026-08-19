@@ -12,10 +12,10 @@ export function Tooltip({ children, content, side = 'bottom' }) {
         <TooltipPrimitive.Content
           side={side}
           sideOffset={6}
-          className="z-[70] rounded bg-gray-950 px-2 py-1 text-[11px] text-white shadow-lg"
+          className="z-[70] rounded bg-stone-950 px-2 py-1 text-[11px] text-white shadow-lg"
         >
           {content}
-          <TooltipPrimitive.Arrow className="fill-gray-950" />
+          <TooltipPrimitive.Arrow className="fill-stone-950" />
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>

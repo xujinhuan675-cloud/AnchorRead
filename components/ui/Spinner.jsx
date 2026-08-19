@@ -10,8 +10,8 @@ export default function Spinner({ size = 'md', color = 'white' }) {
 
   const colorClasses = {
     white: 'border-white border-t-transparent',
-    gray: 'border-gray-700 border-t-transparent',
-    primary: 'border-gray-900 border-t-transparent',
+    gray: 'border-stone-700 dark:border-stone-300 border-t-transparent',
+    primary: 'border-stone-900 dark:border-stone-100 border-t-transparent',
   };
 
   return (

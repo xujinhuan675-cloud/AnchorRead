@@ -23,11 +23,11 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between p-6 border-b border-stone-200 dark:border-stone-800">
             <h2 className="text-xl font-semibold">{title}</h2>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-400 transition-colors"
               aria-label="关闭"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

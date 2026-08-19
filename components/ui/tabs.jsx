@@ -9,7 +9,7 @@ export function Tabs({ className = '', ...props }) {
 export function TabsList({ className = '', ...props }) {
   return (
     <TabsPrimitive.List
-      className={`inline-flex h-9 items-center gap-1 rounded-md bg-gray-100 p-1 ${className}`}
+      className={`inline-flex h-9 items-center gap-1 rounded-md bg-stone-100 dark:bg-white/10 p-1 ${className}`}
       {...props}
     />
   );
@@ -18,7 +18,7 @@ export function TabsList({ className = '', ...props }) {
 export function TabsTrigger({ className = '', ...props }) {
   return (
     <TabsPrimitive.Trigger
-      className={`min-w-0 flex-1 rounded px-3 py-1.5 text-xs font-medium text-gray-500 outline-none transition-colors hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400 data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm ${className}`}
+      className={`min-w-0 flex-1 rounded px-3 py-1.5 text-xs font-medium text-stone-500 outline-none transition-colors hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400 data-[state=active]:bg-white data-[state=active]:text-stone-900 data-[state=active]:shadow-sm ${className}`}
       {...props}
     />
   );
@@ -27,7 +27,7 @@ export function TabsTrigger({ className = '', ...props }) {
 export function TabsContent({ className = '', ...props }) {
   return (
     <TabsPrimitive.Content
-      className={`min-h-0 outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${className}`}
+      className={`min-h-0 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 ${className}`}
       {...props}
     />
   );

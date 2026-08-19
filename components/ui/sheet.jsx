@@ -17,17 +17,17 @@ export function SheetContent({
   const sideClass = side === 'right' ? 'right-0 border-l' : 'left-0 border-r';
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-gray-950/30 backdrop-blur-[1px] data-[state=open]:animate-in data-[state=closed]:animate-out" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-stone-950/30 backdrop-blur-[1px] data-[state=open]:animate-in data-[state=closed]:animate-out" />
       <DialogPrimitive.Content
         aria-describedby={undefined}
-        className={`fixed inset-y-0 z-50 flex w-[min(88vw,22rem)] flex-col border-gray-200 bg-white shadow-xl outline-none ${sideClass} ${className}`}
+        className={`fixed inset-y-0 z-50 flex w-[min(88vw,22rem)] flex-col border-stone-200 dark:border-stone-800 bg-white shadow-xl outline-none ${sideClass} ${className}`}
         {...props}
       >
         <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>
         {children}
         <DialogPrimitive.Close
           aria-label="关闭面板"
-          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded text-gray-500 outline-none hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-gray-400"
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded text-stone-500 outline-none hover:bg-stone-100 dark:hover:bg-white/10 hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
         >
           <X size={17} aria-hidden="true" />
         </DialogPrimitive.Close>

@@ -23,6 +23,35 @@ body {
   display: none;
 }
 
+/* 首页大标题流光效果，移植自无限画布首页 */
+.ai-title-aurora {
+  background: linear-gradient(90deg, #111827 0%, #111827 36%, #6b7280 54%, #111827 72%, #111827 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ai-title-aurora 7s ease-in-out infinite;
+}
+
+.dark .ai-title-aurora {
+  background: linear-gradient(90deg, #fafaf9 0%, #fafaf9 36%, #a8a29e 54%, #fafaf9 72%, #fafaf9 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+@keyframes ai-title-aurora {
+  0%,
+  100% {
+    background-position: 0% 50%;
+    filter: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
+  }
+  50% {
+    background-position: 100% 50%;
+    filter: drop-shadow(0 12px 28px rgba(28, 25, 23, 0.08));
+  }
+}
+
 .reader-lab-prosemirror,
 .reader-lab-derived-source {
   color: #27272a;
@@ -145,6 +174,30 @@ body {
   background: transparent;
   color: inherit;
   padding: 0;
+}
+
+/* 深色代码块内的填空 chip：默认深青字在 #18181b 底上几乎不可见，改用浅青系保证对比 */
+.reader-lab-prosemirror pre .reader-lab-cloze,
+.reader-lab-derived-source pre .reader-lab-cloze {
+  color: #5eead4;
+  text-decoration-color: #2dd4bf;
+}
+
+.reader-lab-prosemirror pre .reader-lab-cloze:hover,
+.reader-lab-derived-source pre .reader-lab-cloze:hover {
+  background-color: rgba(45, 212, 191, 0.16);
+}
+
+.reader-lab-prosemirror pre .reader-lab-cloze:focus-visible,
+.reader-lab-derived-source pre .reader-lab-cloze:focus-visible {
+  outline-color: #5eead4;
+}
+
+.reader-lab-prosemirror pre .reader-lab-cloze-revealed,
+.reader-lab-derived-source pre .reader-lab-cloze-revealed {
+  color: #ccfbf1;
+  background-color: rgba(45, 212, 191, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.35);
 }
 
 .reader-lab-prosemirror table,
@@ -276,6 +329,67 @@ body {
   border-radius: 4px;
   text-decoration: none;
   box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.25);
+}
+
+/* 悬浮直接换显对侧文本：宿主文本连同角引号归零隐藏，::before 携带替代文本按正常流重排；
+   只改视觉不改文档与翻转态，移开即还原，点击才走状态翻转 */
+.reader-lab-cloze[data-cloze-alt]:hover {
+  font-size: 0;
+}
+
+.reader-lab-cloze[data-cloze-alt]:hover::before {
+  content: '『' attr(data-cloze-alt) '』';
+  font-size: 1rem;
+}
+
+/* 替代文本字号跟随所在上下文（代码块/表格/标题与正文字号不同） */
+.reader-lab-prosemirror pre .reader-lab-cloze[data-cloze-alt]:hover::before,
+.reader-lab-derived-source pre .reader-lab-cloze[data-cloze-alt]:hover::before,
+.reader-lab-prosemirror table .reader-lab-cloze[data-cloze-alt]:hover::before,
+.reader-lab-derived-source table .reader-lab-cloze[data-cloze-alt]:hover::before {
+  font-size: 0.9rem;
+}
+
+.reader-lab-prosemirror h1 .reader-lab-cloze[data-cloze-alt]:hover::before,
+.reader-lab-derived-source h1 .reader-lab-cloze[data-cloze-alt]:hover::before {
+  font-size: 1.875rem;
+}
+
+.reader-lab-prosemirror h2 .reader-lab-cloze[data-cloze-alt]:hover::before,
+.reader-lab-derived-source h2 .reader-lab-cloze[data-cloze-alt]:hover::before {
+  font-size: 1.45rem;
+}
+
+.reader-lab-prosemirror h3 .reader-lab-cloze[data-cloze-alt]:hover::before,
+.reader-lab-derived-source h3 .reader-lab-cloze[data-cloze-alt]:hover::before {
+  font-size: 1.2rem;
+}
+
+/* 原文优先形态：术语保持所在上下文的正文色，青色虚线下划线提示可悬浮；换显出的白话用青色释义色 */
+.reader-lab-cloze-original {
+  color: inherit;
+}
+
+.reader-lab-cloze-original:hover::before {
+  color: #0f766e;
+}
+
+/* 已记录的难点：虚线换实线并叠加细框与浅底，形成难点地图；点击可移出 */
+.reader-lab-cloze-looked {
+  text-decoration-style: solid;
+  box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.35);
+  border-radius: 3px;
+  background-color: rgba(20, 184, 166, 0.07);
+}
+
+/* 深色代码块内的原文优先 chip：保持代码块文字色，仅下划线用浅青；换显白话同样用浅青 */
+.reader-lab-prosemirror pre .reader-lab-cloze-original {
+  color: inherit;
+  text-decoration-color: #2dd4bf;
+}
+
+.reader-lab-prosemirror pre .reader-lab-cloze-original:hover::before {
+  color: #5eead4;
 }
 
 /* 知识面板/行间卡的小字号 Markdown：继承父级字号，压缩块级间距，表格与代码横向溢出可滚动 */
