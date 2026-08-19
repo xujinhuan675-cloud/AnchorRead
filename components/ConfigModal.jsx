@@ -98,13 +98,13 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded border border-gray-300 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-white rounded border border-stone-300 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">LLM 配置</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h2 className="text-lg font-semibold text-stone-900">LLM 配置</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
+            className="text-stone-400 hover:text-stone-600 transition-colors duration-200"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -126,7 +126,7 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
 
           {/* Provider Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               提供商名称
             </label>
             <input
@@ -134,19 +134,19 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
               value={config.name}
               onChange={(e) => setConfig({ ...config, name: e.target.value })}
               placeholder="例如：我的 OpenAI"
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
           </div>
 
           {/* Provider Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               提供商类型 <span className="text-red-500">*</span>
             </label>
             <select
               value={config.type}
               onChange={(e) => setConfig({ ...config, type: e.target.value, model: '' })}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             >
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
@@ -155,7 +155,7 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
 
           {/* Base URL */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               基础 URL <span className="text-red-500">*</span>
             </label>
             <input
@@ -163,13 +163,13 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
               value={config.baseUrl}
               onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
               placeholder={config.type === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com/v1'}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
           </div>
 
           {/* API Key */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               API 密钥 <span className="text-red-500">*</span>
             </label>
             <input
@@ -177,7 +177,7 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
               value={config.apiKey}
               onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
               placeholder="sk-..."
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
           </div>
 
@@ -186,7 +186,7 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
             <button
               onClick={handleLoadModels}
               disabled={loading}
-              className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:bg-gray-50 disabled:text-gray-400 transition-colors duration-200 font-medium"
+              className="w-full px-4 py-2 bg-white border border-stone-300 text-stone-700 rounded hover:bg-stone-50 disabled:bg-stone-50 disabled:text-stone-400 transition-colors duration-200 font-medium"
             >
               {loading ? '加载模型中...' : '加载可用模型'}
             </button>
@@ -194,10 +194,10 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
 
           {/* Model Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               模型 <span className="text-red-500">*</span>
             </label>
-            <p className="text-xs text-gray-500 mb-2">推荐 claude-sonnet-4.5</p>
+            <p className="text-xs text-stone-500 mb-2">推荐 claude-sonnet-4.5</p>
 
             {/* Toggle between selection and custom input */}
             {models.length > 0 && (
@@ -214,7 +214,7 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
                     }}
                     className="mr-2"
                   />
-                  <span className="text-sm text-gray-700">从列表选择</span>
+                  <span className="text-sm text-stone-700">从列表选择</span>
                 </label>
                 <label className="flex items-center cursor-pointer">
                   <input
@@ -226,7 +226,7 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
                     }}
                     className="mr-2"
                   />
-                  <span className="text-sm text-gray-700">手动输入</span>
+                  <span className="text-sm text-stone-700">手动输入</span>
                 </label>
               </div>
             )}
@@ -236,7 +236,7 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
               <select
                 value={config.model}
                 onChange={(e) => setConfig({ ...config, model: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
               >
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
@@ -253,23 +253,23 @@ export default function ConfigModal({ isOpen, onClose, onSave, initialConfig, sh
                 value={config.model}
                 onChange={(e) => setConfig({ ...config, model: e.target.value })}
                 placeholder="例如：gpt-4、claude-3-opus-20240229"
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
             )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end space-x-3 px-6 py-4 border-t border-gray-200">
+        <div className="flex justify-end space-x-3 px-6 py-4 border-t border-stone-200">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors duration-200"
+            className="px-4 py-2 text-stone-700 bg-white border border-stone-300 rounded hover:bg-stone-50 transition-colors duration-200"
           >
             取消
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 text-white bg-gray-900 rounded hover:bg-gray-800 transition-colors duration-200"
+            className="px-4 py-2 text-white bg-stone-900 rounded hover:bg-stone-800 transition-colors duration-200"
           >
             保存配置
           </button>

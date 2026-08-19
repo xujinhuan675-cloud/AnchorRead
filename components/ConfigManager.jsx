@@ -247,10 +247,10 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded border border-gray-300 w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="relative bg-white rounded border border-stone-300 w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">配置管理</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h2 className="text-lg font-semibold text-stone-900">配置管理</h2>
           <div className="flex items-center gap-4">
             {/* 代码仓库链接从侧边栏收敛进配置面板 */}
             <a
@@ -258,14 +258,14 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
               target="_blank"
               rel="noopener noreferrer"
               title="源代码仓库"
-              className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors duration-200 hover:text-gray-900"
+              className="flex items-center gap-1.5 text-sm text-stone-500 transition-colors duration-200 hover:text-stone-900"
             >
               <GithubIcon size={16} />
               代码
             </a>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
+              className="text-stone-400 hover:text-stone-600 transition-colors duration-200"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -289,19 +289,19 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
           <div className="mb-6 flex flex-wrap gap-2">
             <button
               onClick={handleCreateNew}
-              className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors duration-200"
+              className="px-4 py-2 bg-stone-900 text-white rounded hover:bg-stone-800 transition-colors duration-200"
             >
               新建配置
             </button>
             <button
               onClick={handleExport}
-              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors duration-200"
+              className="px-4 py-2 bg-white border border-stone-300 text-stone-700 rounded hover:bg-stone-50 transition-colors duration-200"
             >
               导出配置
             </button>
             <button
               onClick={handleImport}
-              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors duration-200"
+              className="px-4 py-2 bg-white border border-stone-300 text-stone-700 rounded hover:bg-stone-50 transition-colors duration-200"
             >
               导入配置
             </button>
@@ -314,14 +314,14 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索配置..."
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
           </div>
 
           {/* Config List */}
           <div className="space-y-3">
             {filteredConfigs.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-stone-500">
                 {searchQuery ? '没有找到匹配的配置' : '暂无配置，点击"新建配置"创建第一个配置'}
               </div>
             ) : (
@@ -331,25 +331,26 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
                   className={`border rounded-lg p-4 ${
                     config.id === activeConfigId
                       ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'border-stone-200 hover:border-stone-300'
                   }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-medium text-gray-900">{config.name}</h3>
+                        <h3 className="font-medium text-stone-900">{config.name}</h3>
                         {config.id === activeConfigId && (
                           <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">当前使用</span>
                         )}
-                        <span className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
+                        <span className="px-2 py-1 text-xs bg-stone-100 text-stone-700 rounded">
                           {config.type}
                         </span>
                       </div>
                       {config.description && (
-                        <p className="text-sm text-gray-600 mb-2">{config.description}</p>
+                        <p className="text-sm text-stone-600 mb-2">{config.description}</p>
                       )}
-                      <div className="text-xs text-gray-500 space-y-1">
-                        <div>URL: {config.baseUrl}</div>
+                      <div className="text-xs text-stone-500 space-y-1">
+                        {/* 官方渠道的地址由代码内置，不在列表中展示 */}
+                        {!config.isOfficial && <div>URL: {config.baseUrl}</div>}
                         <div>模型: {config.model}</div>
                         <div>创建时间: {new Date(config.createdAt).toLocaleString()}</div>
                       </div>
@@ -366,13 +367,13 @@ export default function ConfigManager({ isOpen, onClose, onConfigSelect }) {
                       <button
                         onClick={() => handleTestConnection(config)}
                         disabled={isLoading}
-                        className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 disabled:bg-gray-400"
+                        className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors duration-200 disabled:bg-stone-400"
                       >
                         测试
                       </button>
                       <button
                         onClick={() => handleEdit(config)}
-                        className="px-3 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors duration-200"
+                        className="px-3 py-1 text-xs bg-stone-500 text-white rounded hover:bg-stone-600 transition-colors duration-200"
                       >
                         编辑
                       </button>
@@ -483,26 +484,26 @@ function AccessPasswordSection() {
   };
 
   return (
-    <div className="mb-6 border border-gray-200 rounded-lg p-4">
+    <div className="mb-6 border border-stone-200 rounded-lg p-4">
       <div className="flex items-center justify-between mb-1">
-        <h3 className="font-medium text-gray-900">访问密码</h3>
+        <h3 className="font-medium text-stone-900">访问密码</h3>
         <div className="flex items-center gap-2">
           <button
             onClick={handleValidate}
             disabled={isValidating}
-            className="px-3 py-1 text-xs bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:bg-gray-50 disabled:text-gray-400 transition-colors duration-200"
+            className="px-3 py-1 text-xs bg-white border border-stone-300 text-stone-700 rounded hover:bg-stone-50 disabled:bg-stone-50 disabled:text-stone-400 transition-colors duration-200"
           >
             {isValidating ? '验证中...' : '验证密码'}
           </button>
           <button
             onClick={handleSave}
-            className="px-3 py-1 text-xs bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors duration-200"
+            className="px-3 py-1 text-xs bg-stone-900 text-white rounded hover:bg-stone-800 transition-colors duration-200"
           >
             保存密码设置
           </button>
         </div>
       </div>
-      <p className="text-xs text-gray-500 mb-3">
+      <p className="text-xs text-stone-500 mb-3">
         用于连接部署在服务器上的共享 LLM（对应服务端 ACCESS_PASSWORD）；启用后下方本地配置将被忽略。本地自用无需开启。
       </p>
 
@@ -522,7 +523,7 @@ function AccessPasswordSection() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="访问密码"
-          className="flex-1 min-w-48 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="flex-1 min-w-48 px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
         />
         <label className="flex items-center cursor-pointer">
           <input
@@ -531,7 +532,7 @@ function AccessPasswordSection() {
             onChange={(e) => setUsePassword(e.target.checked)}
             className="mr-2"
           />
-          <span className="text-sm text-gray-700">启用访问密码</span>
+          <span className="text-sm text-stone-700">启用访问密码</span>
         </label>
       </div>
     </div>
@@ -630,14 +631,14 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
         className="absolute inset-0 bg-black/50"
         onClick={onCancel}
       />
-      <div className="relative bg-white rounded border border-gray-300 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
+      <div className="relative bg-white rounded border border-stone-300 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h2 className="text-lg font-semibold text-stone-900">
             {isCreating ? '新建配置' : '编辑配置'}
           </h2>
           <button
             onClick={onCancel}
-            className="text-gray-400 hover:text-gray-600 transition-colors duration-200"
+            className="text-stone-400 hover:text-stone-600 transition-colors duration-200"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -653,7 +654,7 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               配置名称 <span className="text-red-500">*</span>
             </label>
             <input
@@ -661,12 +662,12 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="例如：我的 OpenAI"
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               描述
             </label>
             <textarea
@@ -674,12 +675,12 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="配置描述（可选）"
               rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               用户背景
             </label>
             <textarea
@@ -687,39 +688,39 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
               onChange={(e) => setFormData({ ...formData, userContext: e.target.value })}
               placeholder="例如：我是后端工程师，请用分布式系统类比解释概念。留空则不注入。"
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-stone-500">
               会作为偏好注入阅读分析提示词，每次请求都计 token，建议精简。
             </p>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-medium text-gray-700">
+              <label className="block text-sm font-medium text-stone-700">
                 提示词预设
               </label>
               <button
                 type="button"
                 onClick={handleAddPreset}
-                className="px-2 py-1 text-xs bg-gray-100 border border-gray-300 text-gray-700 rounded hover:bg-gray-200 transition-colors duration-200"
+                className="px-2 py-1 text-xs bg-stone-100 border border-stone-300 text-stone-700 rounded hover:bg-stone-200 transition-colors duration-200"
               >
                 添加预设
               </button>
             </div>
-            <p className="mb-2 text-xs text-gray-500">
+            <p className="mb-2 text-xs text-stone-500">
               预设定位为「视角/身份」，与输出形态（mode）正交；分析时可在工作区下拉选用其一。
             </p>
             <div className="space-y-3">
               {(Array.isArray(formData.promptPresets) ? formData.promptPresets : []).map((preset) => (
-                <div key={preset.id} className="border border-gray-200 rounded p-2 space-y-2">
+                <div key={preset.id} className="border border-stone-200 rounded p-2 space-y-2">
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
                       value={preset.name || ''}
                       onChange={(e) => handleUpdatePreset(preset.id, 'name', e.target.value)}
                       placeholder="预设名称，如：后端视角"
-                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      className="flex-1 px-2 py-1 text-sm border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
                     />
                     <button
                       type="button"
@@ -734,7 +735,7 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
                     onChange={(e) => handleUpdatePreset(preset.id, 'body', e.target.value)}
                     placeholder="预设正文，如：用后端工程师熟悉的概念类比解释，避免泛泛而谈。"
                     rows={2}
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    className="w-full px-2 py-1 text-sm border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
                   />
                 </div>
               ))}
@@ -742,34 +743,37 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               提供商类型 <span className="text-red-500">*</span>
             </label>
             <select
               value={formData.type}
               onChange={(e) => setFormData({ ...formData, type: e.target.value, model: '' })}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             >
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              基础 URL <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={formData.baseUrl}
-              onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
-              placeholder={formData.type === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com/v1'}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-          </div>
+          {/* 官方渠道的地址由代码内置，编辑时不展示也不允许修改 */}
+          {!config.isOfficial && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                基础 URL <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={formData.baseUrl}
+                onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
+                placeholder={formData.type === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com/v1'}
+                className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
+              />
+            </div>
+          )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               API 密钥 <span className="text-red-500">*</span>
             </label>
             <input
@@ -777,7 +781,7 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
               value={formData.apiKey}
               onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
               placeholder="sk-..."
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
             />
           </div>
 
@@ -785,14 +789,14 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
             <button
               onClick={handleLoadModels}
               disabled={loading}
-              className="w-full px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:bg-gray-50 disabled:text-gray-400 transition-colors duration-200 font-medium"
+              className="w-full px-4 py-2 bg-white border border-stone-300 text-stone-700 rounded hover:bg-stone-50 disabled:bg-stone-50 disabled:text-stone-400 transition-colors duration-200 font-medium"
             >
               {loading ? '加载模型中...' : '加载可用模型'}
             </button>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 mb-1">
               模型 <span className="text-red-500">*</span>
             </label>
 
@@ -810,7 +814,7 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
                     }}
                     className="mr-2"
                   />
-                  <span className="text-sm text-gray-700">从列表选择</span>
+                  <span className="text-sm text-stone-700">从列表选择</span>
                 </label>
                 <label className="flex items-center cursor-pointer">
                   <input
@@ -822,7 +826,7 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
                     }}
                     className="mr-2"
                   />
-                  <span className="text-sm text-gray-700">手动输入</span>
+                  <span className="text-sm text-stone-700">手动输入</span>
                 </label>
               </div>
             )}
@@ -831,7 +835,7 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
               <select
                 value={formData.model}
                 onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
               >
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
@@ -847,22 +851,22 @@ function ConfigEditor({ config, isCreating, onSave, onCancel }) {
                 value={formData.model}
                 onChange={(e) => setFormData({ ...formData, model: e.target.value })}
                 placeholder="例如：gpt-4、claude-3-opus-20240229"
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full px-3 py-2 border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900"
               />
             )}
           </div>
         </div>
 
-        <div className="flex justify-end space-x-3 px-6 py-4 border-t border-gray-200">
+        <div className="flex justify-end space-x-3 px-6 py-4 border-t border-stone-200">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors duration-200"
+            className="px-4 py-2 text-stone-700 bg-white border border-stone-300 rounded hover:bg-stone-50 transition-colors duration-200"
           >
             取消
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 text-white bg-gray-900 rounded hover:bg-gray-800 transition-colors duration-200"
+            className="px-4 py-2 text-white bg-stone-900 rounded hover:bg-stone-800 transition-colors duration-200"
           >
             {isCreating ? '创建' : '保存'}
           </button>
