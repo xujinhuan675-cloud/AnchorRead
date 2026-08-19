@@ -14,7 +14,6 @@ import {
   Network,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRight,
   PanelRightClose,
   PanelRightOpen,
   Sparkles,
@@ -31,7 +30,7 @@ import KnowledgePanel from '@/components/reader-lab/KnowledgePanel';
 import ReaderSurface from '@/components/reader-lab/ReaderSurface';
 import HistoryModal from '@/components/HistoryModal';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Sheet, SheetClose, SheetContent } from '@/components/ui/sheet';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { getConfig, isConfigValid } from '@/lib/config';
 import {
@@ -1871,6 +1870,8 @@ export default function ReaderLabWorkspace({
   const diagramMode = rightPanelView === 'diagram';
   // 分栏形态：宽屏下原文与图解画布并排，边读边看；窄屏退回整块画布
   const diagramSplit = diagramMode && !standaloneDiagram && isDesktop && isWide;
+  // 右栏展开态跨断点统一：桌面看折叠开关，窄屏看 Sheet 开合；顶栏图标因此全断点同款
+  const rightPanelExpanded = isDesktop ? !rightCollapsed : knowledgeOpen;
 
   const library = (
     <DocumentLibrary
@@ -1887,13 +1888,11 @@ export default function ReaderLabWorkspace({
       onSelect={selectDocument}
       onImportFile={importDocumentFile}
       onCreateDocument={createPastedDocument}
-      onAnalyzeDocument={analyzeDocument}
-      analysisBusy={Boolean(busyAction)}
-      analysisDisabled={Boolean(busyAction && busyAction !== 'analysis' && busyAction !== 'flashcards')}
     />
   );
   // 知识面板是派生内容的管理入口，始终可见；辅助开关只控制原文上的叠加显示
-  const knowledge = (
+  // 桌面与 Sheet 共用同一面板：Sheet 形态额外注入内联关闭按钮槽位
+  const renderKnowledge = (closeSlot = null) => (
     <KnowledgePanel
       documentId={currentDocument.id}
       document={currentDocument}
@@ -1910,7 +1909,18 @@ export default function ReaderLabWorkspace({
       isStale={isDerivationStale}
       flashcardSignal={flashcardPanelSignal}
       panelFocus={panelFocus}
+      closeSlot={closeSlot}
     />
+  );
+  const knowledge = renderKnowledge();
+  // Sheet 内联关闭按钮：进页签行尾部槽位；图标与顶栏收起开关同一族（带箭头面板图标），不用叉号
+  const sheetInlineClose = (
+    <SheetClose
+      aria-label="关闭面板"
+      className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center self-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
+    >
+      <PanelRightClose size={18} aria-hidden="true" />
+    </SheetClose>
   );
   // 任一重点层级勾选时重点入口呈点亮态；全部取消勾选即隐藏原文重点
   const anyLayerVisible = LAYER_OPTIONS.some((option) => layerVisibility[option.id] !== false);
@@ -2157,7 +2167,7 @@ export default function ReaderLabWorkspace({
                     </button>
                     {/* 标记规则说明：划线/高亮与框线的区分依据，避免用户困惑 */}
                     <p className="mt-1.5 border-t border-stone-100 dark:border-stone-800 px-2 pt-1.5 text-[10px] leading-4 text-stone-400">
-                      标记规则：重要性 ≥ 4 的重点叠加高亮底色，其余仅划线；颜色对应角色。词语层用红框，成语为虚线框。
+                      标记规则：重要性 ≥ 4 的重点叠加高亮底色，其余仅划线；颜色对应角色。词语层用红色高亮笔触（金句深色），成语为红色虚线。
                     </p>
                   </div>
                 </>
@@ -2201,6 +2211,19 @@ export default function ReaderLabWorkspace({
               <>
                 <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setMoreMenuOpen(false)} />
                 <div className="absolute right-0 top-10 z-50 w-52 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg">
+                  {/* 一键生成从文档库收进下拉：复合动作置顶，与单项生成用分隔线区隔 */}
+                  <button
+                    type="button"
+                    onClick={() => { setMoreMenuOpen(false); analyzeDocument(); }}
+                    disabled={Boolean(busyAction)}
+                    title="一键生成图解、重点、解读、白话与闪卡"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:text-stone-300 dark:text-stone-600"
+                  >
+                    <WandSparkles size={14} className="shrink-0" />
+                    <span className="min-w-0 flex-1">一键生成</span>
+                    {busyAction && <LoaderCircle size={13} className="animate-spin text-stone-400" aria-hidden="true" />}
+                  </button>
+                  <div className="mx-2 my-1.5 border-t border-stone-100 dark:border-stone-800" aria-hidden="true" />
                   <button
                     type="button"
                     onClick={() => { setMoreMenuOpen(false); generateFullDiagram(); }}
@@ -2281,17 +2304,15 @@ export default function ReaderLabWorkspace({
           </div>
           )}
           {headerStatus}
-          {/* 右侧面板开关：桌面直接收起/展开整列，窄屏保持打开 Sheet 的原行为 */}
-          <Tooltip content={isDesktop ? (rightCollapsed ? '展开右侧面板' : '收起右侧面板') : '打开知识面板'}>
+          {/* 右侧面板开关：桌面直接收起/展开整列，窄屏保持打开 Sheet 的原行为；图标全断点统一为带箭头族 */}
+          <Tooltip content={rightPanelExpanded ? '收起右侧面板' : '展开右侧面板'}>
             <button
               type="button"
               onClick={() => { if (isDesktop) updateRightCollapsed(!rightCollapsed); else setKnowledgeOpen(true); }}
-              aria-label={isDesktop ? (rightCollapsed ? '展开右侧面板' : '收起右侧面板') : '打开知识面板'}
+              aria-label={rightPanelExpanded ? '收起右侧面板' : '展开右侧面板'}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400"
             >
-              {isDesktop
-                ? (rightCollapsed ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />)
-                : <PanelRight size={18} />}
+              {rightPanelExpanded ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
             </button>
           </Tooltip>
         </header>
@@ -2372,7 +2393,13 @@ export default function ReaderLabWorkspace({
           <SheetContent title="文档库" side="left">{library}</SheetContent>
         </Sheet>
         <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
-          <SheetContent title={rightPanelView === 'diagram' ? (standaloneDiagram ? '自由图解' : '文档关系图') : '知识面板'} side="right">{rightPanel}</SheetContent>
+          <SheetContent
+            title={rightPanelView === 'diagram' ? (standaloneDiagram ? '自由图解' : '文档关系图') : '知识面板'}
+            side="right"
+            hideClose={rightPanelView !== 'diagram'}
+          >
+            {rightPanelView === 'diagram' ? diagram : renderKnowledge(sheetInlineClose)}
+          </SheetContent>
         </Sheet>
         {!onOpenHistory && (
           <HistoryModal
