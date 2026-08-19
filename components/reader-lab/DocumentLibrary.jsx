@@ -14,11 +14,12 @@ import {
 import DocumentImportDialog from '@/components/reader-lab/DocumentImportDialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useLocale } from '@/components/LocaleProvider';
 
-function formatUpdatedAt(value) {
+function formatUpdatedAt(value, locale, justNow) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '刚刚';
-  return new Intl.DateTimeFormat('zh-CN', {
+  if (Number.isNaN(date.getTime())) return justNow;
+  return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', {
     month: 'numeric',
     day: 'numeric',
     hour: '2-digit',
@@ -26,7 +27,7 @@ function formatUpdatedAt(value) {
   }).format(date);
 }
 
-function DocumentRow({ document, current, session, onSelect }) {
+function DocumentRow({ document, current, session, onSelect, locale, justNow }) {
   return (
     <button
       type="button"
@@ -41,7 +42,7 @@ function DocumentRow({ document, current, session, onSelect }) {
             {document.title}
           </p>
           <p className="mt-1.5 truncate text-[11px] text-stone-500">
-            {formatUpdatedAt(session?.updatedAt || document.updatedAt)}
+            {formatUpdatedAt(session?.updatedAt || document.updatedAt, locale, justNow)}
           </p>
         </div>
       </div>
@@ -62,6 +63,7 @@ export default function DocumentLibrary({
   onImportFile,
   onCreateDocument,
 }) {
+  const { locale, t } = useLocale();
   const fileInputRef = useRef(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
@@ -88,7 +90,7 @@ export default function DocumentLibrary({
     try {
       await onImportFile(file);
     } catch (error) {
-      setImportError(error?.message || '文件导入失败，请检查格式后重试。');
+      setImportError(error?.message || t('library.importFailed'));
     } finally {
       setImportBusy(false);
     }
@@ -100,15 +102,15 @@ export default function DocumentLibrary({
         <div className="flex items-center justify-between gap-3 pr-8 lg:pr-0">
           {/* 全局顶栏已承担品牌与回首页职责：库头部只留面板标题 */}
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-stone-950 dark:text-stone-100">文档库</p>
+            <p className="text-sm font-semibold text-stone-950 dark:text-stone-100">{t('library.title')}</p>
           </div>
           {/* 添加文档收纳到头部行：导入与粘贴两项通过下拉展开 */}
           <div className="relative shrink-0">
-            <Tooltip content="添加文档">
+            <Tooltip content={t('library.addDoc')}>
               <button
                 type="button"
                 onClick={() => setAddOpen((open) => !open)}
-                aria-label="添加文档"
+                aria-label={t('library.addDoc')}
                 className="flex h-8 w-8 items-center justify-center rounded border border-stone-200 dark:border-stone-800 bg-white text-stone-500 outline-none hover:text-stone-900 dark:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
               >
                 {importBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
@@ -125,7 +127,7 @@ export default function DocumentLibrary({
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <FileUp size={14} className="shrink-0" />
-                    导入文件
+                    {t('library.importFile')}
                   </button>
                   <button
                     type="button"
@@ -134,7 +136,7 @@ export default function DocumentLibrary({
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <ClipboardPaste size={14} className="shrink-0" />
-                    粘贴文本
+                    {t('library.pasteText')}
                   </button>
                 </div>
               </>
@@ -153,24 +155,24 @@ export default function DocumentLibrary({
         {/* 头部行重排：搜索与目录优先；整篇生成入口收进顶栏「更多」下拉 */}
         <div className="mt-3 flex items-center gap-2">
           <label className="relative flex-1">
-            <span className="sr-only">搜索文档</span>
+            <span className="sr-only">{t('library.searchAria')}</span>
             <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-stone-400" />
             <input
               type="search"
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="搜索文档"
+              placeholder={t('library.searchPlaceholder')}
               className="h-9 w-full rounded border border-stone-200 dark:border-stone-800 bg-white pl-9 pr-3 text-xs text-stone-900 dark:text-stone-100 outline-none placeholder:text-stone-400 focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100"
             />
           </label>
           {/* 目录开关收进文档库：与搜索并列，顶栏不再留按钮；图解画布下不展示 */}
           {onToggleOutline && !outlineHidden && (
-            <Tooltip content={outlineOpen ? '收起目录' : '打开目录'}>
+            <Tooltip content={outlineOpen ? t('library.collapseOutline') : t('library.openOutline')}>
               <button
                 type="button"
                 onClick={onToggleOutline}
                 aria-pressed={outlineOpen}
-                aria-label={outlineOpen ? '收起目录' : '打开目录'}
+                aria-label={outlineOpen ? t('library.collapseOutline') : t('library.openOutline')}
                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border outline-none focus-visible:ring-2 focus-visible:ring-stone-400 ${outlineOpen ? 'border-stone-300 dark:border-stone-700 bg-white text-stone-900 dark:text-stone-100 shadow-sm' : 'border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:bg-white/5'}`}
               >
                 <List size={15} aria-hidden="true" />
@@ -185,7 +187,7 @@ export default function DocumentLibrary({
           <section aria-labelledby="reader-recent-title">
             <h2 id="reader-recent-title" className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-semibold text-stone-500">
               <Clock3 size={13} aria-hidden="true" />
-              最近阅读
+              {t('library.recent')}
             </h2>
             {recent.map((document) => (
               <DocumentRow
@@ -193,6 +195,8 @@ export default function DocumentLibrary({
                 document={document}
                 current={document.id === currentDocumentId}
                 session={sessions[document.id]}
+                locale={locale}
+                justNow={t('library.justNow')}
                 onSelect={onSelect}
               />
             ))}
@@ -200,7 +204,7 @@ export default function DocumentLibrary({
 
           <section className="mt-4" aria-labelledby="reader-all-title">
             <div className="flex items-center justify-between px-4 py-2">
-              <h2 id="reader-all-title" className="text-[11px] font-semibold text-stone-500">全部文档</h2>
+              <h2 id="reader-all-title" className="text-[11px] font-semibold text-stone-500">{t('library.allDocs')}</h2>
               <span className="text-[10px] tabular-nums text-stone-400">{filtered.length}</span>
             </div>
             {filtered.length > 0 ? filtered.map((document) => (
@@ -209,10 +213,12 @@ export default function DocumentLibrary({
                 document={document}
                 current={document.id === currentDocumentId}
                 session={sessions[document.id]}
+                locale={locale}
+                justNow={t('library.justNow')}
                 onSelect={onSelect}
               />
             )) : (
-              <p className="px-4 py-8 text-center text-xs text-stone-500">没有匹配的文档</p>
+              <p className="px-4 py-8 text-center text-xs text-stone-500">{t('library.noMatch')}</p>
             )}
           </section>
         </div>

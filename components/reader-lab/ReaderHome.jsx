@@ -3,6 +3,7 @@
 import { ArrowRight, BookMarked, Layers, LineChart, Network, Sparkles } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import ReaderQuickImport from '@/components/reader-lab/ReaderQuickImport';
+import { useLocale } from '@/components/LocaleProvider';
 
 // 全局顶栏点「首页」时广播该事件，首页滚动到导入区
 export const GO_IMPORT_EVENT = 'anchor-read:go-import';
@@ -12,50 +13,37 @@ export const GO_IMPORT_EVENT = 'anchor-read:go-import';
 const showcaseItems = [
   {
     icon: Sparkles,
-    title: '白话解读',
-    tag: '理解',
-    description: '选中原句生成白话解释与类比，难懂段落一键换成自己能读懂的说法。',
     gradient: 'from-amber-200/40 via-orange-100/40 to-stone-50',
     accent: 'bg-amber-100/80 text-amber-700',
     tagClass: 'bg-amber-100/70 text-amber-700',
   },
   {
     icon: Network,
-    title: '图解视图',
-    tag: '结构',
-    description: '把概念关系画成 Mermaid 图，边读边建立全局认知地图。',
     gradient: 'from-sky-200/40 via-blue-100/40 to-white',
     accent: 'bg-sky-100/80 text-sky-700',
     tagClass: 'bg-sky-100/70 text-sky-700',
   },
   {
     icon: Layers,
-    title: '闪卡记忆',
-    tag: '记忆',
-    description: '重点内容自动生成 FSRS 闪卡，读完即可进入复习。',
     gradient: 'from-emerald-200/40 via-teal-100/40 to-white',
     accent: 'bg-emerald-100/80 text-emerald-700',
     tagClass: 'bg-emerald-100/70 text-emerald-700',
   },
   {
     icon: BookMarked,
-    title: '术语沉淀',
-    tag: '积累',
-    description: '点击不懂的词自动记入术语表，掌握后白话辅助自动撤下，越读越懂同一领域。',
     gradient: 'from-violet-200/40 via-purple-100/40 to-stone-50',
     accent: 'bg-violet-100/80 text-violet-700',
     tagClass: 'bg-violet-100/70 text-violet-700',
   },
   {
     icon: LineChart,
-    title: '阅读分析',
-    tag: '复盘',
-    description: '记录阅读轨迹与理解程度，回看自己在文档里走过的路。',
     gradient: 'from-orange-200/40 via-amber-100/40 to-stone-50',
     accent: 'bg-orange-100/80 text-orange-700',
     tagClass: 'bg-orange-100/70 text-orange-700',
   },
 ];
+
+const showcaseSlugs = ['plain', 'diagram', 'flashcard', 'glossary', 'analytics'];
 
 function Highlighter({ action, color, children }) {
   return (
@@ -80,6 +68,7 @@ export default function ReaderHome({
   onOpenDocument,
   onOpenDiagram = () => {},
 }) {
+  const { t } = useLocale();
   const importSectionRef = useRef(null);
 
   // 「开始使用 / 顶栏首页」都落到导入区：首页的核心动作就是导入一篇文档
@@ -102,9 +91,9 @@ export default function ReaderHome({
         <div className="relative flex min-h-[480px] flex-col items-center justify-center pt-10 text-center">
           <h1 className="ai-title-aurora max-w-5xl text-balance text-5xl font-semibold tracking-normal sm:text-7xl lg:text-8xl">Anchor Read</h1>
           <p className="mt-8 max-w-3xl text-balance text-lg leading-8 text-stone-500 dark:text-stone-400">
-            在 <Highlighter action="underline" color="#FF9800">Anchor Read</Highlighter> 中阅读、提问和重构{' '}
-            <Highlighter action="highlight" color="#87CEFA">文档、概念与知识</Highlighter>
-            ，让阅读从单次输入变成连续沉淀。
+            {t('home.heroLeadPre')}<Highlighter action="underline" color="#FF9800">Anchor Read</Highlighter>
+            {t('home.heroLeadMid')}<Highlighter action="highlight" color="#87CEFA">{t('home.heroLeadKnowledge')}</Highlighter>
+            {t('home.heroLeadPost')}
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
             <button
@@ -112,7 +101,7 @@ export default function ReaderHome({
               onClick={scrollToImport}
               className="inline-flex h-11 items-center gap-2 rounded-lg bg-stone-950 px-6 text-sm font-medium text-white shadow-sm transition hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
             >
-              <span>开始使用</span>
+              <span>{t('home.getStart')}</span>
               <ArrowRight className="size-4" />
             </button>
             <button
@@ -120,7 +109,7 @@ export default function ReaderHome({
               onClick={onOpenDiagram}
               className="inline-flex h-11 items-center rounded-lg border border-stone-300 bg-white px-6 text-sm font-medium text-stone-950 transition hover:border-stone-400 hover:bg-stone-50 dark:border-stone-700 dark:bg-transparent dark:text-stone-100 dark:hover:bg-white/10"
             >
-              打开图解
+              {t('home.openDiagram')}
             </button>
           </div>
         </div>
@@ -128,9 +117,9 @@ export default function ReaderHome({
         {/* 快速导入区：结构对齐展示区的「标题 + 描述」居中头，文档库入口收在最近文档区 */}
         <section ref={importSectionRef} className="relative mx-auto mb-16 max-w-6xl scroll-mt-6 border-t border-stone-200 pt-12 dark:border-stone-800">
           <div className="mb-8 max-w-2xl mx-auto text-center">
-            <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">快速导入一篇文档</h2>
+            <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">{t('home.quickImportHeading')}</h2>
             <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">
-              用熟悉的语言读懂陌生的专业知识，让第一次接触的领域也能越读越明白、越读越熟悉。
+              {t('home.quickImportSub')}
             </p>
           </div>
 
@@ -150,9 +139,9 @@ export default function ReaderHome({
           <div className="mb-8 grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
             <div />
             <div className="max-w-2xl text-center">
-              <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">沉淀每一次阅读成果</h2>
+              <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">{t('home.showcaseHeading')}</h2>
               <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">
-                收藏阅读中产生的白话解读、图解关系和闪卡记忆，让下一次阅读从已有理解开始。
+                {t('home.showcaseSub')}
               </p>
             </div>
             <button
@@ -160,7 +149,7 @@ export default function ReaderHome({
               onClick={scrollToImport}
               className="inline-flex items-center gap-1.5 justify-self-center text-sm font-medium text-stone-950 transition hover:text-stone-600 md:justify-self-end dark:text-stone-100 dark:hover:text-stone-300"
             >
-              <span>开始阅读</span>
+              <span>{t('home.startReading')}</span>
               <ArrowRight className="size-4" />
             </button>
           </div>
@@ -169,6 +158,7 @@ export default function ReaderHome({
           <div className="grid auto-rows-[180px] gap-4 md:grid-cols-4">
             {showcaseItems.map((item, index) => {
               const Icon = item.icon;
+              const slug = showcaseSlugs[index];
               // DOM 顺序保持语义；白话占首行两格，术语/分析各占次行两格
               const gridPlace = [
                 'md:col-span-2',
@@ -179,7 +169,7 @@ export default function ReaderHome({
               ][index];
               return (
                 <button
-                  key={item.title}
+                  key={slug}
                   type="button"
                   onClick={() => (index === 1 ? onOpenDiagram() : scrollToImport())}
                   className={[
@@ -194,12 +184,12 @@ export default function ReaderHome({
                         <Icon className="size-5" />
                       </span>
                       <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium backdrop-blur dark:bg-white/10 dark:text-stone-300 ${item.tagClass}`}>
-                        {item.tag}
+                        {t(`home.showcase.${slug}.tag`)}
                       </span>
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100">{item.title}</h3>
-                      <p className="mt-1.5 text-sm leading-6 text-stone-600 dark:text-stone-300">{item.description}</p>
+                      <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100">{t(`home.showcase.${slug}.title`)}</h3>
+                      <p className="mt-1.5 text-sm leading-6 text-stone-600 dark:text-stone-300">{t(`home.showcase.${slug}.desc`)}</p>
                     </div>
                   </div>
                 </button>

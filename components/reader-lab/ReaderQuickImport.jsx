@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { ArrowRight, ArrowUpRight, Eraser, FileText, FileUp, LoaderCircle, Sparkles } from 'lucide-react';
 import { isEpubFile, parseEpubFile } from '@/lib/epub-import';
+import { useLocale } from '@/components/LocaleProvider';
 
 export default function ReaderQuickImport({
   recentDocuments = [],
@@ -13,6 +14,7 @@ export default function ReaderQuickImport({
   onOpenExisting,
   onOpenDocument,
 }) {
+  const { t } = useLocale();
   const fileInputRef = useRef(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -41,7 +43,7 @@ export default function ReaderQuickImport({
     } catch (readFailure) {
       setFileName('');
       setSelectedFile(null);
-      setReadError(readFailure?.message || '无法读取该文件，请确认它是 UTF-8 编码的 Markdown/TXT 或有效的 EPUB 文件。');
+      setReadError(readFailure?.message || t('home.quick.readError'));
     }
   };
 
@@ -60,13 +62,13 @@ export default function ReaderQuickImport({
   };
 
   return (
-    <div aria-label="快速导入">
+    <div aria-label={t('home.quickAria')}>
       <form onSubmit={submit} className="overflow-hidden border border-stone-200 bg-white shadow-sm dark:border-stone-800 dark:bg-stone-900">
         <input
           type="text"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder="文档标题（可选）"
+          placeholder={t('home.quick.titlePlaceholder')}
           className="h-12 w-full border-0 border-b border-stone-100 bg-transparent px-5 text-sm font-medium text-stone-900 outline-none placeholder:text-stone-400 dark:border-stone-800 dark:text-stone-100"
         />
         <textarea
@@ -77,7 +79,7 @@ export default function ReaderQuickImport({
             setFileName('');
             setReadError('');
           }}
-          placeholder="在这里粘贴 Markdown、TXT 正文或网页链接..."
+          placeholder={t('home.quick.contentPlaceholder')}
           className="block min-h-[240px] w-full resize-y border-0 bg-transparent px-5 py-4 text-sm leading-7 text-stone-800 outline-none placeholder:text-stone-400 md:min-h-[280px] dark:text-stone-200"
         />
         <div className="flex flex-col gap-3 border-t border-stone-100 px-4 py-3 sm:flex-row sm:items-center dark:border-stone-800">
@@ -96,7 +98,7 @@ export default function ReaderQuickImport({
             className="flex h-9 items-center justify-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-xs font-medium text-stone-600 transition-colors hover:border-stone-400 hover:bg-stone-50 disabled:opacity-50 dark:border-stone-700 dark:bg-transparent dark:text-stone-300 dark:hover:bg-white/10"
           >
             <FileUp size={16} aria-hidden="true" />
-            导入 Markdown / TXT / EPUB
+            {t('home.quick.importFile')}
           </button>
           <button
             type="button"
@@ -105,10 +107,10 @@ export default function ReaderQuickImport({
             className="flex h-9 items-center justify-center gap-2 rounded-md border border-stone-200 bg-white px-3 text-xs font-medium text-stone-600 transition-colors hover:border-stone-400 hover:bg-stone-50 disabled:opacity-50 dark:border-stone-700 dark:bg-transparent dark:text-stone-300 dark:hover:bg-white/10"
           >
             <Eraser size={16} aria-hidden="true" />
-            清空
+            {t('home.quick.clear')}
           </button>
           <span className="min-w-0 truncate text-xs tabular-nums text-stone-400">
-            {fileName || (content ? `${content.length.toLocaleString()} 字符` : '等待输入')}
+            {fileName || (content ? t('home.quick.charCount', { count: content.length.toLocaleString() }) : t('home.quick.waitingInput'))}
           </span>
           <button
             type="submit"
@@ -116,7 +118,7 @@ export default function ReaderQuickImport({
             className="flex h-10 items-center justify-center gap-2 rounded-lg bg-stone-950 px-5 text-sm font-medium text-white transition-colors hover:bg-stone-800 disabled:opacity-50 sm:ml-auto dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
           >
             {busy ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
-            {busy ? '正在解析...' : '解析并进入阅读'}
+            {busy ? t('home.quick.parsing') : t('home.quick.parseAndRead')}
           </button>
         </div>
         {error || readError ? (
@@ -128,7 +130,7 @@ export default function ReaderQuickImport({
         <section className="mt-10" aria-labelledby="reader-home-recent-title">
           <div className="mb-4 flex items-center justify-between">
             <h3 id="reader-home-recent-title" className="text-lg font-semibold text-stone-950 dark:text-stone-100">
-              继续上次阅读
+              {t('home.quick.continueReading')}
             </h3>
             {/* 文档库入口替换排序说明：最近文档只是库的预览，完整管理进文档库 */}
             {hasExistingDocuments && onOpenExisting ? (
@@ -137,11 +139,11 @@ export default function ReaderQuickImport({
                 onClick={onOpenExisting}
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300"
               >
-                <span>打开文档库</span>
+                <span>{t('workspace.libraryOpen')}</span>
                 <ArrowRight className="size-4" />
               </button>
             ) : (
-              <span className="text-xs text-stone-400">按最近更新时间排序</span>
+              <span className="text-xs text-stone-400">{t('home.quick.sortedByRecent')}</span>
             )}
           </div>
           <div className="grid auto-rows-[108px] gap-4 sm:grid-cols-2 lg:grid-cols-4">

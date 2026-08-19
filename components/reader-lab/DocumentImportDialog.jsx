@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ClipboardPaste, Globe, LoaderCircle, X } from 'lucide-react';
+import { useLocale } from '@/components/LocaleProvider';
 
 const MODES = Object.freeze([
-  { id: 'paste', label: '粘贴正文' },
-  { id: 'url', label: '从网址导入' },
+  { id: 'paste', labelKey: 'library.import.modePaste' },
+  { id: 'url', labelKey: 'library.import.modeUrl' },
 ]);
 
 export default function DocumentImportDialog({ open, onClose, onCreateDocument }) {
+  const { t } = useLocale();
   const [mode, setMode] = useState('paste');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -33,7 +35,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
   const submitUrl = async () => {
     const normalizedUrl = url.trim();
     if (!normalizedUrl) {
-      setError('请输入网页地址。');
+      setError(t('library.import.err.urlRequired'));
       return;
     }
 
@@ -47,7 +49,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.content) {
-        throw new Error(payload.error || '网页正文抽取失败，请稍后重试。');
+        throw new Error(payload.error || t('library.import.err.extractFailed'));
       }
       await onCreateDocument({
         title: title.trim() || payload.title || '',
@@ -59,7 +61,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
       setUrl('');
       onClose();
     } catch (submissionError) {
-      setError(submissionError?.message || '网页导入失败，请稍后重试。');
+      setError(submissionError?.message || t('library.import.err.urlFailed'));
     } finally {
       setBusy(false);
     }
@@ -76,7 +78,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
 
     const normalizedContent = content.trim();
     if (!normalizedContent) {
-      setError('请先粘贴 Markdown 或纯文本内容。');
+      setError(t('library.import.err.contentRequired'));
       return;
     }
 
@@ -92,7 +94,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
       setContent('');
       onClose();
     } catch (submissionError) {
-      setError(submissionError?.message || '导入失败，请稍后重试。');
+      setError(submissionError?.message || t('library.import.err.failed'));
     } finally {
       setBusy(false);
     }
@@ -118,16 +120,16 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
           <div className="min-w-0">
             <h2 id="reader-paste-title" className="flex items-center gap-2 text-base font-semibold text-stone-950 dark:text-stone-100">
               <ClipboardPaste size={18} className="text-stone-950 dark:text-stone-100" aria-hidden="true" />
-              导入新文档
+              {t('library.import.heading')}
             </h2>
-            <p className="mt-1 text-xs leading-5 text-stone-500">粘贴 Markdown/纯文本，或从网页网址抽取正文。</p>
+            <p className="mt-1 text-xs leading-5 text-stone-500">{t('library.import.sub')}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            title="关闭"
-            aria-label="关闭导入文档对话框"
+            title={t('common.close')}
+            aria-label={t('library.import.closeAria')}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-400 outline-none hover:bg-stone-100 dark:bg-white/10 hover:text-stone-700 dark:text-stone-300 focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <X size={17} aria-hidden="true" />
@@ -136,7 +138,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
 
         <form onSubmit={submitDocument} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-            <div className="flex gap-1 rounded-lg bg-stone-100 dark:bg-white/10 p-1" role="tablist" aria-label="导入方式">
+            <div className="flex gap-1 rounded-lg bg-stone-100 dark:bg-white/10 p-1" role="tablist" aria-label={t('library.import.modeAria')}>
               {MODES.map((item) => (
                 <button
                   key={item.id}
@@ -151,26 +153,26 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
                   className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 disabled:opacity-50 ${mode === item.id ? 'bg-white text-stone-950 dark:text-stone-100 shadow-sm' : 'text-stone-500 hover:text-stone-800 dark:text-stone-200'}`}
                 >
                   {item.id === 'url' ? <Globe size={14} aria-hidden="true" /> : <ClipboardPaste size={14} aria-hidden="true" />}
-                  {item.label}
+                  {t(item.labelKey)}
                 </button>
               ))}
             </div>
 
             <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-stone-700 dark:text-stone-300">标题（可选）</span>
+              <span className="mb-1.5 block text-xs font-medium text-stone-700 dark:text-stone-300">{t('library.import.titleLabel')}</span>
               <input
                 ref={titleInputRef}
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 disabled={busy}
-                placeholder="例如：如何建立可靠的知识系统"
+                placeholder={t('library.import.titlePlaceholder')}
                 className="h-10 w-full rounded border border-stone-300 dark:border-stone-700 px-3 text-sm text-stone-950 dark:text-stone-100 outline-none placeholder:text-stone-400 focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100 disabled:bg-stone-100 dark:bg-white/10"
               />
             </label>
 
             {mode === 'url' ? (
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-stone-700 dark:text-stone-300">网页地址</span>
+                <span className="mb-1.5 block text-xs font-medium text-stone-700 dark:text-stone-300">{t('library.import.urlLabel')}</span>
                 <input
                   type="url"
                   value={url}
@@ -183,12 +185,12 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
                   className="h-10 w-full rounded border border-stone-300 dark:border-stone-700 px-3 text-sm text-stone-950 dark:text-stone-100 outline-none placeholder:text-stone-400 focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100 disabled:bg-stone-100 dark:bg-white/10"
                 />
                 <span className="mt-1.5 block text-[11px] leading-4 text-stone-400">
-                  服务端会抓取网页并用 Readability 抽取正文，转为 Markdown 后仅保存在你的浏览器本地。
+                  {t('library.import.urlHint')}
                 </span>
               </label>
             ) : (
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-stone-700 dark:text-stone-300">正文</span>
+                <span className="mb-1.5 block text-xs font-medium text-stone-700 dark:text-stone-300">{t('library.import.bodyLabel')}</span>
                 <textarea
                   value={content}
                   onChange={(event) => {
@@ -198,7 +200,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
                   disabled={busy}
                   required
                   rows={14}
-                  placeholder="在这里粘贴 Markdown 或纯文本内容..."
+                  placeholder={t('library.import.bodyPlaceholder')}
                   className="min-h-64 w-full resize-y rounded border border-stone-300 dark:border-stone-700 px-3 py-2.5 font-mono text-sm leading-6 text-stone-950 dark:text-stone-100 outline-none placeholder:font-sans placeholder:text-stone-400 focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100 disabled:bg-stone-100 dark:bg-white/10"
                 />
               </label>
@@ -213,7 +215,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
               disabled={busy}
               className="h-9 rounded border border-stone-300 dark:border-stone-700 bg-white px-3 text-xs font-medium text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-100 dark:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              取消
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
@@ -221,7 +223,7 @@ export default function DocumentImportDialog({ open, onClose, onCreateDocument }
               className="flex h-9 min-w-24 items-center justify-center gap-2 rounded bg-stone-950 dark:bg-stone-100 px-3 text-xs font-medium text-white outline-none hover:bg-stone-800 dark:hover:bg-stone-300 focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-stone-300 dark:bg-white/20"
             >
               {busy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : mode === 'url' ? <Globe size={15} aria-hidden="true" /> : <ClipboardPaste size={15} aria-hidden="true" />}
-              {busy ? (mode === 'url' ? '正在抓取网页' : '正在导入') : '导入文档'}
+              {busy ? (mode === 'url' ? t('library.import.fetching') : t('library.import.importing')) : t('library.import.submit')}
             </button>
           </footer>
         </form>

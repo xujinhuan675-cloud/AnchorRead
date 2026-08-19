@@ -2,6 +2,7 @@
 
 import { Download, ShieldCheck, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useLocale } from '@/components/LocaleProvider';
 
 // 关闭后的抑制策略：当天不再弹出，次日起重新显示，避免永久静默忘掉隐私承诺
 const DISMISS_STORAGE_KEY = 'anchor-read-privacy-dismissed-date';
@@ -16,6 +17,7 @@ function todayKey() {
  * 告知数据仅存本地并提供一键导出备份入口；可关闭，当天内不再显示
  */
 export default function PrivacyNoticeBar({ onExport }) {
+  const { t } = useLocale();
   // 初始为 true 避免服务端/首帧闪烁；挂载后再按本地记录判断是否当天已关闭
   const [visible, setVisible] = useState(true);
   const [ready, setReady] = useState(false);
@@ -37,20 +39,20 @@ export default function PrivacyNoticeBar({ onExport }) {
       <ShieldCheck size={13} className="shrink-0 text-stone-500 dark:text-stone-400" aria-hidden="true" />
       {/* 单行展示：窄屏末尾截断，不折行挤压工作区 */}
       <span className="truncate">
-        数据由你掌控：所有数据仅保存在本地浏览器，支持随时导出备份。记住的术语无需重复解释。仅在你主动生成 AI 解读时，相关内容才会发送至你配置的模型，兼顾隐私与成本。
+        {t('privacy.notice')}
       </span>
       <button
         type="button"
         onClick={onExport}
         className="ml-auto hidden shrink-0 items-center gap-1 font-medium text-stone-950 transition hover:text-stone-600 sm:flex dark:text-stone-100 dark:hover:text-stone-300"
       >
-        <Download size={12} /> 导出
+        <Download size={12} /> {t('common.export')}
       </button>
       <button
         type="button"
         onClick={dismiss}
-        aria-label="关闭隐私提示（今天不再显示）"
-        title="今天不再显示"
+        aria-label={t('privacy.dismissAria')}
+        title={t('privacy.dismissTitle')}
         className={`${ready ? '' : 'invisible '}flex shrink-0 items-center justify-center rounded p-0.5 text-stone-400 transition hover:bg-black/5 hover:text-stone-700 dark:hover:bg-white/10 dark:hover:text-stone-200`}
       >
         <X size={13} aria-hidden="true" />
