@@ -3,6 +3,10 @@
 import { BookMarked, BookOpenText, Library, Menu, Network, Settings2, WandSparkles, X } from 'lucide-react';
 import { useState } from 'react';
 
+import ThemeToggler from './ThemeToggler';
+import { useLocale } from './LocaleProvider';
+import { useAppTheme } from '@/lib/theme';
+
 const GITHUB_URL = 'https://github.com/xujinhuan675-cloud/smart-excalidraw-next';
 
 // 顶部导航项：语义对齐无限画布顶栏，改写为 AnchorRead 的阅读工具入口
@@ -15,10 +19,20 @@ export const navigationTools = [
 const actionIconClass =
   'inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-stone-600 transition-colors hover:bg-black/5 hover:text-stone-950 dark:text-stone-300 dark:hover:bg-white/10 dark:hover:text-white [&_svg]:size-4';
 
-// 全局顶栏：所有页面共用，导航项高亮由宿主按当前视图驱动；配置齿轮收纳模型配置、浮动工具栏与术语表三项入口
+// 全局顶栏：所有页面共用，导航项高亮由宿主按当前视图驱动；配置齿轮收纳模型配置、浮动工具栏与术语表三项入口；
+// 语言切换与明暗模式切换移植自 infinite-canvas whiteboard 顶栏（UserStatusActions），按钮顺序与 whiteboard 对齐
 export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onConfig = () => {}, onToolbarConfig = () => {}, onGlossary = () => {} }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 语言状态集中在 LocaleProvider，切换后全站组件随上下文重渲染
+  const { locale, t, setLocale } = useLocale();
+  const { theme, setTheme } = useAppTheme();
+
+  const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
+  const languageLabel = t('topNav.switchLanguage', { language: t(nextLocale === 'zh-CN' ? 'locale.zhCN' : 'locale.en') });
+  const themeLabel = t(theme === 'dark' ? 'topNav.lightTheme' : 'topNav.darkTheme');
+
+  const switchLocale = () => setLocale(nextLocale);
 
   return (
     <>
@@ -38,8 +52,8 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
               type="button"
               className="ml-3 inline-flex size-8 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 md:hidden dark:text-stone-300 dark:hover:text-white"
               onClick={() => setMobileNavOpen(true)}
-              aria-label="打开导航菜单"
-              title="导航菜单"
+              aria-label={t('topNav.openNavMenu')}
+              title={t('topNav.navMenu')}
             >
               <Menu className="size-5" />
             </button>
@@ -60,7 +74,7 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                     }
                   >
                     <Icon className="size-4" />
-                    <span className="truncate">{tool.label}</span>
+                    <span className="truncate">{t(`topNav.${tool.slug}`)}</span>
                   </button>
                 );
               })}
@@ -73,9 +87,9 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                 type="button"
                 className={actionIconClass}
                 onClick={() => setSettingsOpen((open) => !open)}
-                aria-label="配置"
+                aria-label={t('topNav.config')}
                 aria-expanded={settingsOpen}
-                title="配置"
+                title={t('topNav.config')}
               >
                 <Settings2 className="size-4" />
               </button>
@@ -89,7 +103,7 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 outline-none hover:bg-stone-50 dark:text-stone-300 dark:hover:bg-white/5"
                     >
                       <Settings2 size={14} className="shrink-0" />
-                      模型配置
+                      {t('topNav.modelConfig')}
                     </button>
                     <button
                       type="button"
@@ -97,7 +111,7 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 outline-none hover:bg-stone-50 dark:text-stone-300 dark:hover:bg-white/5"
                     >
                       <WandSparkles size={14} className="shrink-0" />
-                      浮动工具栏
+                      {t('topNav.floatingToolbar')}
                     </button>
                     <button
                       type="button"
@@ -105,12 +119,30 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 outline-none hover:bg-stone-50 dark:text-stone-300 dark:hover:bg-white/5"
                     >
                       <BookMarked size={14} className="shrink-0" />
-                      术语表
+                      {t('topNav.glossary')}
                     </button>
                   </div>
                 </>
               )}
-              <span className="shrink-0 cursor-default px-1 text-xs font-medium text-stone-500 dark:text-stone-400" title="当前版本">
+              {/* 语言切换：与 whiteboard 同款形态，按钮显示当前语言（中 / EN），点按切到另一语言 */}
+              <button
+                type="button"
+                className={`${actionIconClass} text-[11px] font-semibold tracking-tight`}
+                onClick={switchLocale}
+                aria-label={languageLabel}
+                title={languageLabel}
+              >
+                {locale === 'zh-CN' ? '中' : 'EN'}
+              </button>
+              {/* 明暗模式切换：whiteboard AnimatedThemeToggler 移植版，带 View Transition 圆形揭示动画 */}
+              <ThemeToggler
+                theme={theme}
+                onThemeChange={setTheme}
+                className={actionIconClass}
+                aria-label={themeLabel}
+                title={themeLabel}
+              />
+              <span className="shrink-0 cursor-default px-1 text-xs font-medium text-stone-500 dark:text-stone-400" title={t('topNav.version')}>
                 v0.1.0
               </span>
               <a
@@ -135,12 +167,12 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
           <div className="absolute inset-x-0 top-0 border-b border-stone-200 bg-background p-4 dark:border-stone-800">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-stone-950 dark:text-stone-100">导航菜单</span>
+              <span className="text-sm font-semibold text-stone-950 dark:text-stone-100">{t('topNav.navMenu')}</span>
               <button
                 type="button"
                 className="inline-flex size-8 items-center justify-center rounded-md text-stone-600 hover:bg-black/5 dark:text-stone-300 dark:hover:bg-white/10"
                 onClick={() => setMobileNavOpen(false)}
-                aria-label="关闭导航菜单"
+                aria-label={t('topNav.closeNavMenu')}
               >
                 <X className="size-5" />
               </button>
@@ -159,7 +191,7 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                     className="flex items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm text-stone-700 transition hover:bg-black/5 dark:text-stone-200 dark:hover:bg-white/10"
                   >
                     <Icon className="size-4" />
-                    <span>{tool.label}</span>
+                    <span>{t(`topNav.${tool.slug}`)}</span>
                   </button>
                 );
               })}

@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Analytics } from '@vercel/analytics/next';
+import { LocaleProvider } from '@/components/LocaleProvider';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,11 +20,22 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        {/* 主题防闪烁脚本（移植自 infinite-canvas whiteboard index.html，存储键改为 anchor-read-theme）：
+            在首帧渲染前按本地存储应用 dark 类，默认浅色 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try {
+  var t = localStorage.getItem("anchor-read-theme") === "dark" ? "dark" : "light";
+  document.documentElement.classList.toggle("dark", t === "dark");
+  document.documentElement.style.colorScheme = t;
+} catch (e) {}`,
+          }}
+        />
+        <LocaleProvider>{children}</LocaleProvider>
         <Analytics />
       </body>
     </html>

@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
+/* 明暗主题切换（移植自 infinite-canvas whiteboard）：dark 变体由 html.dark 类驱动，与 dark: 工具类配合 */
+@custom-variant dark (&:is(.dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
+}
+
+.dark {
+  --background: #0c0a09;
+  --foreground: #fafaf9;
 }
 
 @theme inline {
@@ -180,7 +188,7 @@ body {
 .reader-lab-prosemirror pre .reader-lab-cloze,
 .reader-lab-derived-source pre .reader-lab-cloze {
   color: #5eead4;
-  text-decoration-color: #2dd4bf;
+  border-color: rgba(45, 212, 191, 0.5);
 }
 
 .reader-lab-prosemirror pre .reader-lab-cloze:hover,
@@ -197,7 +205,7 @@ body {
 .reader-lab-derived-source pre .reader-lab-cloze-revealed {
   color: #ccfbf1;
   background-color: rgba(45, 212, 191, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.35);
+  border-color: rgba(94, 234, 212, 0.45);
 }
 
 .reader-lab-prosemirror table,
@@ -229,8 +237,11 @@ body {
 }
 
 .reader-lab-highlight {
-  /* 层级化重点：默认仅下划线（划线形态），importance>=4 叠加 .reader-lab-highlight-fill 背景（划重点） */
-  border-bottom: 2px solid #0d9488;
+  /* 内联装饰基类：形态区分类别——重点统一高亮笔触、解读统一下划线（见子类）；
+     垂直内边距把内联背景绘制区撑向行盒上下沿（hero 的 inline-block 天然整行高，
+     正文内联按规范只裁到字形盒，不撑就会贴字一条窄带）；底部另留呼吸间隙；
+     绝对定位装饰层不随换行分裂，正文不用 */
+  padding: 0.12em 1px 0.16em;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -238,38 +249,80 @@ body {
   -webkit-box-decoration-break: clone;
 }
 
-/* 角色配色：文章层=粉，段落层=黄，论据=蓝，对策=紫，案例=绿，概念=青，结论=橙，背景=灰 */
-.reader-lab-highlight-core { border-bottom-color: #db2777; }
-.reader-lab-highlight-core.reader-lab-highlight-fill { background: #fce7f3; }
-.reader-lab-highlight-subthesis { border-bottom-color: #ca8a04; }
-.reader-lab-highlight-subthesis.reader-lab-highlight-fill { background: #fef9c3; }
-.reader-lab-highlight-evidence { border-bottom-color: #2563eb; }
-.reader-lab-highlight-evidence.reader-lab-highlight-fill { background: #dbeafe; }
-.reader-lab-highlight-countermeasure { border-bottom-color: #7c3aed; }
-.reader-lab-highlight-countermeasure.reader-lab-highlight-fill { background: #ede9fe; }
-.reader-lab-highlight-case { border-bottom-color: #16a34a; }
-.reader-lab-highlight-case.reader-lab-highlight-fill { background: #dcfce7; }
-.reader-lab-highlight-concept { border-bottom-color: #0d9488; }
-.reader-lab-highlight-concept.reader-lab-highlight-fill { background: #ccfbf1; }
-.reader-lab-highlight-conclusion { border-bottom-color: #ea580c; }
-.reader-lab-highlight-conclusion.reader-lab-highlight-fill { background: #ffedd5; }
-.reader-lab-highlight-background { border-bottom-color: #a1a1aa; }
-.reader-lab-highlight-background.reader-lab-highlight-fill { background: #f4f4f5; }
-.reader-lab-highlight-explanation { border-bottom-color: #0d9488; }
-.reader-lab-highlight-explanation.reader-lab-highlight-fill { background: #ccfbf1; }
+/* 解读形态 = 下划线：3px 圆角胶囊 bar 锚在呼吸间隙下方，“这一行有解读”；
+   颜色降到 80% 不透明度，对齐首页 hero 下划线的 rounded-full + opacity-80 柔和质感 */
+.reader-lab-highlight-explanation {
+  border-bottom: 3px solid rgba(13, 148, 136, 0.8);
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
 
-/* 词语层标记：句子服务中心/金句/成语用红框，呼应纸质标注习惯 */
+/* 角色笔触色（重点高亮专用，200 级色深对齐首页 hero 中等色 45% 透明的等效深度）：
+   文章层=粉，段落层=黄，论据=蓝，对策=紫，案例=绿，概念=青，结论=橙，背景=灰 */
+.reader-lab-highlight-core { --reader-lab-hl: #fbcfe8; }
+.reader-lab-highlight-subthesis { --reader-lab-hl: #fef08a; }
+.reader-lab-highlight-evidence { --reader-lab-hl: #bfdbfe; }
+.reader-lab-highlight-countermeasure { --reader-lab-hl: #ddd6fe; }
+.reader-lab-highlight-case { --reader-lab-hl: #bbf7d0; }
+.reader-lab-highlight-concept { --reader-lab-hl: #99f6e4; }
+.reader-lab-highlight-conclusion { --reader-lab-hl: #fed7aa; }
+.reader-lab-highlight-background { --reader-lab-hl: #e4e4e7; }
+
+/* 重点形态 = 高亮笔触：顶部仅留 0.08em 细缝、底部延伸到呼吸间隙，
+   上下出头贴近 hero 的 top-1→bottom-0 覆盖感；clone 使每个换行片段独立成笔。
+   此处在基类之上再撑一圈垂直内边距，让笔触覆盖到字形盒上下边（对齐首页 hero
+   高亮盖住文字上下的饱满感），解读下划线不带此 padding、仍锚在较近的呼吸间隙 */
+.reader-lab-highlight-fill {
+  padding: 0.2em 1px 0.26em;
+  border-radius: 3px;
+  background-image: linear-gradient(var(--reader-lab-hl, #99f6e4), var(--reader-lab-hl, #99f6e4));
+  background-size: 100% calc(100% - 0.08em);
+  background-position: 0 0.08em;
+  background-repeat: no-repeat;
+}
+
+/* 低重要性重点的淡笔触：与实笔触同形态、色量约 55%，层级保留又不铺满实色；
+   垂直内边距与实笔触一致，保证两档笔触覆盖范围相同 */
+.reader-lab-highlight-fill-soft {
+  padding: 0.2em 1px 0.26em;
+  border-radius: 3px;
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--reader-lab-hl, #99f6e4) 55%, transparent),
+    color-mix(in srgb, var(--reader-lab-hl, #99f6e4) 55%, transparent)
+  );
+  background-size: 100% calc(100% - 0.08em);
+  background-position: 0 0.08em;
+  background-repeat: no-repeat;
+}
+
+/* 词语层标记用红色高亮笔触（高亮家族专属重点、线条家族专属解读，
+   与解读实线的形态重叠由此消解）：中心=浅红笔触、金句=深红笔触；
+   垂直覆盖与重点填充 -fill 完全一致（0.2em/0.26em + 0.08em 顶缝），
+   重点模式下词语笔触与层级高亮同等高度、不再偏矮；
+   成语保留虚线（红虚线 ≠ 解读青实线，双编码不混），并重置回贴字线条位置 */
 .reader-lab-word-mark {
-  border: 1.5px solid #dc2626;
-  border-radius: 2px;
-  background: transparent;
+  padding: 0.2em 1px 0.26em;
+  border-radius: 3px;
+  background-color: transparent;
+  background-image: linear-gradient(#fecaca, #fecaca);
+  background-size: 100% calc(100% - 0.08em);
+  background-position: 0 0.08em;
+  background-repeat: no-repeat;
   color: inherit;
   cursor: pointer;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
-.reader-lab-word-mark-quote { background: #fef2f2; }
-.reader-lab-word-mark-idiom { border-style: dashed; }
+.reader-lab-word-mark-quote {
+  background-image: linear-gradient(#fca5a5, #fca5a5);
+}
+.reader-lab-word-mark-idiom {
+  padding: 0 1px 0.16em;
+  background-image: none;
+  border-bottom: 3px dashed #dc2626;
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
 
 .reader-lab-highlight:focus-visible {
   border-radius: 2px;
@@ -297,20 +350,21 @@ body {
   letter-spacing: 0;
 }
 
-/* 填空翻转 chip：白话视图里『大白话』片段的可点击替身，
-   常态显示白话文本，点击翻转出原文术语 */
+/* 填空翻转 chip：白话视图里『大白话』片段的可点击替身，常态显示白话文本，点击翻转出原文术语；
+   白话形态 = 圆角卡片框（下划线专属解读，不混用）；
+   垂直内边距与重点高亮一致，框高与高亮同等、不再贴字显矮小 */
 .reader-lab-cloze {
   display: inline;
   font: inherit;
   color: #0f766e;
-  background: transparent;
-  border: 0;
-  padding: 0 1px;
+  background-color: rgba(20, 184, 166, 0.06);
+  border: 1px solid rgba(20, 184, 166, 0.4);
+  border-radius: 4px;
+  padding: 0.2em 3px 0.26em;
   cursor: pointer;
-  text-decoration: underline dashed #14b8a6;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
   transition: background-color 120ms ease;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .reader-lab-cloze:hover {
@@ -326,66 +380,77 @@ body {
 .reader-lab-cloze-revealed {
   color: #134e4a;
   background-color: rgba(20, 184, 166, 0.14);
-  border-radius: 4px;
-  text-decoration: none;
-  box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.25);
+  border-color: rgba(13, 148, 136, 0.45);
 }
 
-/* 悬浮直接换显对侧文本：宿主文本连同角引号归零隐藏，::before 携带替代文本按正常流重排；
-   只改视觉不改文档与翻转态，移开即还原，点击才走状态翻转 */
-.reader-lab-cloze[data-cloze-alt]:hover {
+/* 换显由插件滞回类 reader-lab-cloze-swap 驱动（不用 :hover）：宿主字号归零真正折叠，
+   右侧空白收掉；外层高亮/下划线 bar/词语红高亮沿内联盒自然只包住剩余预览——
+   “高亮跳过收起部分”而非整条消失，重点不视觉上丢失；
+   滞回按进入时记录的原始 footprint 矩形还原，不依赖 :hover，
+   长原文短预览的指针脱出闪烁不会发生；只改视觉不改文档与翻转态，点击才走状态翻转 */
+.reader-lab-cloze.reader-lab-cloze-swap {
   font-size: 0;
+  padding: 0;
+  border-color: transparent;
+  background-color: transparent;
 }
 
-.reader-lab-cloze[data-cloze-alt]:hover::before {
+.reader-lab-cloze.reader-lab-cloze-swap::before {
   content: '『' attr(data-cloze-alt) '』';
   font-size: 1rem;
+  color: #0f766e;
 }
 
-/* 替代文本字号跟随所在上下文（代码块/表格/标题与正文字号不同） */
-.reader-lab-prosemirror pre .reader-lab-cloze[data-cloze-alt]:hover::before,
-.reader-lab-derived-source pre .reader-lab-cloze[data-cloze-alt]:hover::before,
-.reader-lab-prosemirror table .reader-lab-cloze[data-cloze-alt]:hover::before,
-.reader-lab-derived-source table .reader-lab-cloze[data-cloze-alt]:hover::before {
+/* 预览字号跟随所在上下文（代码块/表格/标题与正文字号不同） */
+.reader-lab-prosemirror pre .reader-lab-cloze.reader-lab-cloze-swap::before,
+.reader-lab-derived-source pre .reader-lab-cloze.reader-lab-cloze-swap::before {
+  font-size: 0.9rem;
+  color: #5eead4;
+}
+
+.reader-lab-prosemirror table .reader-lab-cloze.reader-lab-cloze-swap::before,
+.reader-lab-derived-source table .reader-lab-cloze.reader-lab-cloze-swap::before {
   font-size: 0.9rem;
 }
 
-.reader-lab-prosemirror h1 .reader-lab-cloze[data-cloze-alt]:hover::before,
-.reader-lab-derived-source h1 .reader-lab-cloze[data-cloze-alt]:hover::before {
+.reader-lab-prosemirror h1 .reader-lab-cloze.reader-lab-cloze-swap::before,
+.reader-lab-derived-source h1 .reader-lab-cloze.reader-lab-cloze-swap::before {
   font-size: 1.875rem;
 }
 
-.reader-lab-prosemirror h2 .reader-lab-cloze[data-cloze-alt]:hover::before,
-.reader-lab-derived-source h2 .reader-lab-cloze[data-cloze-alt]:hover::before {
+.reader-lab-prosemirror h2 .reader-lab-cloze.reader-lab-cloze-swap::before,
+.reader-lab-derived-source h2 .reader-lab-cloze.reader-lab-cloze-swap::before {
   font-size: 1.45rem;
 }
 
-.reader-lab-prosemirror h3 .reader-lab-cloze[data-cloze-alt]:hover::before,
-.reader-lab-derived-source h3 .reader-lab-cloze[data-cloze-alt]:hover::before {
+.reader-lab-prosemirror h3 .reader-lab-cloze.reader-lab-cloze-swap::before,
+.reader-lab-derived-source h3 .reader-lab-cloze.reader-lab-cloze-swap::before {
   font-size: 1.2rem;
 }
 
-/* 原文优先形态：术语保持所在上下文的正文色，青色虚线下划线提示可悬浮；换显出的白话用青色释义色 */
+/* 原文优先形态：术语保持所在上下文的正文色，虚线圆角框提示可悬浮；换显出的白话用青色释义色 */
 .reader-lab-cloze-original {
   color: inherit;
+  border-style: dashed;
+  border-color: rgba(13, 148, 136, 0.4);
+  background-color: transparent;
 }
 
 .reader-lab-cloze-original:hover::before {
   color: #0f766e;
 }
 
-/* 已记录的难点：虚线换实线并叠加细框与浅底，形成难点地图；点击可移出 */
+/* 已记录的难点：虚线框换实线框并叠浅底，形成难点地图；点击可移出 */
 .reader-lab-cloze-looked {
-  text-decoration-style: solid;
-  box-shadow: inset 0 0 0 1px rgba(13, 148, 136, 0.35);
-  border-radius: 3px;
+  border-style: solid;
+  border-color: rgba(13, 148, 136, 0.5);
   background-color: rgba(20, 184, 166, 0.07);
 }
 
-/* 深色代码块内的原文优先 chip：保持代码块文字色，仅下划线用浅青；换显白话同样用浅青 */
+/* 深色代码块内的原文优先 chip：保持代码块文字色，仅框线用浅青；换显白话同样用浅青 */
 .reader-lab-prosemirror pre .reader-lab-cloze-original {
   color: inherit;
-  text-decoration-color: #2dd4bf;
+  border-color: rgba(45, 212, 191, 0.45);
 }
 
 .reader-lab-prosemirror pre .reader-lab-cloze-original:hover::before {
@@ -522,4 +587,22 @@ body {
   .reader-lab-derived-source h2 {
     font-size: 1.25rem;
   }
+}
+
+/* 主题切换 View Transition（移植自 infinite-canvas whiteboard）：关闭默认交叉淡入，揭示动画由 ThemeToggler 的 clip-path WAAPI 驱动 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* 过渡激活期间固定新旧层叠顺序与收起态 clip-path，避免快照与 JS 动画之间无裁剪地绘制新主题 */
+[data-magicui-theme-vt]::view-transition-old(root) {
+  z-index: -1;
+}
+
+[data-magicui-theme-vt]::view-transition-new(root) {
+  z-index: 1;
+  clip-path: var(--magicui-theme-vt-clip-from, none);
+  animation-duration: var(--magicui-theme-toggle-vt-duration, 400ms);
 }
