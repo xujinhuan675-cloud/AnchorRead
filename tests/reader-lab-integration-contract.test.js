@@ -97,7 +97,7 @@ test('home keeps app navigation while diagrams live inside the shared document w
     // 独立形态：画布头部承接原 header 的身份文案（自由图解 + 创建引导），窄屏对话入口随源码按钮进画布头部
     assert.match(readerLabWorkspace, /<DocumentDiagramCanvas diagram=\{diagramState\} standalone=\{standaloneDiagram\} onOpenChat=/);
     assert.doesNotMatch(readerLabWorkspace, /fixed bottom-12 right-4/);
-    assert.match(documentDiagramCanvas, /aria-label="打开图解对话"/);
+    assert.match(documentDiagramCanvas, /aria-label=\{t\('diagram\.openChat'\)\}/);
     assert.match(documentDiagramCanvas, /lg:hidden/);
   assert.match(readerLabWorkspace, /rightPanelView === ['"]diagram['"][\s\S]*?diagramCanvas/);
   assert.match(documentDiagramPanel, /<Chat\b/);
@@ -110,9 +110,9 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(mermaidCanvas, /\{headerActions\}/);
   // 空态副标题替代「等待源码」：自由图解下传达创建入口语义
   assert.match(mermaidCanvas, /subtitle = null/);
-  assert.match(mermaidCanvas, /\(subtitle \|\| '等待源码'\)/);
-  assert.match(documentDiagramCanvas, /title=\{standalone \? '自由图解' : '当前文档关系图'\}/);
-  assert.match(documentDiagramCanvas, /不绑定文档 · 在这里自由创建与管理图解/);
+  assert.match(mermaidCanvas, /\(subtitle \|\| t\('diagram\.statusWaiting'\)\)/);
+  assert.match(documentDiagramCanvas, /title=\{standalone \? t\('diagram\.freeTitle'\) : t\('diagram\.docTitle'\)\}/);
+  assert.match(documentDiagramCanvas, /t\('diagram\.freeSubtitle'\)/);
   assert.match(documentDiagramCanvas, /headerActions=\{\(canToggleCode \|\| onOpenChat\) \? \(/);
   assert.match(documentDiagramCanvas, /engine !== ['"]mermaid['"] && canToggleCode && sourceCodeButton\(['"]float['"]\)/);
   assert.doesNotMatch(homePage, /<Chat\b|<CodeEditor\b|<MermaidCanvas\b|<ExcalidrawCanvas\b/);
@@ -145,7 +145,7 @@ test('nav diagram entry opens a standalone free-form diagram workspace', () => {
   assert.doesNotMatch(readerLabWorkspace, /不绑定文档 · 在这里自由创建与管理图解/);
   // 面板标题由图解选择器直接替代：切换/删除/新建/历史同行，不再单独留标题与子栏
   assert.match(documentDiagramPanel, /图解选择器直接替代面板标题/);
-  assert.match(documentDiagramPanel, /aria-label="选择图解"/);
+  assert.match(documentDiagramPanel, /aria-label=\{t\('diagram\.selectAria'\)\}/);
   // 选择器外框表明是下拉，双击名称重命名；数据层提供 renameDrawing 走同一存储通道
   assert.match(documentDiagramPanel, /双击重命名/);
   // 单击延迟开菜单、双击取消：保证双击重命名稳定可触发，不被中间单击干扰
@@ -524,7 +524,7 @@ test('mermaid is the default diagram engine across hook, panel, history and chat
   // 密集操作控件（输入模式/引擎/图类型）提到面板头部控制子栏，引擎选项 mermaid 排前
   assert.match(documentDiagramPanel, /控制子栏：输入模式、引擎与图类型集中收纳在头部/);
   assert.match(documentDiagramPanel, /\['mermaid', 'Mermaid'\],\s*\n\s*\['excalidraw', 'Excalidraw'\],/);
-  assert.match(documentDiagramPanel, /\['text', '文本'\],\s*\n\s*\['file', '文件'\],\s*\n\s*\['image', '图片'\],/);
+  assert.match(documentDiagramPanel, /\['text', t\('diagram\.input\.text'\)\],\s*\n\s*\['file', t\('diagram\.input\.file'\)\],\s*\n\s*\['image', t\('diagram\.input\.image'\)\],/);
   // Chat 走受控模式：tabs 与图类型由面板持有，内部不再重复渲染
   assert.match(documentDiagramPanel, /activeTab=\{inputTab\} onTabChange=\{setInputTab\} chartType=\{chartType\} onChartTypeChange=\{setChartType\}/);
   assert.match(useDiagramHook, /^\s*setChartType,$/m);

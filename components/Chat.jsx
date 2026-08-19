@@ -4,11 +4,13 @@ import { useState, useRef, useEffect } from 'react';
 import { ArrowUp } from 'lucide-react';
 import ImageUpload from './ImageUpload';
 import LoadingOverlay from './LoadingOverlay';
+import { useLocale } from './LocaleProvider';
 import { generateImagePrompt } from '@/lib/image-utils';
 import { CHART_TYPES } from '@/lib/constants';
 import { track } from '@vercel/analytics';
 
 export default function Chat({ onSendMessage, isGenerating, initialInput = '', initialChartType = 'auto', initialEngine = 'excalidraw', onEngineChange, activeTab: tabProp = null, onTabChange = null, chartType: chartTypeProp = null, onChartTypeChange = null }) {
+  const { t } = useLocale();
   const [tabState, setTabState] = useState('text'); // 'text', 'file', or 'image'
   // 宿主传入 activeTab/onTabChange 时走受控模式（图解面板把 tabs 提到头部子栏），否则内部自管
   const activeTab = tabProp ?? tabState;
@@ -95,7 +97,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
     const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
 
     if (!validExtensions.includes(fileExtension)) {
-      setFileError('请选择 .md 或 .txt 文件');
+      setFileError(t('diagram.chat.err.badType'));
       setFileStatus('error');
       setCanGenerate(false);
       return;
@@ -104,7 +106,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
     // Validate file size (max 1MB)
     const maxSize = 1 * 1024 * 1024; // 1MB in bytes
     if (file.size > maxSize) {
-      setFileError('文件大小不能超过 1MB');
+      setFileError(t('diagram.chat.err.tooLarge'));
       setFileStatus('error');
       setCanGenerate(false);
       return;
@@ -127,14 +129,14 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
         setCanGenerate(true); // Enable generation button
         // Don't auto-submit the file content - wait for user to click generate button
       } else {
-        setFileError('文件内容为空');
+        setFileError(t('diagram.chat.err.empty'));
         setFileStatus('error');
         setCanGenerate(false);
       }
     };
 
     reader.onerror = () => {
-      setFileError('文件读取失败');
+      setFileError(t('diagram.chat.err.readFailed'));
       setFileStatus('error');
       setCanGenerate(false);
     };
@@ -190,7 +192,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-white dark:bg-stone-900">
       {/* Header */}
       {/* <div className="px-4 py-3 bg-white border-b border-stone-200">
         <h3 className="text-sm font-semibold text-stone-700">输入</h3>
@@ -198,7 +200,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
 
       {/* 输入模式 tabs：受控模式下由宿主渲染（图解面板头部子栏），这里不再重复占一行 */}
       {tabProp === null && (
-      <div className="flex border-b border-stone-200 bg-stone-50">
+      <div className="flex border-b border-stone-200 bg-stone-50 dark:border-stone-800 dark:bg-white/5">
         <button
           onClick={() => {
             changeTab('text');
@@ -206,11 +208,11 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
           }}
           className={`flex-1 px-4 py-3 text-sm font-medium transition-colors duration-200 ${
             activeTab === 'text'
-              ? 'bg-white text-stone-900 border-b-2 border-stone-900'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+              ? 'bg-white text-stone-900 border-b-2 border-stone-900 dark:bg-stone-900 dark:text-stone-100 dark:border-stone-100'
+              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-white/5'
           }`}
         >
-          文本输入
+          {t('diagram.chat.tabText')}
         </button>
         <button
           onClick={() => {
@@ -219,11 +221,11 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
           }}
           className={`flex-1 px-4 py-3 text-sm font-medium transition-colors duration-200 ${
             activeTab === 'file'
-              ? 'bg-white text-stone-900 border-b-2 border-stone-900'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+              ? 'bg-white text-stone-900 border-b-2 border-stone-900 dark:bg-stone-900 dark:text-stone-100 dark:border-stone-100'
+              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-white/5'
           }`}
         >
-          文件上传
+          {t('diagram.chat.tabFile')}
         </button>
         <button
           onClick={() => {
@@ -232,11 +234,11 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
           }}
           className={`flex-1 px-4 py-3 text-sm font-medium transition-colors duration-200 ${
             activeTab === 'image'
-              ? 'bg-white text-stone-900 border-b-2 border-stone-900'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+              ? 'bg-white text-stone-900 border-b-2 border-stone-900 dark:bg-stone-900 dark:text-stone-100 dark:border-stone-100'
+              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-white/5'
           }`}
         >
-          图片上传
+          {t('diagram.chat.tabImage')}
         </button>
       </div>
       )}
@@ -255,7 +257,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="描述您想要创建的图表..."
+                  placeholder={t('diagram.chat.placeholder')}
                   className="w-full h-full pl-3 pr-12 py-2.5 bg-transparent focus:outline-none resize-none text-sm scrollbar-hide text-stone-900 dark:text-stone-100 placeholder:text-stone-400"
                   style={{
                     scrollbarWidth: 'none',
@@ -266,12 +268,12 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
                 <button
                   type="submit"
                   disabled={!input.trim() || isGenerating}
-                  className="absolute right-2 bottom-2 flex h-8 w-8 items-center justify-center rounded-full bg-stone-900 text-white transition-colors duration-200 hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300"
-                  title={isGenerating ? "生成中..." : "发送"}
-                  aria-label="发送"
+                  className="absolute right-2 bottom-2 flex h-8 w-8 items-center justify-center rounded-full bg-stone-900 text-white transition-colors duration-200 hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-400"
+                  title={isGenerating ? t('diagram.chat.generatingShort') : t('diagram.chat.send')}
+                  aria-label={t('diagram.chat.send')}
                 >
                   {isGenerating ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent dark:border-stone-900 dark:border-t-transparent"></div>
                   ) : (
                     // 上箭头是当下 AI 对话产品最常见的发送符号，比纸飞机更易识别
                     <ArrowUp size={16} strokeWidth={2.5} aria-hidden="true" />
@@ -282,7 +284,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
             {/* Unified Loading Overlay */}
             <LoadingOverlay
               isVisible={isGenerating}
-              message="正在生成图表..."
+              message={t('diagram.chat.generating')}
             />
           </div>
         )}
@@ -292,8 +294,8 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
           <div className="flex-1 flex flex-col items-center  p-4 relative">
             {/* 引擎与图类型已提到面板头部控制栏 */}
             <div className="text-center mb-6">
-              <p className="text-sm text-stone-600 mb-2">上传 Markdown 或文本文件</p>
-              <p className="text-xs text-stone-400">支持 .md 和 .txt 格式，最大 1MB</p>
+              <p className="text-sm text-stone-600 mb-2 dark:text-stone-300">{t('diagram.chat.fileTitle')}</p>
+              <p className="text-xs text-stone-400 dark:text-stone-500">{t('diagram.chat.fileHint')}</p>
             </div>
 
             <input
@@ -308,18 +310,18 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
             <button
               onClick={handleFileButtonClick}
               disabled={isGenerating || fileStatus === 'parsing'}
-              className="px-6 py-3 bg-stone-900 text-white rounded hover:bg-stone-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center space-x-2"
+              className="px-6 py-3 bg-stone-900 text-white rounded hover:bg-stone-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center space-x-2 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-400"
             >
               {(isGenerating || fileStatus === 'parsing') ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin dark:border-stone-900 dark:border-t-transparent"></div>
               ) : (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
               )}
               <span>
-                {fileStatus === 'parsing' ? '解析中...' :
-                 isGenerating ? '生成中...' : '选择文件'}
+                {fileStatus === 'parsing' ? t('diagram.chat.parsing') :
+                 isGenerating ? t('diagram.chat.generatingShort') : t('diagram.chat.selectFile')}
               </span>
             </button>
 
@@ -327,9 +329,9 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
             {selectedFile && (
               <div className="mt-6 w-full max-w-md">
                 <div className={`p-4 rounded border ${
-                  fileStatus === 'success' ? 'bg-green-50 border-green-200' :
-                  fileStatus === 'error' ? 'bg-red-50 border-red-200' :
-                  'bg-blue-50 border-blue-200'
+                  fileStatus === 'success' ? 'bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-900' :
+                  fileStatus === 'error' ? 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-900' :
+                  'bg-blue-50 border-blue-200 dark:bg-blue-950/40 dark:border-blue-900'
                 }`}>
                   <div className="flex items-center space-x-3">
                     {fileStatus === 'parsing' && (
@@ -340,28 +342,28 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
                       </div>
                     )}
                     {fileStatus === 'success' && (
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     )}
                     {fileStatus === 'error' && (
-                      <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-stone-900 truncate">{selectedFile.name}</p>
+                      <p className="text-sm font-medium text-stone-900 truncate dark:text-stone-100">{selectedFile.name}</p>
                       {fileStatus === 'success' && !isGenerating && (
-                        <p className="text-xs text-green-600 mt-1">文件已上传，可以开始生成</p>
+                        <p className="text-xs text-green-600 mt-1 dark:text-green-400">{t('diagram.chat.fileReady')}</p>
                       )}
                       {fileStatus === 'success' && isGenerating && (
-                        <p className="text-xs text-blue-600 mt-1">正在生成图表...</p>
+                        <p className="text-xs text-blue-600 mt-1 dark:text-blue-400">{t('diagram.chat.generating')}</p>
                       )}
                       {fileStatus === 'error' && (
-                        <p className="text-xs text-red-600 mt-1">{fileError}</p>
+                        <p className="text-xs text-red-600 mt-1 dark:text-red-400">{fileError}</p>
                       )}
                       {fileStatus === 'parsing' && (
-                        <p className="text-xs text-blue-600 mt-1">正在解析文件...</p>
+                        <p className="text-xs text-blue-600 mt-1 dark:text-blue-400">{t('diagram.chat.fileParsing')}</p>
                       )}
                     </div>
                   </div>
@@ -373,12 +375,12 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
                     <button
                       onClick={handleFileGenerate}
                       disabled={!canGenerate}
-                      className="w-full px-4 py-3 bg-stone-900 text-white rounded hover:bg-stone-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center space-x-2"
+                      className="w-full px-4 py-3 bg-stone-900 text-white rounded hover:bg-stone-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center space-x-2 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-400"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
-                      <span>开始生成</span>
+                      <span>{t('diagram.chat.startGenerate')}</span>
                     </button>
                   </div>
                 )}
@@ -387,7 +389,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
             {/* Unified Loading Overlay */}
             <LoadingOverlay
               isVisible={isGenerating || fileStatus === 'parsing'}
-              message={fileStatus === 'parsing' ? '正在解析文件...' : '正在生成图表...'}
+              message={fileStatus === 'parsing' ? t('diagram.chat.fileParsing') : t('diagram.chat.generating')}
             />
           </div>
         )}
@@ -408,7 +410,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
             {/* Unified Loading Overlay for image upload */}
             <LoadingOverlay
               isVisible={isGenerating}
-              message="正在识别图片内容并生成图表..."
+              message={t('diagram.chat.imageGenerating')}
             />
           </div>
         )}

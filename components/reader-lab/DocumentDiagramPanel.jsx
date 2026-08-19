@@ -3,6 +3,7 @@
 import { Check, ChevronDown, Crosshair, History, LoaderCircle, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import Chat from '@/components/Chat';
+import { useLocale } from '@/components/LocaleProvider';
 import { createDocumentDrawingId } from '@/lib/diagram-generation';
 import { CHART_TYPES } from '@/lib/constants';
 
@@ -22,6 +23,7 @@ export default function DocumentDiagramPanel({
   diagram,
 }) {
   const { engine, chartType, setChartType, isGenerating, generate, handleEngineChange } = diagram;
+  const { t } = useLocale();
   // 输入模式由面板持有：tabs 提到头部控制子栏，Chat 走受控模式
   const [inputTab, setInputTab] = useState('text');
   // 图解切换改为自定义下拉（外框表明可点）；双击名称进入重命名输入态
@@ -50,8 +52,8 @@ export default function DocumentDiagramPanel({
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-white" aria-label={standalone ? '自由图解对话' : '文档关系图对话'}>
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-stone-200 dark:border-stone-800 bg-white py-2.5 pl-3 pr-12 lg:pr-3">
+    <section className="flex h-full min-h-0 flex-col bg-white dark:bg-stone-900" aria-label={standalone ? t('diagram.chatAria.free') : t('diagram.chatAria.doc')}>
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-stone-200 dark:border-stone-800 bg-white py-2.5 pl-3 pr-12 lg:pr-3 dark:bg-stone-900">
         {/* 图解选择器直接替代面板标题：外框表明是下拉，双击名称重命名；删除、新建、历史同一行 */}
         {renaming && activeDrawing ? (
           <input
@@ -63,7 +65,7 @@ export default function DocumentDiagramPanel({
               if (event.key === 'Enter') commitRename();
               else if (event.key === 'Escape') setRenaming(false);
             }}
-            aria-label="重命名图解"
+            aria-label={t('diagram.renameAria')}
             className="min-w-0 flex-1 rounded border border-stone-300 bg-white px-2 py-1 text-sm font-semibold text-stone-900 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-700 dark:bg-white/5 dark:text-stone-100"
           />
         ) : (
@@ -74,19 +76,19 @@ export default function DocumentDiagramPanel({
               onDoubleClick={handleSelectDoubleClick}
               aria-haspopup="listbox"
               aria-expanded={menuOpen}
-              aria-label="选择图解"
-              title="单击切换图解 · 双击重命名"
+              aria-label={t('diagram.selectAria')}
+              title={t('diagram.selectHint')}
               className="flex w-full items-center gap-1 rounded border border-stone-200 bg-white px-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-800 dark:bg-white/5"
             >
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-stone-900 dark:text-stone-100">{activeDrawing?.title || '未命名图解'}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-stone-900 dark:text-stone-100">{activeDrawing?.title || t('diagram.untitled')}</span>
               <ChevronDown size={12} className="shrink-0 text-stone-400" aria-hidden="true" />
             </button>
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setMenuOpen(false)} />
-                <ul role="listbox" aria-label="图解列表" className="absolute left-0 top-8 z-50 max-h-56 w-full min-w-36 overflow-auto rounded-md border border-stone-200 bg-white p-1 shadow-lg dark:border-stone-800 dark:bg-stone-900">
+                <ul role="listbox" aria-label={t('diagram.listAria')} className="absolute left-0 top-8 z-50 max-h-56 w-full min-w-36 overflow-auto rounded-md border border-stone-200 bg-white p-1 shadow-lg dark:border-stone-800 dark:bg-stone-900">
                   {drawings.length === 0
-                    ? <li className="px-2 py-1.5 text-xs text-stone-400">暂无图解，点右侧 + 新建</li>
+                    ? <li className="px-2 py-1.5 text-xs text-stone-400">{t('diagram.listEmpty')}</li>
                     : drawings.map((drawing) => (
                       <li key={drawing.id}>
                         <button
@@ -106,18 +108,18 @@ export default function DocumentDiagramPanel({
             )}
           </div>
         )}
-        {activeDrawing ? <button type="button" onClick={() => onDeleteDrawing(activeDrawing.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-red-50 hover:text-red-600" title="删除当前图解" aria-label="删除当前图解"><Trash2 size={13} /></button> : null}
+        {activeDrawing ? <button type="button" onClick={() => onDeleteDrawing(activeDrawing.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/60 dark:hover:text-red-400" title={t('diagram.deleteCurrent')} aria-label={t('diagram.deleteCurrent')}><Trash2 size={13} /></button> : null}
         {isGenerating ? <LoaderCircle size={13} className="shrink-0 animate-spin text-stone-400" aria-hidden="true" /> : null}
-        <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: '未命名图解', engine: 'mermaid', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title="新建图解" aria-label="新建图解"><Plus size={15} /></button>
-        <button type="button" onClick={onOpenHistory} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title="打开历史" aria-label="打开历史"><History size={15} /></button>
+        <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: t('diagram.untitled'), engine: 'mermaid', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.create')} aria-label={t('diagram.create')}><Plus size={15} /></button>
+        <button type="button" onClick={onOpenHistory} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.openHistory')} aria-label={t('diagram.openHistory')}><History size={15} /></button>
       </header>
       {/* 控制子栏：输入模式、引擎与图类型集中收纳在头部，Chat 内容区只留输入本身 */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-1.5 dark:border-stone-800 dark:bg-white/5">
-        <div className="flex rounded border border-stone-200 bg-white p-0.5 dark:border-stone-800" role="group" aria-label="输入方式">
+        <div className="flex rounded border border-stone-200 bg-white p-0.5 dark:border-stone-800 dark:bg-white/5" role="group" aria-label={t('diagram.inputModeAria')}>
           {[
-            ['text', '文本'],
-            ['file', '文件'],
-            ['image', '图片'],
+            ['text', t('diagram.input.text')],
+            ['file', t('diagram.input.file')],
+            ['image', t('diagram.input.image')],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -129,7 +131,7 @@ export default function DocumentDiagramPanel({
             </button>
           ))}
         </div>
-        <div className="flex rounded border border-stone-200 bg-white p-0.5 dark:border-stone-800" role="group" aria-label="绘图引擎">
+        <div className="flex rounded border border-stone-200 bg-white p-0.5 dark:border-stone-800 dark:bg-white/5" role="group" aria-label={t('diagram.engineAria')}>
           {[
             ['mermaid', 'Mermaid'],
             ['excalidraw', 'Excalidraw'],
@@ -149,17 +151,17 @@ export default function DocumentDiagramPanel({
           value={chartType}
           onChange={(event) => setChartType(event.target.value)}
           disabled={isGenerating}
-          aria-label="图类型"
+          aria-label={t('diagram.chartTypeAria')}
           className="min-w-[120px] flex-1 rounded border border-stone-200 bg-white px-2 py-1 text-[11px] text-stone-700 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-800 dark:bg-white/5 dark:text-stone-300"
         >
-          {Object.entries(CHART_TYPES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          {Object.entries(CHART_TYPES).map(([key]) => <option key={key} value={key}>{t(`diagram.chartType.${key}`)}</option>)}
         </select>
       </div>
       {anchor && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-3 py-1.5 text-[11px] text-indigo-800">
+        <div className="flex shrink-0 items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-3 py-1.5 text-[11px] text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-200">
           <Crosshair size={12} className="shrink-0" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">将锚定到选区：{anchor.source}</span>
-          <button type="button" onClick={onClearAnchor} className="shrink-0 font-medium hover:text-indigo-950">取消</button>
+          <span className="min-w-0 flex-1 truncate">{t('diagram.anchorTo', { source: anchor.source })}</span>
+          <button type="button" onClick={onClearAnchor} className="shrink-0 font-medium hover:text-indigo-950 dark:hover:text-indigo-50">{t('common.cancel')}</button>
         </div>
       )}
       <div className="min-h-0 flex-1">

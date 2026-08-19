@@ -3,6 +3,8 @@
 import { useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { AlertTriangle, LoaderCircle, Minus, Plus, RotateCcw } from 'lucide-react';
 import mermaid from 'mermaid';
+import { useLocale } from '@/components/LocaleProvider';
+import { useAppTheme } from '@/lib/theme';
 import {
   MERMAID_ZOOM,
   clampMermaidZoom,
@@ -22,7 +24,7 @@ function IconButton({ label, children, disabled = false, onClick }) {
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:cursor-not-allowed disabled:opacity-35 dark:text-stone-400 dark:hover:text-stone-100"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:cursor-not-allowed disabled:opacity-35 dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-stone-100"
     >
       {children}
     </button>
@@ -34,17 +36,22 @@ export default function MermaidCanvas({
   definition,
   code,
   value,
-  title = 'Mermaid 图表',
+  title = null,
   // 空态副标题：替代默认的「等待源码」状态文案，用来传达创建入口语义（如自由图解工作区）
   subtitle = null,
   // 宿主可注入的头部动作（渲染在放大按钮右侧），如画布级的源码开关
   headerActions = null,
-  emptyMessage = '输入 Mermaid DSL 后，图表会显示在这里。',
+  emptyMessage = null,
   className = '',
   initialZoom = MERMAID_ZOOM.initial,
   onRender,
   onError,
 }) {
+  const { t } = useLocale();
+  // 主题切换后 mermaid 需要按 dark/neutral 重新渲染，theme 进入渲染 effect 依赖
+  const { theme } = useAppTheme();
+  const resolvedTitle = title ?? t('diagram.mermaidDefaultTitle');
+  const resolvedEmptyMessage = emptyMessage ?? t('diagram.mermaidDefaultEmpty');
   const hostRef = useRef(null);
   const renderSequenceRef = useRef(0);
   const reactId = useId();
@@ -97,7 +104,11 @@ export default function MermaidCanvas({
 
     async function renderDiagram() {
       try {
-        mermaid.initialize(createStrictMermaidConfig());
+        // 暗色主题下用 dark 主题渲染，浅色保持原有 neutral 观感
+        mermaid.initialize({
+          ...createStrictMermaidConfig(),
+          theme: theme === 'dark' ? 'dark' : 'neutral',
+        });
         const renderId = `${renderIdPrefix}-${sequence}`;
         const { svg } = await mermaid.render(renderId, validation.source);
         if (cancelled || renderSequenceRef.current !== sequence) return;
@@ -111,7 +122,7 @@ export default function MermaidCanvas({
         mountedSvg.style.margin = '0 auto';
         mountedSvg.style.width = `${zoomRef.current * 100}%`;
         mountedSvg.setAttribute('role', 'img');
-        mountedSvg.setAttribute('aria-label', title);
+        mountedSvg.setAttribute('aria-label', resolvedTitle);
 
         host.replaceChildren(mountedSvg);
         dispatch({ type: 'success', source: validation.source });
@@ -127,7 +138,7 @@ export default function MermaidCanvas({
     return () => {
       cancelled = true;
     };
-  }, [renderIdPrefix, title, validation.error, validation.source]);
+  }, [renderIdPrefix, resolvedTitle, theme, validation.error, validation.source]);
 
   useEffect(() => {
     const svg = hostRef.current?.querySelector('svg');
@@ -144,45 +155,45 @@ export default function MermaidCanvas({
 
   return (
     <section
-      className={`flex h-full min-h-[360px] flex-col bg-white ${className}`.trim()}
-      aria-label={title}
+      className={`flex h-full min-h-[360px] flex-col bg-white dark:bg-stone-900 ${className}`.trim()}
+      aria-label={resolvedTitle}
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-4 py-2.5">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-4 py-2.5 dark:border-stone-800">
         <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-stone-800">{title}</h2>
-          <p className="mt-0.5 text-xs text-stone-400" aria-live="polite">
+          <h2 className="truncate text-sm font-semibold text-stone-800 dark:text-stone-100">{resolvedTitle}</h2>
+          <p className="mt-0.5 text-xs text-stone-400 dark:text-stone-400" aria-live="polite">
             {isRendering
-              ? '正在渲染'
+              ? t('diagram.statusRendering')
               : hasError
                 ? renderState.hasValidSvg
-                  ? '显示上一次成功渲染'
-                  : '渲染失败'
+                  ? t('diagram.statusLastSuccess')
+                  : t('diagram.statusFailed')
                 : renderState.hasValidSvg
-                  ? '已渲染'
-                  : (subtitle || '等待源码')}
+                  ? t('diagram.statusRendered')
+                  : (subtitle || t('diagram.statusWaiting'))}
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1" aria-label="图表缩放">
+        <div className="flex shrink-0 items-center gap-1" aria-label={t('diagram.zoomAria')}>
           <IconButton
-            label="缩小图表"
+            label={t('diagram.zoomOut')}
             disabled={zoom <= MERMAID_ZOOM.min}
             onClick={() => changeZoom(-1)}
           >
             <Minus aria-hidden="true" className="h-4 w-4" />
           </IconButton>
-          <span className="w-12 text-center text-xs tabular-nums text-stone-600">
+          <span className="w-12 text-center text-xs tabular-nums text-stone-600 dark:text-stone-300">
             {Math.round(zoom * 100)}%
           </span>
           <IconButton
-            label="重置缩放"
+            label={t('diagram.zoomReset')}
             disabled={zoom === MERMAID_ZOOM.initial}
             onClick={() => setZoom(MERMAID_ZOOM.initial)}
           >
             <RotateCcw aria-hidden="true" className="h-4 w-4" />
           </IconButton>
           <IconButton
-            label="放大图表"
+            label={t('diagram.zoomIn')}
             disabled={zoom >= MERMAID_ZOOM.max}
             onClick={() => changeZoom(1)}
           >
@@ -192,42 +203,42 @@ export default function MermaidCanvas({
         </div>
       </header>
 
-      {/* 画布区铺满：去掉外边距与卡片描边/阴影，白色绘图区直接贴边 */}
-      <div className="relative min-h-0 flex-1 overflow-auto bg-white">
+      {/* 画布区铺满：去掉外边距与卡片描边/阴影，绘图区直接贴边；暗色下铺深色底衬托 SVG */}
+      <div className="relative min-h-0 flex-1 overflow-auto bg-white dark:bg-stone-900">
         <div
           ref={hostRef}
-          className="min-h-full w-full bg-white p-4"
+          className="min-h-full w-full bg-white p-4 dark:bg-stone-900"
           aria-live="polite"
         />
 
         {!hasSource && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center">
-            <p className="max-w-md text-sm leading-6 text-stone-500">{emptyMessage}</p>
+            <p className="max-w-md text-sm leading-6 text-stone-500 dark:text-stone-400">{resolvedEmptyMessage}</p>
           </div>
         )}
 
         {isRendering && !renderState.hasValidSvg && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm text-stone-500">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm text-stone-500 dark:text-stone-400">
             <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
-            正在渲染 Mermaid 图表
+            {t('diagram.renderingOverlay')}
           </div>
         )}
 
         {isRendering && renderState.hasValidSvg && (
-          <div className="pointer-events-none absolute right-6 top-6 flex items-center gap-2 border border-stone-200 bg-white px-3 py-2 text-xs text-stone-600 shadow-sm">
+          <div className="pointer-events-none absolute right-6 top-6 flex items-center gap-2 border border-stone-200 bg-white px-3 py-2 text-xs text-stone-600 shadow-sm dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
             <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-            正在更新图表
+            {t('diagram.updatingOverlay')}
           </div>
         )}
 
         {hasError && (
           <div
             role="alert"
-            className="absolute bottom-6 left-6 right-6 flex items-start gap-2 border border-red-200 bg-red-50 px-3 py-2.5 text-red-700 shadow-sm"
+            className="absolute bottom-6 left-6 right-6 flex items-start gap-2 border border-red-200 bg-red-50 px-3 py-2.5 text-red-700 shadow-sm dark:border-red-900 dark:bg-red-950/60 dark:text-red-300"
           >
             <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="min-w-0">
-              <p className="text-sm font-medium">Mermaid 渲染失败</p>
+              <p className="text-sm font-medium">{t('diagram.renderFailed')}</p>
               <p className="mt-0.5 break-words text-xs leading-5">{renderState.error}</p>
             </div>
           </div>

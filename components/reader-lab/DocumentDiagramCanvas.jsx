@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { FileCode2, PanelRightOpen } from 'lucide-react';
 import CodeEditor from '@/components/CodeEditor';
 import MermaidCanvas from '@/components/MermaidCanvas';
+import { useLocale } from '@/components/LocaleProvider';
 
 const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), { ssr: false });
 
@@ -12,6 +13,7 @@ const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), 
 // 源码编辑区默认收起：mermaid 下源码开关提到画布头部放大按钮右侧，
 // excalidraw 没有头部，仍悬浮在画布右下角；内联卡片传入 showCode 时按外部控制为准
 export default function DocumentDiagramCanvas({ diagram, showCode, standalone = false, onOpenChat = null }) {
+  const { t } = useLocale();
   const [codeOpen, setCodeOpen] = useState(false);
   const isCodeVisible = typeof showCode === 'boolean' ? showCode : codeOpen;
   const {
@@ -37,26 +39,26 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
       type="button"
       onClick={() => setCodeOpen((open) => !open)}
       aria-pressed={codeOpen}
-      title={codeOpen ? '收起源码' : '展开源码'}
+      title={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
       className={variant === 'header'
         ? `flex h-8 w-8 shrink-0 items-center justify-center rounded transition-colors outline-none focus-visible:ring-2 focus-visible:ring-stone-400 ${codeOpen ? 'text-stone-900 dark:text-stone-100' : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 hover:text-stone-900 dark:hover:bg-white/10 dark:hover:text-stone-100'}`
-        : `absolute bottom-3 right-3 z-10 flex h-7 items-center gap-1.5 rounded border px-2.5 text-xs font-medium shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 ${codeOpen ? 'border-stone-300 bg-white text-stone-900' : 'border-stone-200 dark:border-stone-800 bg-white text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:text-stone-100'}`}
+        : `absolute bottom-3 right-3 z-10 flex h-7 items-center gap-1.5 rounded border px-2.5 text-xs font-medium shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-stone-950 dark:focus-visible:ring-stone-100 ${codeOpen ? 'border-stone-300 bg-white text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100' : 'border-stone-200 bg-white text-stone-600 hover:text-stone-900 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400 dark:hover:text-stone-100'}`}
     >
       <FileCode2 size={variant === 'header' ? 15 : 13} aria-hidden="true" />
-      {variant !== 'header' && (codeOpen ? '收起源码' : '源码')}
+      {variant !== 'header' && (codeOpen ? t('diagram.collapseSource') : t('diagram.source'))}
     </button>
   );
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-stone-50 dark:bg-white/5" aria-label="文档关系图画布">
+    <section className="flex h-full min-h-0 flex-col bg-stone-50 dark:bg-white/5" aria-label={t('diagram.canvasAria')}>
       <div className={`relative min-h-0 bg-stone-50 dark:bg-white/5 ${isCodeVisible ? 'flex-[3]' : 'flex-1'}`}>
         {engine === 'mermaid'
           ? (
             <MermaidCanvas
               source={code}
-              title={standalone ? '自由图解' : '当前文档关系图'}
-              subtitle={standalone ? '不绑定文档 · 在这里自由创建与管理图解' : null}
-              emptyMessage={standalone ? '在右侧描述需求生成，或展开源码自由创建。' : undefined}
+              title={standalone ? t('diagram.freeTitle') : t('diagram.docTitle')}
+              subtitle={standalone ? t('diagram.freeSubtitle') : null}
+              emptyMessage={standalone ? t('diagram.freeEmpty') : undefined}
               headerActions={(canToggleCode || onOpenChat) ? (
                 <>
                   {canToggleCode ? sourceCodeButton('header') : null}
@@ -65,8 +67,8 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
                     <button
                       type="button"
                       onClick={onOpenChat}
-                      aria-label="打开图解对话"
-                      title="打开图解对话"
+                      aria-label={t('diagram.openChat')}
+                      title={t('diagram.openChat')}
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 lg:hidden dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-stone-100"
                     >
                       <PanelRightOpen size={16} aria-hidden="true" />
@@ -81,7 +83,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
         {engine !== 'mermaid' && canToggleCode && sourceCodeButton('float')}
       </div>
       {isCodeVisible && (
-        <div className="min-h-0 flex-[2] border-t border-stone-200 dark:border-stone-800 bg-white">
+        <div className="min-h-0 flex-[2] border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900">
           <CodeEditor
             code={code}
             onChange={changeCode}

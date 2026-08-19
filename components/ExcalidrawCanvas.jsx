@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useState, useEffect, useMemo } from 'react';
 import '@excalidraw/excalidraw/index.css';
+import { useAppTheme } from '@/lib/theme';
 
 // Dynamically import Excalidraw with no SSR
 const Excalidraw = dynamic(
@@ -19,6 +20,9 @@ const getConvertFunction = async () => {
 export default function ExcalidrawCanvas({ elements, onElementsChange }) {
   const [convertToExcalidrawElements, setConvertFunction] = useState(null);
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
+  // 画布随全站明暗切换：theme 传给 Excalidraw，并纳入 remount key 保证背景色同步
+  const { theme } = useAppTheme();
+  const isDark = theme === 'dark';
 
   // Load convert function on mount
   useEffect(() => {
@@ -60,20 +64,22 @@ export default function ExcalidrawCanvas({ elements, onElementsChange }) {
 
   // Generate unique key when elements change to force remount
   const canvasKey = useMemo(() => {
-    if (convertedElements.length === 0) return 'empty';
+    const themeSuffix = isDark ? '-dark' : '-light';
+    if (convertedElements.length === 0) return `empty${themeSuffix}`;
     // Create a hash from elements to detect changes
-    return JSON.stringify(convertedElements.map(el => el.id)).slice(0, 50);
-  }, [convertedElements]);
+    return JSON.stringify(convertedElements.map(el => el.id)).slice(0, 50) + themeSuffix;
+  }, [convertedElements, isDark]);
 
   return (
     <div className="w-full h-full">
       <Excalidraw
         key={canvasKey}
         excalidrawAPI={(api) => setExcalidrawAPI(api)}
+        theme={isDark ? 'dark' : 'light'}
         initialData={{
           elements: convertedElements,
           appState: {
-            viewBackgroundColor: '#ffffff',
+            viewBackgroundColor: isDark ? '#1c1c1c' : '#ffffff',
             currentItemFontFamily: 1,
           },
           scrollToContent: true,
