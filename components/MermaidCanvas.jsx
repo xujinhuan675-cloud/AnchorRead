@@ -22,7 +22,7 @@ function IconButton({ label, children, disabled = false, onClick }) {
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-gray-200 bg-white text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-35"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:cursor-not-allowed disabled:opacity-35 dark:text-stone-400 dark:hover:text-stone-100"
     >
       {children}
     </button>
@@ -35,6 +35,10 @@ export default function MermaidCanvas({
   code,
   value,
   title = 'Mermaid 图表',
+  // 空态副标题：替代默认的「等待源码」状态文案，用来传达创建入口语义（如自由图解工作区）
+  subtitle = null,
+  // 宿主可注入的头部动作（渲染在放大按钮右侧），如画布级的源码开关
+  headerActions = null,
   emptyMessage = '输入 Mermaid DSL 后，图表会显示在这里。',
   className = '',
   initialZoom = MERMAID_ZOOM.initial,
@@ -143,10 +147,10 @@ export default function MermaidCanvas({
       className={`flex h-full min-h-[360px] flex-col bg-white ${className}`.trim()}
       aria-label={title}
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 py-2.5">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-4 py-2.5">
         <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-gray-800">{title}</h2>
-          <p className="mt-0.5 text-xs text-gray-400" aria-live="polite">
+          <h2 className="truncate text-sm font-semibold text-stone-800">{title}</h2>
+          <p className="mt-0.5 text-xs text-stone-400" aria-live="polite">
             {isRendering
               ? '正在渲染'
               : hasError
@@ -155,7 +159,7 @@ export default function MermaidCanvas({
                   : '渲染失败'
                 : renderState.hasValidSvg
                   ? '已渲染'
-                  : '等待源码'}
+                  : (subtitle || '等待源码')}
           </p>
         </div>
 
@@ -167,7 +171,7 @@ export default function MermaidCanvas({
           >
             <Minus aria-hidden="true" className="h-4 w-4" />
           </IconButton>
-          <span className="w-12 text-center text-xs tabular-nums text-gray-600">
+          <span className="w-12 text-center text-xs tabular-nums text-stone-600">
             {Math.round(zoom * 100)}%
           </span>
           <IconButton
@@ -184,31 +188,33 @@ export default function MermaidCanvas({
           >
             <Plus aria-hidden="true" className="h-4 w-4" />
           </IconButton>
+          {headerActions}
         </div>
       </header>
 
-      <div className="relative min-h-0 flex-1 overflow-auto bg-gray-50 p-4 md:p-6">
+      {/* 画布区铺满：去掉外边距与卡片描边/阴影，白色绘图区直接贴边 */}
+      <div className="relative min-h-0 flex-1 overflow-auto bg-white">
         <div
           ref={hostRef}
-          className="mx-auto min-h-full min-w-[20rem] border border-gray-200 bg-white p-4 shadow-sm"
+          className="min-h-full w-full bg-white p-4"
           aria-live="polite"
         />
 
         {!hasSource && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center">
-            <p className="max-w-md text-sm leading-6 text-gray-500">{emptyMessage}</p>
+            <p className="max-w-md text-sm leading-6 text-stone-500">{emptyMessage}</p>
           </div>
         )}
 
         {isRendering && !renderState.hasValidSvg && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm text-gray-500">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm text-stone-500">
             <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
             正在渲染 Mermaid 图表
           </div>
         )}
 
         {isRendering && renderState.hasValidSvg && (
-          <div className="pointer-events-none absolute right-6 top-6 flex items-center gap-2 border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm">
+          <div className="pointer-events-none absolute right-6 top-6 flex items-center gap-2 border border-stone-200 bg-white px-3 py-2 text-xs text-stone-600 shadow-sm">
             <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
             正在更新图表
           </div>

@@ -91,8 +91,8 @@ export default function MermaidConceptView({
     return (
       <div className="flex h-full min-h-[420px] items-center justify-center px-6 text-center">
         <div>
-          <p className="text-sm font-medium text-gray-700">还没有概念图</p>
-          <p className="mt-1 text-xs leading-5 text-gray-500">
+          <p className="text-sm font-medium text-stone-700">还没有概念图</p>
+          <p className="mt-1 text-xs leading-5 text-stone-500">
             生成概念图后，可以在这里查看 Mermaid 关系视图。
           </p>
         </div>
@@ -108,10 +108,10 @@ export default function MermaidConceptView({
 
   return (
     <div className="flex h-full min-h-[420px] flex-col bg-white">
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-4 py-2.5">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-4 py-2.5">
         <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-gray-800">{title}</h2>
-          <p className="mt-0.5 text-xs tabular-nums text-gray-400">
+          <h2 className="truncate text-sm font-semibold text-stone-800">{title}</h2>
+          <p className="mt-0.5 text-xs tabular-nums text-stone-400">
             {concepts.length} 个概念 · {relations.length} 条关系
           </p>
         </div>
@@ -122,7 +122,7 @@ export default function MermaidConceptView({
             disabled={zoom <= MIN_ZOOM}
             aria-label="缩小概念图"
             title="缩小"
-            className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-lg leading-none text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-35"
+            className="flex h-8 w-8 items-center justify-center rounded border border-stone-200 bg-white text-lg leading-none text-stone-600 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-35"
           >
             −
           </button>
@@ -131,7 +131,7 @@ export default function MermaidConceptView({
             onClick={() => setZoom(1)}
             aria-label="重置概念图缩放"
             title="重置缩放"
-            className="h-8 min-w-12 rounded border border-gray-200 bg-white px-2 text-xs tabular-nums text-gray-600 hover:bg-gray-50"
+            className="h-8 min-w-12 rounded border border-stone-200 bg-white px-2 text-xs tabular-nums text-stone-600 hover:bg-stone-50"
           >
             {Math.round(zoom * 100)}%
           </button>
@@ -141,22 +141,22 @@ export default function MermaidConceptView({
             disabled={zoom >= MAX_ZOOM}
             aria-label="放大概念图"
             title="放大"
-            className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white text-lg leading-none text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-35"
+            className="flex h-8 w-8 items-center justify-center rounded border border-stone-200 bg-white text-lg leading-none text-stone-600 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-35"
           >
             +
           </button>
         </div>
       </header>
 
-      <div className="relative min-h-0 flex-1 overflow-auto bg-gray-50 p-4 md:p-8">
+      <div className="relative min-h-0 flex-1 overflow-auto bg-stone-50 p-4 md:p-8">
         <div
           ref={hostRef}
-          className="mx-auto min-w-[36rem] rounded border border-gray-200 bg-white p-4 shadow-sm"
+          className="mx-auto min-w-[36rem] rounded border border-stone-200 bg-white p-4 shadow-sm"
           aria-live="polite"
         />
 
         {status === 'loading' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 text-sm text-gray-500">
+          <div className="absolute inset-0 flex items-center justify-center bg-stone-50/80 text-sm text-stone-500">
             正在绘制概念关系...
           </div>
         )}

@@ -11,7 +11,7 @@ import {
 } from '@/lib/image-utils';
 import { CHART_TYPES } from '@/lib/constants';
 
-export default function ImageUpload({ onImageSelect, isGenerating, chartType, onChartTypeChange, onImageGenerate, engine = 'excalidraw', onEngineChange }) {
+export default function ImageUpload({ onImageSelect, isGenerating, chartType, onChartTypeChange, onImageGenerate, engine = 'excalidraw', onEngineChange, hideControls = false }) {
   const [imagePreview, setImagePreview] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadStatus, setUploadStatus] = useState(''); // '', 'uploading', 'success', 'error'
@@ -127,7 +127,10 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
 
   return (
     <div className="flex-1 flex flex-col p-4">
-      <div className="mb-2 flex rounded border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="绘图引擎">
+      {/* hideControls：引擎与图类型已由宿主头部控制子栏持有，这里不再重复渲染 */}
+      {!hideControls && (
+      <>
+      <div className="mb-2 flex rounded border border-stone-200 bg-stone-50 p-0.5" role="group" aria-label="绘图引擎">
         {[
           ['excalidraw', 'Excalidraw'],
           ['mermaid', 'Mermaid'],
@@ -137,7 +140,7 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
             type="button"
             onClick={() => onEngineChange?.(value)}
             disabled={isGenerating || uploadStatus === 'uploading'}
-            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium ${engine === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            className={`flex-1 rounded px-3 py-1.5 text-xs font-medium ${engine === value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}
           >
             {label}
           </button>
@@ -145,14 +148,14 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
       </div>
       {/* 图表类型选择器 */}
       <div className="w-full mb-4">
-        {/* <label htmlFor="chart-type-image" className="block text-xs font-medium text-gray-700 mb-1">
+        {/* <label htmlFor="chart-type-image" className="block text-xs font-medium text-stone-700 mb-1">
           图表类型
         </label> */}
         <select
           id="chart-type-image"
           value={chartType}
           onChange={(e) => onChartTypeChange?.(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+          className="w-full px-3 py-2 text-sm border border-stone-300 rounded focus:outline-none focus:ring-2 focus:ring-stone-900 bg-white"
           disabled={isGenerating || uploadStatus === 'uploading'}
         >
           {Object.entries(CHART_TYPES).map(([key, label]) => (
@@ -162,6 +165,8 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
           ))}
         </select>
       </div>
+      </>
+      )}
 
       {!selectedFile ? (
         // 上传区域
@@ -169,7 +174,7 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
           className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg transition-colors duration-200 ${
             isDragging
               ? 'border-blue-500 bg-blue-50'
-              : 'border-gray-300 hover:border-gray-400'
+              : 'border-stone-300 hover:border-stone-400'
           }`}
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
@@ -178,7 +183,7 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
         >
           <div className="text-center mb-4">
             <svg
-              className="mx-auto h-12 w-12 text-gray-400 mb-3"
+              className="mx-auto h-12 w-12 text-stone-400 mb-3"
               stroke="currentColor"
               fill="none"
               viewBox="0 0 48 48"
@@ -190,8 +195,8 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
                 strokeLinejoin="round"
               />
             </svg>
-            <p className="text-sm text-gray-600 mb-1">上传图片进行识别</p>
-            <p className="text-xs text-gray-400">
+            <p className="text-sm text-stone-600 mb-1">上传图片进行识别</p>
+            <p className="text-xs text-stone-400">
               支持 JPG、PNG、WebP、GIF 格式，最大 5MB
             </p>
           </div>
@@ -208,7 +213,7 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
           <button
             onClick={handleUploadClick}
             disabled={isGenerating || uploadStatus === 'uploading'}
-            className="px-6 py-2 bg-gray-900 text-white text-sm rounded hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center space-x-2"
+            className="px-6 py-2 bg-stone-900 text-white text-sm rounded hover:bg-stone-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center space-x-2"
           >
             {uploadStatus === 'uploading' ? (
               <>
@@ -242,7 +247,7 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
       ) : (
         // 图片预览区域
         <div className="flex-1 flex flex-col">
-          <div className="flex-1 flex justify-center relative bg-gray-50 rounded-lg overflow-hidden border border-gray-200">
+          <div className="flex-1 flex justify-center relative bg-stone-50 rounded-lg overflow-hidden border border-stone-200">
             {imagePreview && (
               <Image
                 src={imagePreview}
@@ -258,10 +263,10 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
             <button
               onClick={handleClearImage}
               disabled={isGenerating || uploadStatus === 'uploading'}
-              className="absolute top-3 right-3 p-2 bg-white rounded-full shadow-md hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+              className="absolute top-3 right-3 p-2 bg-white rounded-full shadow-md hover:bg-stone-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
               title="删除图片"
             >
-              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-stone-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -306,7 +311,7 @@ export default function ImageUpload({ onImageSelect, isGenerating, chartType, on
           {uploadStatus === 'success' && !isGenerating && (
             <button
               onClick={onImageGenerate}
-              className="w-full mt-2 px-4 py-3 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center space-x-2"
+              className="w-full mt-2 px-4 py-3 bg-stone-900 text-white rounded hover:bg-stone-800 disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center space-x-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />

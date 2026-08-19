@@ -108,20 +108,20 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="工作区同步" maxWidth="max-w-lg">
-      <div className="space-y-4 text-sm text-gray-800">
-        <p className="text-xs leading-5 text-gray-500">
+      <div className="space-y-4 text-sm text-stone-800 dark:text-stone-200">
+        <p className="text-xs leading-5 text-stone-500">
           同步会把整个工作区（文档、解读、术语、闪卡、自定义动作）作为一个备份整体推送/拉回，拉取会替换本地数据。
         </p>
-        <p className="text-[11px] leading-4 text-gray-400">
+        <p className="text-[11px] leading-4 text-stone-400">
           数据仅保存在此浏览器本地，浏览器数据可能被清除，请定期推送或导出备份；仅当你主动生成 AI 解读时，相关内容才会发送到所配置模型服务。
         </p>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-gray-600">同步存储</span>
+          <span className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-400">同步存储</span>
           <select
             value={config.provider}
             onChange={(event) => setConfig((previous) => ({ ...previous, provider: event.target.value }))}
-            className="h-9 w-full rounded border border-gray-200 bg-white px-2 text-sm outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+            className="h-9 w-full rounded border border-stone-200 dark:border-stone-800 bg-white px-2 text-sm outline-none focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100"
           >
             <option value="browser-slot">浏览器本地同步槽（localStorage）</option>
             <option value="webdav">WebDAV（坚果云 / Alist / Nextcloud）</option>
@@ -129,40 +129,40 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
         </label>
 
         {config.provider === 'webdav' && (
-          <div className="space-y-3 rounded border border-gray-200 bg-gray-50 p-3">
+          <div className="space-y-3 rounded border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-white/5 p-3">
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-gray-600">WebDAV 文件地址</span>
+              <span className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-400">WebDAV 文件地址</span>
               <input
                 type="url"
                 value={config.webdav.url || ''}
                 onChange={(event) => updateWebDav({ url: event.target.value })}
                 placeholder="https://dav.example.com/anchorread/workspace.anchorread"
-                className="h-9 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+                className="h-9 w-full rounded border border-stone-200 dark:border-stone-800 bg-white px-2 text-xs outline-none focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100"
               />
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-gray-600">用户名</span>
+                <span className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-400">用户名</span>
                 <input
                   type="text"
                   value={config.webdav.username || ''}
                   onChange={(event) => updateWebDav({ username: event.target.value })}
                   autoComplete="username"
-                  className="h-9 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+                  className="h-9 w-full rounded border border-stone-200 dark:border-stone-800 bg-white px-2 text-xs outline-none focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100"
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-gray-600">密码 / 应用密码</span>
+                <span className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-400">密码 / 应用密码</span>
                 <input
                   type="password"
                   value={config.webdav.password || ''}
                   onChange={(event) => updateWebDav({ password: event.target.value })}
                   autoComplete="current-password"
-                  className="h-9 w-full rounded border border-gray-200 bg-white px-2 text-xs outline-none focus:border-teal-600 focus:ring-1 focus:ring-teal-600"
+                  className="h-9 w-full rounded border border-stone-200 dark:border-stone-800 bg-white px-2 text-xs outline-none focus:border-stone-950 dark:border-stone-100 focus:ring-1 focus:ring-stone-950 dark:focus:ring-stone-100"
                 />
               </label>
             </div>
-            <p className="text-[11px] leading-4 text-gray-500">
+            <p className="text-[11px] leading-4 text-stone-500">
               凭据仅保存在本浏览器 localStorage。若服务未开启 CORS，浏览器直连会被拦截，可改用自建代理或 Alist 等支持 CORS 的服务。
             </p>
           </div>
@@ -173,7 +173,7 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
             type="button"
             onClick={push}
             disabled={Boolean(busy)}
-            className="flex h-10 items-center justify-center gap-2 rounded bg-teal-700 text-xs font-medium text-white outline-none hover:bg-teal-800 focus-visible:ring-2 focus-visible:ring-teal-600 disabled:cursor-not-allowed disabled:bg-gray-300"
+            className="flex h-10 items-center justify-center gap-2 rounded bg-stone-950 dark:bg-stone-100 text-xs font-medium text-white outline-none hover:bg-stone-800 dark:hover:bg-stone-300 focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 disabled:cursor-not-allowed disabled:bg-stone-300 dark:bg-white/20"
           >
             {busy === 'push' ? <LoaderCircle size={15} className="animate-spin" /> : <CloudUpload size={15} />}
             推送备份
@@ -182,7 +182,7 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
             type="button"
             onClick={pull}
             disabled={Boolean(busy)}
-            className="flex h-10 items-center justify-center gap-2 rounded border border-gray-300 bg-white text-xs font-medium text-gray-700 outline-none hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-10 items-center justify-center gap-2 rounded border border-stone-300 dark:border-stone-700 bg-white text-xs font-medium text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy === 'pull' ? <LoaderCircle size={15} className="animate-spin" /> : <CloudDownload size={15} />}
             拉取恢复
@@ -193,16 +193,16 @@ export default function WorkspaceSyncPanel({ isOpen, onClose }) {
           type="button"
           onClick={exportLocal}
           disabled={Boolean(busy)}
-          className="flex h-9 w-full items-center justify-center gap-2 rounded border border-gray-200 bg-white text-xs font-medium text-gray-700 outline-none hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-9 w-full items-center justify-center gap-2 rounded border border-stone-200 dark:border-stone-800 bg-white text-xs font-medium text-stone-700 dark:text-stone-300 outline-none hover:border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy === 'export' ? <LoaderCircle size={14} className="animate-spin" /> : <Download size={14} />}
           导出本地备份文件
         </button>
 
-        <p className="text-[11px] text-gray-400">上次同步：{formatTime(config.lastSyncAt)}</p>
+        <p className="text-[11px] text-stone-400">上次同步：{formatTime(config.lastSyncAt)}</p>
 
         {message && (
-          <p role={message.type === 'error' ? 'alert' : 'status'} className={`text-xs leading-5 ${message.type === 'error' ? 'text-red-700' : 'text-teal-700'}`}>
+          <p role={message.type === 'error' ? 'alert' : 'status'} className={`text-xs leading-5 ${message.type === 'error' ? 'text-red-700' : 'text-stone-950 dark:text-stone-100'}`}>
             {message.text}
           </p>
         )}
