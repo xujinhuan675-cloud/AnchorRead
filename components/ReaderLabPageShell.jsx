@@ -18,7 +18,7 @@ export default function ReaderLabPageShell() {
   };
 
   return (
-    <div className="flex h-dvh min-h-[520px] flex-col overflow-hidden bg-[#f5f7f6]">
+    <div className="flex h-dvh min-h-[520px] flex-col overflow-hidden bg-[#f5f7f6] dark:bg-stone-950">
       <AppTopNav
         activeSlug="reader-lab"
         onNavigate={handleNavigate}

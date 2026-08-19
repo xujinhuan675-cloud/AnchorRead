@@ -440,13 +440,6 @@ body {
   color: #0f766e;
 }
 
-/* 已记录的难点：虚线框换实线框并叠浅底，形成难点地图；点击可移出 */
-.reader-lab-cloze-looked {
-  border-style: solid;
-  border-color: rgba(13, 148, 136, 0.5);
-  background-color: rgba(20, 184, 166, 0.07);
-}
-
 /* 深色代码块内的原文优先 chip：保持代码块文字色，仅框线用浅青；换显白话同样用浅青 */
 .reader-lab-prosemirror pre .reader-lab-cloze-original {
   color: inherit;

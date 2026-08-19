@@ -18,6 +18,8 @@ const readerQuickImport = readSource('../components/reader-lab/ReaderQuickImport
 const readerHome = readSource('../components/reader-lab/ReaderHome.jsx');
 const knowledgePanel = readSource('../components/reader-lab/KnowledgePanel.jsx');
 const readerSurfaceSource = readSource('../components/reader-lab/ReaderSurface.jsx');
+const documentLibrary = readSource('../components/reader-lab/DocumentLibrary.jsx');
+const sheetUi = readSource('../components/ui/sheet.jsx');
 const customActionsLib = readSource('../lib/custom-actions.js');
 
 test('the home reading mode and regression route share ReaderLabWorkspace', () => {
@@ -55,15 +57,23 @@ test('route layout controls document navigation while the workspace owns one rea
   assert.match(readerLabWorkspace, /updateLibraryCollapsed\(!libraryCollapsed\)/);
   // 右栏与文档库对称：桌面开关按钮直接收起/展开整列，状态持久化；文档库按钮换侧边栏样式图标
   assert.match(readerLabWorkspace, /anchor-read-right-collapsed/);
+  // 窄屏展开的 Sheet 关闭按钮与顶栏图标按钮同规格：h-9 w-9 + 18px 图标 + 同色系
+  assert.match(sheetUi, /h-9 w-9 items-center justify-center rounded text-stone-600 dark:text-stone-400/);
+  // 知识面板 Sheet 隐藏绝对定位关闭（改走页签行内联槽位），图解/文档库 Sheet 保留
+  assert.match(sheetUi, /hideClose = false/);
+  assert.match(readerLabWorkspace, /hideClose=\{rightPanelView !== 'diagram'\}/);
+  assert.match(readerLabWorkspace, /<SheetClose/);
   // 独立图解工作区右栏是主界面，不受折叠开关影响；注意正则中 JSX 的字面括号需转义
   assert.match(readerLabWorkspace, /\{\(standaloneDiagram \|\| !rightCollapsed\) && \([\s\S]*?id="reader-knowledge"/);
-  assert.match(readerLabWorkspace, /rightCollapsed \? <PanelRightOpen size=\{18\} \/> : <PanelRightClose size=\{18\} \/>/);
+  // 右栏开关图标全断点统一为带箭头族：展开态 PanelRightClose、收起态 PanelRightOpen，窄屏不再用无箭头 PanelRight
+  assert.match(readerLabWorkspace, /rightPanelExpanded \? <PanelRightClose size=\{18\} \/> : <PanelRightOpen size=\{18\} \/>/);
+  assert.doesNotMatch(readerLabWorkspace, /<PanelRight size=/);
   assert.match(readerLabWorkspace, /<PanelLeftClose size=\{18\} \/> : <PanelLeftOpen size=\{18\} \/>/);
   assert.doesNotMatch(readerLabWorkspace, /<Menu size=\{18\} \/>/);
   assert.match(readerLabWorkspace, /id="reader-content"/);
   assert.equal((readerLabWorkspace.match(/<ReaderSurface\b/g) || []).length, 1);
   assert.doesNotMatch(readerLabWorkspace, /<DerivedDraft\b/);
-  assert.match(readerLabWorkspace, /aria-label="阅读区"/);
+  assert.match(readerLabWorkspace, /aria-label=\{t\('workspace\.readingArea'\)\}/);
 });
 
 test('home keeps app navigation while diagrams live inside the shared document workspace', () => {
@@ -131,7 +141,7 @@ test('nav diagram entry opens a standalone free-form diagram workspace', () => {
   // 独立形态下 header 整行移除（顶栏「图解」已表明视图），下方画布与面板提上来；文档绑定形态保留
   assert.match(readerLabWorkspace, /diagramMode && !standaloneDiagram/);
   assert.match(readerLabWorkspace, /\{!standaloneDiagram && \(\s*<header className="z-20 flex min-h-\[62px\]/);
-  assert.match(readerLabWorkspace, /\{!standaloneDiagram && \([\s\S]*?<Tooltip content="生成 AI 辅助与管理项">/);
+  assert.match(readerLabWorkspace, /\{!standaloneDiagram && \([\s\S]*?<Tooltip content=\{t\('workspace\.moreTooltip'\)\}>/);
   assert.doesNotMatch(readerLabWorkspace, /不绑定文档 · 在这里自由创建与管理图解/);
   // 面板标题由图解选择器直接替代：切换/删除/新建/历史同行，不再单独留标题与子栏
   assert.match(documentDiagramPanel, /图解选择器直接替代面板标题/);
@@ -154,6 +164,9 @@ test('flashcard review lives in the knowledge panel and inline aids are user sel
   assert.doesNotMatch(readerLabWorkspace, /FlashcardReview/);
 
   assert.match(knowledgePanel, /label: ['"]闪卡['"]/);
+  // Sheet 关闭按钮内联进页签行尾部槽位（closeSlot）：构造上不与页签重叠，桌面不注入槽位
+  assert.match(knowledgePanel, /flex flex-1" role="tablist"/);
+  assert.match(knowledgePanel, /\{closeSlot\}/);
   assert.match(knowledgePanel, /flashcardStore\.getDueCards/);
   assert.match(knowledgePanel, /flashcardStore\.review\(/);
   assert.match(knowledgePanel, /handleSkip/);
@@ -162,13 +175,15 @@ test('flashcard review lives in the knowledge panel and inline aids are user sel
 
   assert.match(readerLabWorkspace, /documentId=\{currentDocument\.id\}/);
   assert.match(readerLabWorkspace, /flashcardSignal=\{flashcardPanelSignal\}/);
-  assert.match(readerLabWorkspace, /aria-label="内联辅助显示"/);
+  assert.match(readerLabWorkspace, /aria-label=\{t\('workspace\.aidInline'\)\}/);
   assert.match(readerLabWorkspace, /aidVisibility=\{aidVisibility\}/);
 
   // 阅读不再分互斥模式：原文为底，解读/图表/精准替代均为可多选的叠加层
   assert.doesNotMatch(readerLabWorkspace, /选择阅读模式/);
   assert.doesNotMatch(readerLabWorkspace, /const MODES = /);
-  assert.match(readerLabWorkspace, /\{ id: 'precision', label: '白话' \}/);
+  // AID 选项含白话入口；i18n 键化后常量只留 id，label 走 workspace.aid.precision 键
+  assert.match(readerLabWorkspace, /\{ id: 'precision' \}/);
+  assert.match(readerLabWorkspace, /t\(`workspace\.aid\.\$\{option\.id\}`\)/);
   assert.match(readerLabWorkspace, /const DEFAULT_AIDS = Object\.freeze\(\{ explanations: true, diagrams: true, precision: true \}\)/);
   assert.match(readerLabWorkspace, /function sessionAids\(session\)/);
   assert.match(readerLabWorkspace, /saveSession\(currentDocumentId, \{ aids: nextAids \}\)/);
@@ -191,6 +206,9 @@ test('the home route keeps the quick import and parse gate before the shared rea
   assert.match(readerLabWorkspace, /callReaderAnalysisApi\(document\)/);
   assert.match(readerLabWorkspace, /persistImportedDocument\(document, records\)/);
   assert.match(readerHome, /快速导入一篇文档/);
+  // 导入区头部与展示区同构「标题 + 描述」：副标题只讲价值不讲操作，不与下方导入控件重复；
+  // 首页三处副标题统一单句结构（中间逗号、结尾句号），与 hero/展示区节奏一致
+  assert.match(readerHome, /用熟悉的语言读懂陌生的专业知识，让第一次接触的领域也能越读越明白、越读越熟悉。/);
   // 文档库入口收在最近文档区头部，替换原排序说明文案
   assert.match(readerQuickImport, /打开文档库/);
   assert.match(readerHome, /hasExistingDocuments=\{hasExistingDocuments\}/);
@@ -206,6 +224,10 @@ test('Reader Lab restores imported documents and wires one shared import and ana
   assert.match(readerLabWorkspace, /<DocumentLibrary[\s\S]*?onImportFile=\{importDocumentFile\}/);
   assert.match(readerLabWorkspace, /onCreateDocument=\{createPastedDocument\}/);
   assert.match(readerLabWorkspace, /onAnalyzeDocument=\{analyzeDocument\}/);
+  // 一键生成入口从文档库收进顶栏「更多」下拉置顶，文档库不再承载大黑按钮
+  assert.match(readerLabWorkspace, /setMoreMenuOpen\(false\); analyzeDocument\(\);/);
+  assert.match(readerLabWorkspace, /t\('workspace\.oneClickTitle'\)/);
+  assert.doesNotMatch(documentLibrary, /一键生成/);
   assert.match(readerLabWorkspace, /fetch\(['"]\/api\/reader-analysis['"]/);
   assert.match(readerLabWorkspace, /createReaderLabAnalysisRecords/);
   assert.doesNotMatch(homePage, /createReaderDocumentFromFile|\/api\/reader-analysis/);
@@ -254,24 +276,59 @@ test('precision markers become clickable cloze chips that flip between plain wor
   assert.match(readerLabLib, /export function clozeMappingKey\(mapping\)/);
   assert.match(readerLabLib, /revealedKeys\.has\(clozeMappingKey\(mapping\)\)/);
   assert.match(derivedDraft, /createPrecisionReplacementMarkdown\(document, explanations, revealedKeys = null\)/);
-  assert.match(readerSurface, /createPrecisionReplacementMarkdown\(document, explanations, revealedClozes\)/);
+  // 派生文档用合并后的揭示集合（揭示态 + 掌握淡出等效揭示）回写原术语
+  assert.match(readerSurface, /createPrecisionReplacementMarkdown\(document, explanations, effectiveRevealed\)/);
   // 点击翻转走内联装饰 + 插件 handleClick，不用不存在的 Decoration.replace
   assert.doesNotMatch(readerSurface, /Decoration\.replace\(/);
   assert.match(readerSurface, /'data-cloze-key': key/);
   assert.match(readerSurface, /callbacks\.onToggleCloze\?\.\(clozeEl\.dataset\.clozeKey\)/);
-  // 悬浮预览：chip 携带对侧文本 data-cloze-alt，纯 CSS 换显不翻转状态，点击才写入翻转态
+  // 悬浮预览：chip 携带对侧文本 data-cloze-alt，插件滞回类驱动换显不翻转状态，点击才写入翻转态
   assert.match(readerSurface, /'data-cloze-alt': alt/);
-  assert.match(readerSurface, /悬浮预览原文术语，点击保持显示/);
-  assert.match(globalsCss, /\.reader-lab-cloze\[data-cloze-alt\]:hover::before/);
-  // 原文优先呈现：呈现方式收在白话下拉，原文不动框选术语，悬浮换显白话且停留满阈值记为难点
+  // 悬浮文案精简且体现“点击=记住”语义：点击显示另一面，并记住
+  assert.match(readerSurface, /点击显示并记住/);
+  // 换显由插件滞回类 reader-lab-cloze-swap 驱动（不用 :hover）：宿主折叠空白收掉，
+  // 外层高亮沿内联盒自然只包预览=“跳过收起部分”，不整条消失
+  assert.match(globalsCss, /\.reader-lab-cloze\.reader-lab-cloze-swap \{[\s\S]*?font-size: 0/);
+  assert.match(globalsCss, /\.reader-lab-cloze\.reader-lab-cloze-swap::before/);
+  assert.doesNotMatch(globalsCss, /data-cloze-alt\]:hover/);
+  assert.doesNotMatch(globalsCss, /:has\(\.reader-lab-cloze/);
+  // 滞回：进入时记录原始 footprint 矩形，指针离开才还原，不依赖 :hover（防长原文短预览闪烁）
+  assert.match(readerSurface, /reader-lab-cloze-swap/);
+  assert.match(readerSurface, /swapTarget\.getBoundingClientRect\(\)/);
+  // 整块高亮按白话框选范围拆分逐段绘制，术语区域不被高亮覆盖（视觉“跳过去”）
+  assert.match(readerSurface, /splitRangeAroundClozes\(range, clozeRanges\)/);
+  assert.match(readerSurface, /collectClozeRanges\(doc, presentation, mappings, revealedKeys\)/);
+  // 原文优先呈现：呈现方式收在白话下拉，原文不动框选术语，悬浮换显白话；
+  // 点击语义与白话优先一致 = “我需要记住”翻转并持久化揭示（共用同一份揭示态），悬浮不写状态
   assert.match(readerLabWorkspace, /CLOZE_PRESENTATION_OPTIONS/);
   assert.match(readerLabWorkspace, /anchor-read-cloze-presentation/);
   assert.match(readerLabWorkspace, /anchor-read-cloze-revealed/);
-  assert.match(readerLabWorkspace, /anchor-read-cloze-lookups/);
+  assert.doesNotMatch(readerLabWorkspace, /anchor-read-cloze-lookups/);
   assert.match(readerSurface, /reader-lab-cloze-original/);
-  assert.match(readerSurface, /onHoverClozeLookup\?\.\(key\)/);
-  assert.match(globalsCss, /\.reader-lab-cloze-looked \{/);
-  // chip 常态虚线下划线提示可翻，翻转态去下划线换底色
+  assert.match(readerSurface, /const revealed = revealedKeys\?\.has\(key\)/);
+  // 持久揭示 chip 常带换显视觉（宿主折叠+『白话』直显），以后无需再点
+  assert.match(readerSurface, /reader-lab-cloze-revealed reader-lab-cloze-swap/);
+  // 悬浮记难点与独立难点存储已移除：“记住”只来自明确点击
+  assert.doesNotMatch(readerSurface, /onHoverClozeLookup/);
+  assert.doesNotMatch(readerSurface, /HOVER_LOOKUP_DELAY_MS/);
+  assert.doesNotMatch(globalsCss, /reader-lab-cloze-looked/);
+  // 点击回灌术语表：首点揭示并记住，词条以 learning 状态入库（收集层只增），同名（含别名）去重
+  assert.match(readerLabWorkspace, /reader-lab-term-\$\{currentDocumentId\}-\$\{now\}-cloze/);
+  assert.match(readerLabWorkspace, /status: 'learning'/);
+  assert.match(readerLabWorkspace, /await workspaceRepository\.terms\.save\(record\)/);
+  // 掌握淡出：术语掌握后清除全工作区揭示态，装饰层不再绘制其框选/替换/chip（词回到正文）
+  assert.match(readerLabWorkspace, /fadeRevealedForTerms/);
+  assert.match(readerLabWorkspace, /masteredClozeTerms = useMemo/);
+  assert.match(readerSurface, /masteredTerms\.has\(source\.trim\(\)\.toLowerCase\(\)\)/);
+  assert.match(readerSurface, /masteredClozeTerms\.has\(source\.trim\(\)\.toLowerCase\(\)\)/);
+  // 首页宣传该闭环为术语沉淀的核心卖点
+  const readerHome = readSource('../components/reader-lab/ReaderHome.jsx');
+  assert.match(readerHome, /点击不懂的词自动记入术语表，掌握后白话辅助自动撤下/);
+  // 三形态区分类别：重点=高亮笔触、解读=下划线 bar、白话=圆角卡片框；
+  // 白话 chip 常态虚线框提示可翻，翻转态实线框+底色；同一内容多形态重叠时才叠加
+  assert.match(globalsCss, /\.reader-lab-cloze \{[\s\S]*?border: 1px solid/);
+  assert.doesNotMatch(globalsCss, /underline dashed/);
+  assert.match(globalsCss, /\.reader-lab-cloze-original \{[\s\S]*?border-style: dashed/);
   assert.match(globalsCss, /\.reader-lab-cloze \{/);
   assert.match(globalsCss, /\.reader-lab-cloze-revealed \{/);
 });
@@ -285,10 +342,39 @@ test('hierarchical key points: role layers, word marks and layer visibility cont
   assert.match(readerAnalysis, /core: 'article'/);
   assert.match(readerAnalysis, /subthesis: 'paragraph'/);
   assert.match(readerAnalysis, /servesIndex/);
-  // 视觉分层：角色配色 + importance>=4 背景填充 + 词语红框
+  // 视觉分层：形态区分类别（重点=高亮笔触、解读=下划线）+ importance 调笔触浓淡 + 词语红高亮笔触
   assert.match(globalsCss, /reader-lab-highlight-fill/);
+  // 换行安全手段内向 hero 马克笔质感靠拢：垂直内边距撑开绘制区 + 呼吸间隙 + 圆角笔触；
+  // 不引入绝对定位装饰层（hero 结构不随换行分裂，正文不可用）
+  assert.match(globalsCss, /\.reader-lab-highlight \{[\s\S]*?padding: 0\.12em 1px 0\.16em/);
+  assert.match(globalsCss, /\.reader-lab-highlight-fill \{[\s\S]*?border-radius: 3px/);
+  // 解读形态 = 3px 圆角胶囊下划线 bar（80% 不透明度对齐首页 hero 柔和质感）；重点笔触上下出头贴近 hero 覆盖感
+  assert.match(globalsCss, /\.reader-lab-highlight-explanation \{[\s\S]*?border-bottom: 3px solid rgba\(13, 148, 136, 0\.8\)/);
+  assert.match(globalsCss, /\.reader-lab-highlight-fill \{[\s\S]*?background-position: 0 0\.08em/);
+  // 重点笔触在基类之上加垂直内边距，覆盖到字形盒上下边（对齐首页 hero 高亮盖住文字上下的饱满感）；
+  // 实/淡两档笔触覆盖范围一致
+  assert.match(globalsCss, /\.reader-lab-highlight-fill \{[\s\S]*?padding: 0\.2em 1px 0\.26em/);
+  assert.match(globalsCss, /\.reader-lab-highlight-fill-soft \{[\s\S]*?padding: 0\.2em 1px 0\.26em/);
+  // 低重要性重点淡笔触：color-mix 55% 色量；角色色 200 级对齐 hero 等效色深
+  assert.match(globalsCss, /reader-lab-highlight-fill-soft/);
+  assert.match(globalsCss, /color-mix\(in srgb, var\(--reader-lab-hl, #99f6e4\) 55%, transparent\)/);
+  assert.match(globalsCss, /--reader-lab-hl: #99f6e4/);
+  // 渲染层形态分支：解读锚点下划线跟随解读开关（与行间卡一致），重点笔触跟随层级开关；同内容双命中嵌套叠加
+  assert.match(readerSurfaceSource, /showExplanations && !isWord && record\.explanation/);
+  assert.match(readerSurfaceSource, /record\.role && record\.role !== 'explanation'/);
+  assert.match(readerSurfaceSource, /reader-lab-highlight-fill-soft/);
   assert.match(globalsCss, /reader-lab-highlight-core/);
   assert.match(globalsCss, /reader-lab-word-mark/);
+  // 词语层用红色高亮笔触（高亮家族专属重点、线条家族专属解读，消解与解读实线的形态重叠）：
+  // 中心浅红、金句深红、成语红虚线；不得回退红框/红实线
+  assert.match(globalsCss, /\.reader-lab-word-mark \{[\s\S]*?background-image: linear-gradient\(#fecaca/);
+  assert.match(globalsCss, /\.reader-lab-word-mark-idiom \{[\s\S]*?border-bottom: 3px dashed #dc2626/);
+  // 重点模式下词语笔触垂直覆盖与层级高亮 -fill 完全一致（同等高度、不再偏矮）；
+  // 白话圆角框加垂直内边距，与高亮同高、不再贴字显矮小
+  assert.match(globalsCss, /\.reader-lab-word-mark \{[\s\S]*?padding: 0\.2em 1px 0\.26em/);
+  assert.match(globalsCss, /\.reader-lab-cloze \{[\s\S]*?padding: 0\.2em 3px 0\.26em/);
+  assert.doesNotMatch(globalsCss, /border-bottom: 3px solid #dc2626/);
+  assert.doesNotMatch(globalsCss, /border: 1\.5px solid #dc2626/);
   assert.match(readerSurfaceSource, /readerRoleLayer\(record\.role\)/);
   assert.match(readerSurfaceSource, /layers\[layer\] === false/);
   // 层级可见性开关：顶栏弹层 + 本地持久化
@@ -306,9 +392,10 @@ test('local demo fallback is removed: AI features require model config; legacy r
   const diagramLib = readSource('../lib/diagram-generation.js');
   const useDiagramHook = readSource('../components/reader-lab/use-document-diagram.js');
 
-  // 本地 Demo 兜底全链路移除：未配置模型时统一报错阻断，不再产出假数据
-  assert.match(readerLabWorkspace, /const CONFIG_MISSING_ERROR = '未检测到可用模型配置，请先在设置中配置模型后再使用 AI 功能。'/);
-  assert.match(readerLabWorkspace, /throw new Error\(CONFIG_MISSING_ERROR\)/);
+  // 本地 Demo 兜底全链路移除：未配置模型时统一报错阻断，不再产出假数据；
+  // 报错走 i18n 键（workspace.configMissing），由通知条按当前语言渲染
+  assert.match(readerLabWorkspace, /throw i18nError\('workspace\.configMissing'\)/);
+  assert.match(readerLabWorkspace, /function errorNotice\(error\)/);
   assert.doesNotMatch(readerLabWorkspace, /createDemoReaderAnalysis|createDemoFlashcards|createDemoDocumentDiagram|createDemoCustomActionResult|createDemoExplanation|createDemoAskResponse/);
   assert.doesNotMatch(readerAnalysis, /createDemoReaderAnalysis|DEPTH_DEMO_BLOCKS/);
   assert.doesNotMatch(readerLabLib, /createDemoFlashcards|createDemoExplanation|createDemoAskResponse/);
@@ -366,7 +453,6 @@ test('local demo fallback is removed: AI features require model config; legacy r
 
 test('the outline drawer is a reading-scene navigation overlay owned by the reader surface', () => {
   const readerLabLib = readSource('../lib/reader-lab.js');
-  const documentLibrary = readSource('../components/reader-lab/DocumentLibrary.jsx');
   // 目录由纯函数从 Markdown 源文提取：跳过围栏代码块，保留层级与纯文本
   assert.match(readerLabLib, /export function extractMarkdownOutline/);
   // 开关收进文档库：与搜索并列，顶栏不再留按钮；持久化开合状态，图解画布下隐藏

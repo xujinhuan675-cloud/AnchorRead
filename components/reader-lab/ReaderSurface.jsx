@@ -12,16 +12,13 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { LoaderCircle, MessageCircleQuestion, PenTool, ScanText, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react';
 import { markdownToSafeHtml } from '@/lib/document-content';
 import { isDefaultToolbarBuiltinTemplate } from '@/lib/toolbar-builtins';
-import { extractMarkdownOutline, precisionReplacementStats } from '@/lib/reader-lab';
+import { extractMarkdownOutline, precisionReplacementStats, clozeMappingKey } from '@/lib/reader-lab';
 import { readerRoleLayer } from '@/lib/reader-analysis';
 import { createPrecisionReplacementMarkdown } from './DerivedDraft';
 import InlineExplanation from './InlineExplanation';
 import InlineDiagramCard, { InlineDiagramPlaceholder } from './InlineDiagramCard';
 
 const READER_LAB_DECORATIONS_KEY = new PluginKey('anchorReaderLabDecorations');
-
-// 原文优先下悬浮记为难点前的停留阈值：快速划过不算“想了解”
-const HOVER_LOOKUP_DELAY_MS = 600;
 
 // 浮动工具栏内置动作图标：按内置动作 id 映射
 const BUILTIN_TOOLBAR_ICONS = Object.freeze({ explain: Sparkles, term: ScanText, diagram: PenTool, ask: MessageCircleQuestion });
@@ -162,43 +159,126 @@ function resolveRecordRange(record, doc, substitutions = [], revealedKeys = null
 }
 
 // 填空翻转：『白话』片段的展开态由组件 state 持有并参与派生文档计算，
-// 已翻开的映射回写『原术语』，未翻开的保持『大白话』；文档文本即状态，无需 replace 装饰
+// 已翻开的回写『原术语』，未翻开的保持『大白话』；文档文本即状态，无需 replace 装饰
+
+// 收集全部白话框选范围（白话视图=『…』片段命中处，原文优先=术语全部命中处），
+// 供重点/解读/词语三形态拆分时“跳过”框区使用
+function collectClozeRanges(doc, presentation, mappings, revealedKeys = null) {
+  const ranges = [];
+  if (mappings.length === 0) return ranges;
+  if (presentation === 'original') {
+    for (const { source } of mappings) {
+      for (const block of textblockSegments(doc)) {
+        const compactBlock = block.text.replace(/\s+/gu, ' ').trim();
+        let index = compactBlock.indexOf(source);
+        while (index !== -1) {
+          const from = mapTextOffset(block.segments, index);
+          const to = mapTextOffset(block.segments, index + source.length);
+          if (Number.isInteger(from) && Number.isInteger(to) && to > from) ranges.push({ from, to });
+          index = compactBlock.indexOf(source, index + source.length);
+        }
+      }
+    }
+  } else {
+    const hiddenByTarget = new Map();
+    const revealedBySource = new Map();
+    for (const { source, target } of mappings) {
+      const key = `${source}\u0000${target}`;
+      hiddenByTarget.set(target, { key });
+      revealedBySource.set(source, { key });
+    }
+    for (const block of textblockSegments(doc)) {
+      for (const segment of block.segments) {
+        PRECISION_MARKER_PATTERN.lastIndex = 0;
+        let match;
+        while ((match = PRECISION_MARKER_PATTERN.exec(segment.text)) !== null) {
+          const inner = match[0].slice(1, -1);
+          const hidden = hiddenByTarget.get(inner);
+          const revealed = revealedBySource.get(inner);
+          const active = (hidden && !revealedKeys?.has(hidden.key)) || (revealed && revealedKeys?.has(revealed.key));
+          if (!active) continue;
+          const from = segment.from + match.index;
+          ranges.push({ from, to: from + match[0].length });
+        }
+      }
+    }
+  }
+  return ranges.sort((a, b) => a.from - b.from);
+}
+
+// 整块标记按白话框选范围拆分逐段绘制：框区不被高亮/下划线/红笔触覆盖，
+// 视觉上高亮“跳过去”、框保持独立形态；同内容多形态命中时仍嵌套叠加
+function splitRangeAroundClozes(range, clozeRanges) {
+  const parts = [];
+  let cursor = range.from;
+  for (const cloze of clozeRanges) {
+    if (cloze.to <= cursor || cloze.from >= range.to) continue;
+    const cutFrom = Math.max(cloze.from, cursor);
+    const cutTo = Math.min(cloze.to, range.to);
+    if (cutFrom > cursor) parts.push({ from: cursor, to: cutFrom });
+    cursor = Math.max(cursor, cutTo);
+    if (cursor >= range.to) break;
+  }
+  if (cursor < range.to) parts.push({ from: cursor, to: range.to });
+  return parts;
+}
 
 function createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid = {}, layers = {}, cloze = null, pendingDiagram = null) {
   const { doc } = editor.state;
   // 白话视图与原文视图叠加同一套装饰：原文坐标失效后改用文本匹配重锚定，
   // 命中“『大白话』”替换片段时高亮直接包在替换文本上，行间解读卡照常挂载
-  const { presentation = 'plain', revealedKeys = null, lookupKeys = null } = cloze || {};
-  // 映射列表两种呈现共用：白话优先（plain）用于重锚定替换文本，原文优先（original）用于框选术语位置
-  const mappings = aid.precision ? precisionSubstitutions(records) : [];
+  const { presentation = 'plain', revealedKeys = null, masteredTerms = null } = cloze || {};
+  // 映射列表两种呈现共用：白话优先（plain）用于重锚定替换文本，原文优先（original）用于框选术语位置；
+  // 掌握淡出：已掌握术语的映射不再参与框选/替换/chip，正文回到普通文本（高亮照常覆盖）
+  const rawMappings = aid.precision ? precisionSubstitutions(records) : [];
+  const mappings = masteredTerms?.size
+    ? rawMappings.filter(({ source }) => !masteredTerms.has(source.trim().toLowerCase()))
+    : rawMappings;
   const substitutions = presentation === 'original' ? [] : mappings;
+  // 白话框选范围先收集：重点/解读/词语三形态绕开它们拆分绘制，术语区域不被高亮覆盖
+  const clozeRanges = collectClozeRanges(doc, presentation, mappings, revealedKeys);
   const showExplanations = aid.explanations !== false;
   const showDiagrams = aid.diagrams !== false;
 
   const decorations = [];
   for (const record of records) {
-    // 重点高亮按层级可见性控制（重点入口内的多选开关），不再跟随解读开关；
-    // 高亮/框线是包裹原文的内联装饰，隐藏时直接不叠加（不能用 display:none，否则原文会一起隐藏）；
-    // 重点层级只管标记层，行间解读卡属于独立的解读模式，只受解读开关控制（两模式分开）
+    // 重点笔触/词语红框按层级可见性控制（重点入口内的多选开关）；
+    // 解读锚点下划线跟随解读开关（与行间解读卡挂载条件一致），两模式互不绑架；
+    // 内联装饰隐藏时直接不叠加（不能用 display:none，否则原文会一起隐藏）
     const isWord = record.level === 'word';
     const layer = isWord ? 'word' : readerRoleLayer(record.role);
     const layerHidden = layers[layer] === false;
     let range = resolveRecordRange(record, doc, substitutions, revealedKeys);
     // 白话视图里命中的替换片段需整体框选，含两端的 『 』 角引号
     if (range && substitutions.length > 0) range = expandRangeToPrecisionMarkers(range, doc);
-    if (!layerHidden && range && isWord) {
-      // 词语层标记（句子服务中心/金句/成语）用红框，由重点层级开关控制
-      decorations.push(Decoration.inline(range.from, range.to, {
+    // 三形态均按白话框选范围拆分绘制：整块高亮遇框“跳过去”，框区保持独立形态不叠加
+    const inlineParts = range ? splitRangeAroundClozes(range, clozeRanges) : [];
+    if (!layerHidden && isWord) {
+      // 词语层标记（句子服务中心/金句/成语）用红色高亮笔触（高亮家族专属重点、线条家族专属解读、框专属白话），由重点层级开关控制
+      for (const part of inlineParts) decorations.push(Decoration.inline(part.from, part.to, {
         class: `reader-lab-word-mark reader-lab-word-mark-${record.markKind || 'center'}`,
         'data-reader-explanation-id': record.id,
         role: 'button',
         tabindex: '0',
         title: record.reason || '词语标记',
       }));
-    } else if (!layerHidden && range) {
-      // importance>=4 叠加背景（划重点），其余仅下划线（划线）
-      decorations.push(Decoration.inline(range.from, range.to, {
-        class: `reader-lab-highlight reader-lab-highlight-${record.role || 'explanation'}${Number(record.importance) >= 4 ? ' reader-lab-highlight-fill' : ''}`,
+    }
+    // 解读锚点 = 下划线形态，跟随解读开关：这一行有解读就划上，
+    // 与重点笔触同内容叠加时嵌套装饰各自绘制
+    if (showExplanations && !isWord && record.explanation) {
+      for (const part of inlineParts) decorations.push(Decoration.inline(part.from, part.to, {
+        class: 'reader-lab-highlight reader-lab-highlight-explanation',
+        'data-reader-explanation-id': record.id,
+        role: 'button',
+        tabindex: '0',
+        title: record.reason || '查看对应解读',
+      }));
+    }
+    // 重点 = 高亮笔触形态，跟随重点层级开关；importance 调节笔触浓淡：>=4 实笔触，其余淡笔触
+    if (!layerHidden && !isWord && record.role && record.role !== 'explanation') {
+      const fillTier = Number(record.importance) >= 4 ? 'reader-lab-highlight-fill' : 'reader-lab-highlight-fill-soft';
+      for (const part of inlineParts) decorations.push(Decoration.inline(part.from, part.to, {
+        class: `reader-lab-highlight reader-lab-highlight-${record.role} ${fillTier}`,
         'data-reader-explanation-id': record.id,
         role: 'button',
         tabindex: '0',
@@ -240,7 +320,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
 
   // 填空翻转：白话视图下给每个『…』片段叠加可点击 chip 装饰——
   // 未翻开映射命中『大白话』，已翻开映射命中『原术语』；点击由插件 handleClick 统一翻转；
-  // data-cloze-alt 携带对侧文本供悬浮纯 CSS 换显预览，不改文档也不翻转状态
+  // data-cloze-alt 携带对侧文本供悬浮换显预览（插件滞回类驱动），不改文档也不翻转状态
   if (substitutions.length > 0) {
     const hiddenByTarget = new Map();
     const revealedBySource = new Map();
@@ -279,7 +359,7 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
             'data-cloze-alt': alt,
             role: 'button',
             tabindex: '0',
-            title: state === 'revealed' ? '悬浮预览白话，点击收回' : '悬浮预览原文术语，点击保持显示',
+            title: state === 'revealed' ? '悬浮预览白话，点击收回' : '悬浮预览原文，点击显示并记住',
           }));
         }
       }
@@ -287,11 +367,12 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
   }
 
   // 原文优先：原文不动，给每个映射的术语位置（全部命中处）叠框选 chip——
-  // 悬浮纯 CSS 换显『白话』，停留满阈值由插件记为难点；已记录的换实线框形成难点地图
+  // 悬浮纯 CSS 换显『白话』；点击 = “我需要记住”，与白话优先共用同一份揭示态（revealedKeys）持久化：
+  // 持久揭示 chip 常带换显视觉（宿主折叠+『白话』直显），以后无需再点；再点收回并忘掉
   if (presentation === 'original' && mappings.length > 0) {
     for (const { source, target } of mappings) {
       const key = `${source}\u0000${target}`;
-      const looked = lookupKeys?.has(key);
+      const revealed = revealedKeys?.has(key);
       for (const block of textblockSegments(doc)) {
         const compactBlock = block.text.replace(/\s+/gu, ' ').trim();
         let index = compactBlock.indexOf(source);
@@ -300,13 +381,13 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
           const to = mapTextOffset(block.segments, index + source.length);
           if (Number.isInteger(from) && Number.isInteger(to) && to > from) {
             decorations.push(Decoration.inline(from, to, {
-              class: `reader-lab-cloze reader-lab-cloze-original${looked ? ' reader-lab-cloze-looked' : ''}`,
+              class: `reader-lab-cloze reader-lab-cloze-original${revealed ? ' reader-lab-cloze-revealed reader-lab-cloze-swap' : ''}`,
               'data-cloze-key': key,
-              'data-cloze-state': looked ? 'looked' : 'unseen',
+              'data-cloze-state': revealed ? 'revealed' : 'unseen',
               'data-cloze-alt': target,
               role: 'button',
               tabindex: '0',
-              title: looked ? '悬浮查看白话，点击移出难点' : '悬浮查看白话，点击记为难点',
+              title: revealed ? '悬浮预览原文，点击收回' : '悬浮预览白话，点击显示并记住',
             }));
           }
           index = compactBlock.indexOf(source, index + source.length);
@@ -378,8 +459,28 @@ function createReaderLabDecorations(editor, records, mastery, callbacks, drawing
 }
 
 function createDecorationsPlugin(editor, getSource) {
-  // 原文优先下悬浮记难点的计时器：mouseover 启动、mouseout/换目标重置，插件卸载时清理
-  let hoverLookupTimer = null;
+  // 换显滞回：进入时记录原始 footprint 矩形并加 swap 类（宿主折叠、空白收掉、
+  // 外层高亮沿内联盒自然只包预览=“跳过收起部分”而非整条消失）；指针未离开原 footprint 不还原，
+  // 不依赖 :hover，长原文短预览的指针脱出闪烁因此不会发生
+  let swapEl = null;
+  let swapRect = null;
+  const clearClozeSwap = () => {
+    if (swapEl) swapEl.classList.remove('reader-lab-cloze-swap');
+    swapEl = null;
+    swapRect = null;
+  };
+  const settleClozeSwap = (event) => {
+    if (!swapEl) return;
+    // 装饰重建后宿主节点可能被替换，失联节点直接还原
+    if (!swapEl.isConnected) {
+      clearClozeSwap();
+      return;
+    }
+    const inside =
+      event.clientX >= swapRect.left && event.clientX <= swapRect.right &&
+      event.clientY >= swapRect.top && event.clientY <= swapRect.bottom;
+    if (!inside) clearClozeSwap();
+  };
   return new Plugin({
     key: READER_LAB_DECORATIONS_KEY,
     props: {
@@ -388,12 +489,11 @@ function createDecorationsPlugin(editor, getSource) {
         return createReaderLabDecorations(editor, records, mastery, callbacks, drawings, aid, layers, cloze, pendingDiagram);
       },
       handleClick(_view, _position, event) {
-        // 填空 chip 优先于高亮定位：白话优先点击翻转展开态，原文优先点击切换难点标记
+        // 填空 chip 优先于高亮定位：两种呈现方式点击语义一致 = “我需要记住”，
+        // 翻转并持久化揭示（首点揭示并记住，再点收回并忘掉）
         const clozeEl = event.target?.closest?.('[data-cloze-key]');
         if (clozeEl) {
-          const source = getSource();
-          if (source.cloze?.presentation === 'original') source.callbacks.onToggleClozeLookup?.(clozeEl.dataset.clozeKey);
-          else source.callbacks.onToggleCloze?.(clozeEl.dataset.clozeKey);
+          getSource().callbacks.onToggleCloze?.(clozeEl.dataset.clozeKey);
           return true;
         }
         const marker = event.target?.closest?.('[data-reader-explanation-id]');
@@ -405,9 +505,7 @@ function createDecorationsPlugin(editor, getSource) {
         if (event.key !== 'Enter' && event.key !== ' ') return false;
         const clozeEl = event.target?.closest?.('[data-cloze-key]');
         if (clozeEl) {
-          const source = getSource();
-          if (source.cloze?.presentation === 'original') source.callbacks.onToggleClozeLookup?.(clozeEl.dataset.clozeKey);
-          else source.callbacks.onToggleCloze?.(clozeEl.dataset.clozeKey);
+          getSource().callbacks.onToggleCloze?.(clozeEl.dataset.clozeKey);
           event.preventDefault();
           return true;
         }
@@ -417,23 +515,29 @@ function createDecorationsPlugin(editor, getSource) {
         event.preventDefault();
         return true;
       },
-      // 原文优先下悬浮即“想了解”：停留满阈值记为难点（快速划过不记），移开取消计时
+      // 悬浮只做临时换显预览：不写任何状态，“记住”只来自明确点击
       handleDOMEvents: {
         mouseover(_view, event) {
-          const target = event.target?.closest?.('[data-cloze-key]');
-          if (!target) return false;
-          const source = getSource();
-          if (source.cloze?.presentation !== 'original') return false;
-          window.clearTimeout(hoverLookupTimer);
-          const key = target.dataset.clozeKey;
-          hoverLookupTimer = window.setTimeout(() => {
-            source.callbacks.onHoverClozeLookup?.(key);
-          }, HOVER_LOOKUP_DELAY_MS);
+          // 换显滞回对所有呈现方式生效（白话 chip 与原文优先术语都带 data-cloze-alt）；
+          // 原文优先的持久揭示 chip 常带 swap 视觉，不参与滞回（否则移出会被误还原）
+          settleClozeSwap(event);
+          const swapTarget = event.target?.closest?.('.reader-lab-cloze[data-cloze-alt]');
+          const persistent = swapTarget?.dataset.clozeState === 'revealed'
+            && getSource().cloze?.presentation === 'original';
+          if (swapTarget && !persistent && swapTarget !== swapEl) {
+            clearClozeSwap();
+            swapEl = swapTarget;
+            swapRect = swapTarget.getBoundingClientRect();
+            swapEl.classList.add('reader-lab-cloze-swap');
+          }
           return false;
         },
         mouseout(_view, event) {
-          if (!event.target?.closest?.('[data-cloze-key]')) return false;
-          window.clearTimeout(hoverLookupTimer);
+          settleClozeSwap(event);
+          return false;
+        },
+        mouseleave(_view, event) {
+          settleClozeSwap(event);
           return false;
         },
       },
@@ -459,14 +563,13 @@ export default function ReaderSurface({
   toolbarActions = [],
   aidVisibility,
   layerVisibility,
-  // 白话呈现方式与填空状态均由工作台持有并持久化：
-  // plain=替换成白话悬浮看原文（翻开态 revealedClozes），original=原文不动悬浮看白话（难点标记 clozeLookups）
+  // 白话呈现方式与填空揭示态均由工作台持有并持久化：两种呈现共用同一份揭示态（revealedClozes），
+  // 点击 = “我需要记住”翻转并持久化揭示；悬浮只做临时换显预览；
+  // masteredClozeTerms = 已掌握术语名集合，用于掌握淡出（不再替换/框选/chip）
   clozePresentation = 'plain',
   revealedClozes = null,
-  clozeLookups = null,
+  masteredClozeTerms = null,
   onToggleCloze,
-  onToggleClozeLookup,
-  onHoverClozeLookup,
   onMaster,
   onDelete,
   // 提问候选词条审阅：入库/忽略都在行间卡上就近处理
@@ -482,11 +585,20 @@ export default function ReaderSurface({
   const precisionEnabled = Boolean(aidVisibility?.precision);
   // 原文优先：原文直显，术语框选交给装饰层，不生成替换后的派生文档
   const originalFirst = precisionEnabled && clozePresentation === 'original';
+  // 掌握淡出（白话优先）：已掌握映射等效于永久揭示——派生文档回写原术语，不再替换成白话、无 chip
+  const effectiveRevealed = useMemo(() => {
+    if (!precisionEnabled || originalFirst || !masteredClozeTerms || masteredClozeTerms.size === 0) return revealedClozes;
+    const merged = new Set(revealedClozes);
+    for (const { source, target } of precisionSubstitutions(explanations)) {
+      if (masteredClozeTerms.has(source.trim().toLowerCase())) merged.add(clozeMappingKey({ source, target }));
+    }
+    return merged;
+  }, [precisionEnabled, originalFirst, masteredClozeTerms, revealedClozes, explanations]);
   const sourceMarkdown = useMemo(
     () => (precisionEnabled && !originalFirst
-      ? createPrecisionReplacementMarkdown(document, explanations, revealedClozes)
+      ? createPrecisionReplacementMarkdown(document, explanations, effectiveRevealed)
       : document.content),
-    [document, explanations, precisionEnabled, originalFirst, revealedClozes]
+    [document, explanations, precisionEnabled, originalFirst, effectiveRevealed]
   );
   // 精准替代开启但无可用映射时不再静默显示原文，给出明确提示并引导重新分析
   const precisionNotice = useMemo(() => {
@@ -548,12 +660,12 @@ export default function ReaderSurface({
     decorationsSourceRef.current = {
       records: explanations,
       mastery,
-      callbacks: { onMaster, onDelete, onRegisterCandidate, onDismissCandidate, onFocus, onOpenDiagram, document, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze, onToggleClozeLookup, onHoverClozeLookup },
+      callbacks: { onMaster, onDelete, onRegisterCandidate, onDismissCandidate, onFocus, onOpenDiagram, document, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze },
       drawings,
       pendingDiagram,
       aid: aidVisibility,
       layers: layerVisibility,
-      cloze: { presentation: clozePresentation, revealedKeys: revealedClozes, lookupKeys: clozeLookups },
+      cloze: { presentation: clozePresentation, revealedKeys: effectiveRevealed, masteredTerms: masteredClozeTerms },
     };
   });
 
@@ -579,7 +691,7 @@ export default function ReaderSurface({
       editor.view.dispatch(editor.state.tr.setMeta('readerLabDecorationsRefresh', true));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [editor, explanations, mastery, precisionEnabled, drawings, pendingDiagram, document, aidVisibility, layerVisibility, revealedClozes, clozeLookups, clozePresentation, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze, onToggleClozeLookup, onHoverClozeLookup]);
+  }, [editor, explanations, mastery, precisionEnabled, drawings, pendingDiagram, document, aidVisibility, layerVisibility, effectiveRevealed, masteredClozeTerms, clozePresentation, onDelete, onFocus, onMaster, onOpenDiagram, onCreateDrawing, onPersistDrawing, onNotice, onToggleCloze]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed || !focusRange) return;

@@ -10,7 +10,6 @@ import {
   LoaderCircle,
   Plus,
   Search,
-  Sparkles,
 } from 'lucide-react';
 import DocumentImportDialog from '@/components/reader-lab/DocumentImportDialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -62,9 +61,6 @@ export default function DocumentLibrary({
   onSelect,
   onImportFile,
   onCreateDocument,
-  onAnalyzeDocument,
-  analysisBusy = false,
-  analysisDisabled = false,
 }) {
   const fileInputRef = useRef(null);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -154,7 +150,7 @@ export default function DocumentLibrary({
           tabIndex={-1}
         />
         {importError ? <p role="alert" className="mt-2 text-xs leading-5 text-red-700">{importError}</p> : null}
-        {/* 头部行重排：搜索与目录优先，一键生成沉底作为收尾动作 */}
+        {/* 头部行重排：搜索与目录优先；整篇生成入口收进顶栏「更多」下拉 */}
         <div className="mt-3 flex items-center gap-2">
           <label className="relative flex-1">
             <span className="sr-only">搜索文档</span>
@@ -182,16 +178,6 @@ export default function DocumentLibrary({
             </Tooltip>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onAnalyzeDocument}
-          disabled={!onAnalyzeDocument || analysisBusy || analysisDisabled || !currentDocumentId}
-          className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded bg-stone-950 dark:bg-stone-100 px-3 text-xs font-medium text-white outline-none hover:bg-stone-800 dark:hover:bg-stone-300 focus-visible:ring-2 focus-visible:ring-stone-950 dark:ring-stone-100 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-stone-300 dark:bg-white/20"
-          title="一键生成图解、重点、解读、白话与闪卡"
-        >
-          {analysisBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
-          {analysisBusy ? '生成中…' : '一键生成'}
-        </button>
       </header>
 
       <ScrollArea className="min-h-0 flex-1">

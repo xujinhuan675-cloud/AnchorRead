@@ -270,6 +270,7 @@ export default function KnowledgePanel({
   flashcardSignal = 0,
   // 左侧原文标记点击后驱动面板定位：{ id, nonce }，nonce 变化即可重复触发同一条
   panelFocus = null,
+  closeSlot = null,
 }) {
   const [activeTab, setActiveTab] = useState('explanations');
   const listRef = useRef(null);
@@ -601,28 +602,32 @@ export default function KnowledgePanel({
   return (
     <div ref={panelRef} className="flex h-full min-h-0 flex-col bg-[#fafafa]">
       <div className="border-b border-stone-200 dark:border-stone-800 bg-white">
-        <div className="flex" role="tablist" aria-label="知识面板视图">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex-1 border-b-2 px-2 py-2.5 text-xs font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'border-stone-900 dark:border-stone-100 text-stone-900 dark:text-stone-100'
-                  : 'border-transparent text-stone-400 hover:text-stone-700 dark:text-stone-300'
-              }`}
-            >
-              {tab.label}
-              {tab.id === 'flashcards' && dueCount > 0 && (
-                <span className="absolute right-1 top-1 min-w-[15px] rounded-full bg-red-500 px-1 text-center text-[9px] leading-[15px] text-white">
-                  {dueCount > 99 ? '99+' : dueCount}
-                </span>
-              )}
-            </button>
-          ))}
+        {/* 窄屏 Sheet 形态下关闭按钮经 closeSlot 内联进页签行尾部：构造上不与页签重叠 */}
+        <div className="flex items-stretch">
+          <div className="flex flex-1" role="tablist" aria-label="知识面板视图">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex-1 border-b-2 px-2 py-2.5 text-xs font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-stone-900 dark:border-stone-100 text-stone-900 dark:text-stone-100'
+                    : 'border-transparent text-stone-400 hover:text-stone-700 dark:text-stone-300'
+                }`}
+              >
+                {tab.label}
+                {tab.id === 'flashcards' && dueCount > 0 && (
+                  <span className="absolute right-1 top-1 min-w-[15px] rounded-full bg-red-500 px-1 text-center text-[9px] leading-[15px] text-white">
+                    {dueCount > 99 ? '99+' : dueCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {closeSlot}
         </div>
       </div>
 

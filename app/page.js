@@ -7,6 +7,7 @@ import ReaderLabWorkspace from '@/components/ReaderLabWorkspace';
 import ConfigManager from '@/components/ConfigManager';
 import HistoryModal from '@/components/HistoryModal';
 import Notification from '@/components/Notification';
+import { useLocale } from '@/components/LocaleProvider';
 import { GO_IMPORT_EVENT } from '@/components/reader-lab/ReaderHome';
 import { OPEN_GLOSSARY_EVENT, OPEN_TOOLBAR_CONFIG_EVENT } from '@/components/ReaderLabWorkspace';
 import { getConfig, isConfigValid } from '@/lib/config';
@@ -14,6 +15,7 @@ import { STANDALONE_DIAGRAM_DOCUMENT_ID } from '@/lib/diagram-generation';
 
 export default function Home() {
   const router = useRouter();
+  const { t } = useLocale();
   const [config, setConfig] = useState(null);
   const [isConfigManagerOpen, setIsConfigManagerOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -109,7 +111,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#f5f7f6] text-stone-900">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#f5f7f6] text-stone-900 dark:bg-stone-950 dark:text-stone-100">
       {/* 全局顶栏：所有页面共享的导航入口 */}
       <AppTopNav
         activeSlug={mode === 'diagram' ? 'diagram' : 'read'}
@@ -136,10 +138,10 @@ export default function Home() {
           headerStatus={
             usePassword || (config && isConfigValid(config))
               ? (
-                <div className="hidden max-w-64 items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 xl:flex">
+                <div className="hidden max-w-64 items-center gap-2 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 xl:flex dark:border-emerald-900 dark:bg-emerald-950">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
-                  <span className="truncate text-[11px] font-medium text-emerald-900">
-                    {usePassword ? '密码访问已启用' : `${config.name || config.type} · ${config.model}`}
+                  <span className="truncate text-[11px] font-medium text-emerald-900 dark:text-emerald-200">
+                    {usePassword ? t('home.passwordAccess') : `${config.name || config.type} · ${config.model}`}
                   </span>
                 </div>
               )

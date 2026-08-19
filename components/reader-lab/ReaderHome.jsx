@@ -41,7 +41,7 @@ const showcaseItems = [
     icon: BookMarked,
     title: '术语沉淀',
     tag: '积累',
-    description: '划词提问蒸馏出术语表与熟悉度模型，越读越懂同一领域。',
+    description: '点击不懂的词自动记入术语表，掌握后白话辅助自动撤下，越读越懂同一领域。',
     gradient: 'from-violet-200/40 via-purple-100/40 to-stone-50',
     accent: 'bg-violet-100/80 text-violet-700',
     tagClass: 'bg-violet-100/70 text-violet-700',
@@ -130,7 +130,7 @@ export default function ReaderHome({
           <div className="mb-8 max-w-2xl mx-auto text-center">
             <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">快速导入一篇文档</h2>
             <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">
-              用熟悉的语言读懂陌生的专业知识。粘贴正文、导入文件或贴入网页链接，解析后进入统一阅读界面。
+              用熟悉的语言读懂陌生的专业知识，让第一次接触的领域也能越读越明白、越读越熟悉。
             </p>
           </div>
 
