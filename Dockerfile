@@ -29,6 +29,7 @@ ENV HOSTNAME=0.0.0.0
 
 # 以非 root 用户运行（node 镜像自带 node 用户）
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/docs/openapi.yaml ./docs/openapi.yaml
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
