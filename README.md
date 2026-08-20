@@ -2,7 +2,7 @@
 
 > **本地优先的深度阅读工作台：读懂一篇文档，并真正记住它**
 
-Anchor Read（原 smart-excalidraw-next）把“阅读专业文章”变成一条完整的知识内化链路：**读 → 懂 → 选 → 记**。你的文档、解读、图解与学习记录全部保存在浏览器本地，不上传云端；AI 请求只发送到你配置的模型服务。
+Anchor Read 把“阅读专业文章”变成一条完整的知识内化链路：**读 → 懂 → 选 → 记**。你的文档、解读、图解与学习记录全部保存在浏览器本地，不上传云端；AI 请求只发送到你配置的模型服务。
 
 阅读英文版本：[README_EN.md](README_EN.md)
 
@@ -168,29 +168,15 @@ Next.js 16 · React 19 · Tiptap v3（ProseMirror）· Excalidraw · Mermaid · 
 
 ## 📄 许可证
 
-MIT License（本项目基于 MIT 许可的 smart-excalidraw-next 演进而来，感谢原项目作者）
+MIT License
 
-## 联系作者
-
-微信号： liujuntaoljt
-
-<img width="200"  alt="微信图片_20251103110224_44_85" src="https://github.com/user-attachments/assets/6d8c4da2-af27-4213-b929-0d47fa51e9b5" />
 
 ## 💖 赞助
-
-感谢以下赞助者对本项目的支持：
-
-<!-- 赞助者名单 -->
-- API中转站：[AI 网关｜插件世界](https://ai-router.plugins-world.cn)
 
 如果这个项目对你有帮助，欢迎通过以下方式支持：
 - ⭐ 给项目点个 Star
 - 💬 分享给更多需要的人
-- 💰 成为赞助者（联系作者微信）
-
-## 友情链接
-
-- https://github.com/ZhangQL2824/auto-drawio.git
+- 💰 成为赞助者
 
 ---
 

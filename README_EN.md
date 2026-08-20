@@ -2,7 +2,7 @@
 
 > **A local-first deep reading workbench: truly understand a document, and actually remember it**
 
-Anchor Read (formerly smart-excalidraw-next) turns "reading a professional article" into a complete knowledge pipeline: **Read → Understand → Choose → Remember**. Your documents, explanations, diagrams, and learning records all stay in your browser — nothing is uploaded to the cloud; AI requests are only sent to the model service you configure yourself.
+Anchor Read turns "reading a professional article" into a complete knowledge pipeline: **Read → Understand → Choose → Remember**. Your documents, explanations, diagrams, and learning records all stay in your browser — nothing is uploaded to the cloud; AI requests are only sent to the model service you configure yourself.
 
 Read the Chinese version: [README.md](README.md)
 
