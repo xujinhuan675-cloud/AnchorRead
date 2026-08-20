@@ -68,6 +68,24 @@ test('persistLocale 写入 storage', () => {
   assert.equal(storage.getItem(I18N_LOCALE_STORAGE_KEY), 'en');
 });
 
+test('resolveLocale reads browser localStorage by default', () => {
+  clearDictionaries();
+  registerDictionary('zh-CN', {});
+  registerDictionary('en', {});
+
+  const storage = createMemoryStorage();
+  storage.setItem(I18N_LOCALE_STORAGE_KEY, 'en');
+  const originalWindow = globalThis.window;
+
+  try {
+    globalThis.window = { localStorage: storage };
+    assert.equal(resolveLocale(), 'en');
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
 test('内置语言包注册后可互相回退', async () => {
   const { t, createTranslator: build } = await import('../lib/i18n/index.js');
   assert.equal(t('common.save'), '保存');
