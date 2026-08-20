@@ -109,6 +109,10 @@ docker build -t anchorread .
 docker run -p 3000:3000 -e ANCHORREAD_API_KEY=your-key anchorread
 ```
 
+生产服务器同步、候选容器检查、自动回滚与线上健康检查统一使用
+[`scripts/deploy-server.ps1`](scripts/deploy-server.ps1)，详见
+[`docs/部署与发布.md`](docs/部署与发布.md)。
+
 ### 方式三：浏览器扩展（剪藏）
 
 在 `chrome://extensions` 开启开发者模式，加载已解压的扩展程序，选择仓库内 `extension/` 目录。
