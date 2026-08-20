@@ -1,18 +1,23 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ArrowRight, ArrowUpRight, Eraser, FileText, FileUp, LoaderCircle, Sparkles } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Eraser, FileText, FileUp, LoaderCircle, Network, Plus, Sparkles } from 'lucide-react';
 import { isEpubFile, parseEpubFile } from '@/lib/epub-import';
 import { useLocale } from '@/components/LocaleProvider';
+import DiagramThumbnail from '@/components/reader-lab/DiagramThumbnail';
 
 export default function ReaderQuickImport({
   recentDocuments = [],
+  recentDrawings = [],
   hasExistingDocuments = false,
   busy = false,
   error = '',
   onSubmit,
   onOpenExisting,
   onOpenDocument,
+  onOpenDrawing,
+  onCreateDiagram,
+  onOpenDiagram,
 }) {
   const { t } = useLocale();
   const fileInputRef = useRef(null);
@@ -130,7 +135,7 @@ export default function ReaderQuickImport({
         <section className="mt-10" aria-labelledby="reader-home-recent-title">
           <div className="mb-4 flex items-center justify-between">
             <h3 id="reader-home-recent-title" className="text-lg font-semibold text-stone-950 dark:text-stone-100">
-              {t('home.quick.continueReading')}
+              {t('home.quick.recentDocuments')}
             </h3>
             {/* 文档库入口替换排序说明：最近文档只是库的预览，完整管理进文档库 */}
             {hasExistingDocuments && onOpenExisting ? (
@@ -168,6 +173,91 @@ export default function ReaderQuickImport({
           </div>
         </section>
       ) : null}
+
+      <section className="mt-10" aria-labelledby="reader-home-recent-diagrams-title">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 id="reader-home-recent-diagrams-title" className="text-lg font-semibold text-stone-950 dark:text-stone-100">
+            {t('home.quick.recentDiagrams')}
+          </h3>
+          {recentDrawings.length > 0 ? (
+            <button
+              type="button"
+              onClick={onOpenDiagram}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300"
+            >
+              <span>{t('diagramLibrary.openLibrary')}</span>
+              <ArrowRight className="size-4" />
+            </button>
+          ) : null}
+        </div>
+        {recentDrawings.length > 0 ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {recentDrawings.map((drawing) => (
+              <button
+                key={drawing.id || drawing.title}
+                type="button"
+                onClick={() => onOpenDrawing?.(drawing)}
+                disabled={busy}
+                className="group relative overflow-hidden border border-stone-200 bg-white text-left transition hover:border-stone-400 disabled:opacity-50 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
+                aria-label={`${t('home.quick.openDiagram')}: ${drawing.title || t('diagram.untitled')}`}
+              >
+                <div className="relative aspect-[4/3] overflow-hidden bg-stone-50 bg-[radial-gradient(#d6d3d1_1px,transparent_1px)] [background-size:12px_12px] dark:bg-stone-950 dark:bg-[radial-gradient(rgba(245,245,244,.12)_1px,transparent_1px)]">
+                  <DiagramThumbnail
+                    drawing={drawing}
+                    title={drawing.title || t('diagram.untitled')}
+                  />
+                  <span className="absolute left-2.5 top-2.5 rounded bg-white/90 px-2 py-1 text-[10px] font-medium uppercase text-stone-600 shadow-sm backdrop-blur dark:bg-stone-900/90 dark:text-stone-300">
+                    {drawing.renderer || drawing.engine || 'Mermaid'}
+                  </span>
+                  <span className="absolute right-2.5 top-2.5 flex size-7 items-center justify-center rounded bg-white/90 text-stone-600 opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 dark:bg-stone-900/90 dark:text-stone-300">
+                    <ArrowUpRight size={15} aria-hidden="true" />
+                  </span>
+                </div>
+                <div className="border-t border-stone-100 px-3 py-3 dark:border-stone-800">
+                  <span className="line-clamp-1 text-sm font-medium leading-5 text-stone-900 dark:text-stone-100">
+                    {drawing.title || t('diagram.untitled')}
+                  </span>
+                  <span className="mt-1 block truncate text-xs text-stone-400">
+                    {drawing.isLocalDemo ? t('home.quick.localDemo') : (drawing.chartType || drawing.renderer || drawing.engine || 'Mermaid')}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-start justify-between gap-4 border border-dashed border-stone-300 bg-white/60 px-4 py-4 dark:border-stone-700 dark:bg-stone-900/50 sm:flex-row sm:items-center">
+            <div className="flex items-start gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-stone-100 text-stone-500 dark:bg-white/10 dark:text-stone-300">
+                <Network size={17} aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm font-medium text-stone-900 dark:text-stone-100">{t('home.quick.noDiagramsTitle')}</p>
+                <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">{t('home.quick.noDiagramsBody')}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {onCreateDiagram ? (
+                <button
+                  type="button"
+                  onClick={onCreateDiagram}
+                  className="inline-flex h-9 items-center gap-2 rounded-md bg-stone-950 px-3 text-xs font-medium text-white transition hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
+                >
+                  <Plus size={14} aria-hidden="true" />
+                  {t('home.quick.newDiagram')}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onOpenDiagram}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-xs font-medium text-stone-700 transition hover:border-stone-400 hover:text-stone-950 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300 dark:hover:border-stone-600 dark:hover:text-stone-100"
+              >
+                <span>{t('diagramLibrary.openLibrary')}</span>
+                <ArrowRight className="size-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

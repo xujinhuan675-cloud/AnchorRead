@@ -12,7 +12,8 @@
     "test:explain": "node --experimental-default-type=module --test tests/explain-contract.test.js tests/explanation-store.test.js",
     "test:explain-e2e": "node --experimental-default-type=module tests/explain-api.e2e.js",
     "test:workspace": "node --experimental-default-type=module --test tests/local-workspace-db.test.js tests/workspace-file.test.js",
-    "test:reader-lab": "node --experimental-default-type=module --test tests/reader-lab.test.js tests/reader-lab-integration-contract.test.js",
+    "test:reader-lab": "node --experimental-default-type=module --test tests/reader-lab.test.js tests/document-library.test.js tests/reader-lab-integration-contract.test.js",
+    "test:diagrams": "node --experimental-default-type=module --test tests/diagram-product.test.js tests/excalidraw-runtime-demo.test.js tests/reader-sample-seeding.test.js tests/diagram-library.test.js",
     "test:analysis": "node --experimental-default-type=module --test tests/reader-analysis.test.js",
     "test:mermaid": "node --experimental-default-type=module --test tests/mermaid-prompts.test.js tests/mermaid-canvas-contract.test.js tests/mermaid-concept-view-contract.test.js",
     "test:mermaid-e2e": "node --experimental-default-type=module tests/mermaid-api.e2e.js",
@@ -24,7 +25,7 @@
     "test:inbox": "node --experimental-default-type=module --test tests/inbox-merge.test.js",
     "test:configs": "node --experimental-default-type=module --test tests/config-manager.test.js",
     "test:i18n": "node --experimental-default-type=module --test tests/i18n.test.js",
-    "test:all": "npm run test:llm && npm run test:document && npm run test:explain && npm run test:workspace && npm run test:reader-lab && npm run test:analysis && npm run test:mermaid && npm run test:import && npm run test:api && npm run test:actions && npm run test:sync && npm run test:inbox && npm run test:configs && npm run test:i18n"
+    "test:all": "npm run test:llm && npm run test:document && npm run test:explain && npm run test:workspace && npm run test:reader-lab && npm run test:diagrams && npm run test:analysis && npm run test:mermaid && npm run test:import && npm run test:api && npm run test:actions && npm run test:sync && npm run test:inbox && npm run test:configs && npm run test:i18n"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.0",

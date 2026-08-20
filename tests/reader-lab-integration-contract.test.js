@@ -10,6 +10,13 @@ const homePage = readSource('../app/page.js');
 const readerLabPage = readSource('../app/reader-lab/page.js');
 const appTopNav = readSource('../components/AppTopNav.jsx');
 const readerLabPageShell = readSource('../components/ReaderLabPageShell.jsx');
+const diagramLibraryPage = readSource('../app/diagrams/page.js');
+const diagramLibraryShell = readSource('../components/DiagramLibraryPageShell.jsx');
+const diagramLibrary = readSource('../components/reader-lab/DiagramLibrary.jsx');
+const diagramThumbnail = readSource('../components/reader-lab/DiagramThumbnail.jsx');
+const diagramLibraryLib = readSource('../lib/diagram-library.js');
+const documentLibraryHub = readSource('../components/reader-lab/DocumentLibraryHub.jsx');
+const documentLibraryLib = readSource('../lib/document-library.js');
 const readerLabWorkspace = readSource('../components/ReaderLabWorkspace.jsx');
 const documentDiagramPanel = readSource('../components/reader-lab/DocumentDiagramPanel.jsx');
 const documentDiagramCanvas = readSource('../components/reader-lab/DocumentDiagramCanvas.jsx');
@@ -21,8 +28,9 @@ const readerSurfaceSource = readSource('../components/reader-lab/ReaderSurface.j
 const documentLibrary = readSource('../components/reader-lab/DocumentLibrary.jsx');
 const sheetUi = readSource('../components/ui/sheet.jsx');
 const customActionsLib = readSource('../lib/custom-actions.js');
+const zhLocale = readSource('../lib/i18n/zh-CN.js');
 
-test('the home reading mode and regression route share ReaderLabWorkspace', () => {
+test('the home owns the reading workspace while the document route owns a management hub', () => {
   assert.match(homePage, /import ReaderLabWorkspace from ['"]@\/components\/ReaderLabWorkspace['"]/);
   assert.equal((homePage.match(/<ReaderLabWorkspace\b/g) || []).length, 1);
   assert.match(homePage, /<ReaderLabWorkspace[\s\S]*?layout="home"[\s\S]*?requestedTool=\{mode === 'diagram' \? 'diagram' : 'read'\}/);
@@ -30,14 +38,12 @@ test('the home reading mode and regression route share ReaderLabWorkspace', () =
 
   assert.match(readerLabPage, /import ReaderLabPageShell from ['"]@\/components\/ReaderLabPageShell['"]/);
   assert.match(readerLabPage, /<ReaderLabPageShell \/>/);
-  // 验证版路由同样挂全局顶栏，工作区保持单一实例；顶栏可跳回首页的两个视图
+  // 文档库路由挂全局顶栏，但不再创建第二个阅读工作区。
   assert.match(readerLabPageShell, /<AppTopNav[\s\S]*?activeSlug="reader-lab"/);
   assert.match(readerLabPageShell, /onNavigate=\{handleNavigate\}/);
-  assert.match(readerLabPageShell, /router\.push\('\/\?view=diagram'\)/);
-  // 顶栏「配置 → 浮动工具栏 / 术语表」都通过广播事件由工作台打开对应弹窗
-  assert.match(readerLabPageShell, /onToolbarConfig=\{\(\) => window\.dispatchEvent\(new Event\(OPEN_TOOLBAR_CONFIG_EVENT\)\)\}/);
-  assert.match(readerLabPageShell, /onGlossary=\{\(\) => window\.dispatchEvent\(new Event\(OPEN_GLOSSARY_EVENT\)\)\}/);
-  assert.match(readerLabPageShell, /import ReaderLabWorkspace, \{ OPEN_GLOSSARY_EVENT, OPEN_TOOLBAR_CONFIG_EVENT \} from ['"]@\/components\/ReaderLabWorkspace['"]/);
+  assert.match(readerLabPageShell, /router\.push\('\/diagrams'\)/);
+  assert.match(readerLabPageShell, /import DocumentLibraryHub from ['"]@\/components\/reader-lab\/DocumentLibraryHub['"]/);
+  assert.match(readerLabPageShell, /<DocumentLibraryHub onOpenDocument=/);
   assert.match(homePage, /onToolbarConfig=\{\(\) => window\.dispatchEvent\(new Event\(OPEN_TOOLBAR_CONFIG_EVENT\)\)\}/);
   assert.match(homePage, /onGlossary=\{\(\) => window\.dispatchEvent\(new Event\(OPEN_GLOSSARY_EVENT\)\)\}/);
   assert.match(readerLabWorkspace, /export const OPEN_TOOLBAR_CONFIG_EVENT = ['"]anchor-read:open-toolbar-config['"]/);
@@ -46,8 +52,56 @@ test('the home reading mode and regression route share ReaderLabWorkspace', () =
   assert.match(readerLabWorkspace, /window\.addEventListener\(OPEN_GLOSSARY_EVENT, handleOpenGlossary\)/);
   // 术语表入口已从工作台「更多」下拉迁出，工作区不再自带该菜单项
   assert.doesNotMatch(readerLabWorkspace, /术语表（AI 背景定义）/);
-  assert.equal((readerLabPageShell.match(/<ReaderLabWorkspace\b/g) || []).length, 1);
-  assert.match(readerLabPageShell, /<ReaderLabWorkspace layout=['"]reader-lab['"] \/>/);
+  assert.equal((readerLabPageShell.match(/<ReaderLabWorkspace\b/g) || []).length, 0);
+});
+
+test('document library manages local records and hands one selected document to the reader', () => {
+  assert.match(documentLibraryHub, /workspaceRepository\.documents\.list/);
+  assert.match(documentLibraryHub, /createReaderDocumentFromFile/);
+  assert.match(documentLibraryHub, /createReaderDocumentFromPaste/);
+  assert.match(documentLibraryHub, /createReaderDocumentFromUrl/);
+  assert.match(documentLibraryHub, /filterAndSortDocuments/);
+  assert.match(documentLibraryHub, /setDocumentArchived/);
+  assert.match(documentLibraryHub, /deleteDocumentAssets/);
+  assert.match(documentLibraryLib, /DOCUMENT_OWNED_COLLECTIONS\.map/);
+  assert.match(documentLibraryLib, /flashcards\?\.removeForDocument/);
+  assert.match(documentLibraryLib, /histories\?\.removeForDocument/);
+  assert.match(documentLibraryLib, /view: 'read'/);
+  assert.match(homePage, /requestedReaderDocumentId=\{readerDocumentRequest\?\.documentId/);
+  assert.match(readerLabWorkspace, /appliedReaderDocumentRequestRef/);
+  assert.match(readerLabWorkspace, /selectDocument\(target\.id\)/);
+  assert.match(homePage, /onOpenDocumentLibrary=\{\(\) => router\.push\('\/reader-lab'\)\}/);
+  assert.match(homePage, /const handleCreateDiagram = \(\) =>/);
+  assert.match(homePage, /onCreateDiagram=\{handleCreateDiagram\}/);
+});
+
+test('diagram library routes are separate from the editor and preserve drawing handoff', () => {
+  assert.match(diagramLibraryPage, /DiagramLibraryPageShell/);
+  assert.match(diagramLibraryShell, /activeSlug="diagram"/);
+  assert.match(diagramLibraryShell, /router\.push\(buildNewDiagramHref\(\)\)/);
+  assert.match(diagramLibrary, /filterAndSortDrawings/);
+  assert.match(diagramLibrary, /workspaceRepository\.drawings\.remove/);
+  assert.match(diagramLibraryLib, /view: 'diagram'/);
+  assert.match(homePage, /router\.push\('\/diagrams'\)/);
+  assert.match(homePage, /requestedDrawingId=\{diagramRequest\?\.drawingId/);
+  assert.match(readerLabWorkspace, /newDiagramRequestKey/);
+  assert.match(readerLabWorkspace, /createDocumentDrawingId\(STANDALONE_DIAGRAM_DOCUMENT_ID/);
+  assert.match(readerQuickImport, /t\('home\.quick\.recentDocuments'\)/);
+  assert.match(readerQuickImport, /t\('diagramLibrary\.openLibrary'\)/);
+  assert.match(readerHome, /onClick=\{onCreateDiagram \|\| onOpenDiagram\}/);
+  assert.match(readerHome, /home\.openDiagram/);
+  assert.match(readerQuickImport, /home\.quick\.noDiagramsTitle/);
+  assert.match(readerQuickImport, /onClick=\{onCreateDiagram\}/);
+  assert.equal((readerQuickImport.match(/home\.quick\.newDiagram/g) || []).length, 1);
+  assert.equal((readerQuickImport.match(/diagramLibrary\.openLibrary/g) || []).length, 2);
+});
+
+test('diagram thumbnails treat empty or invalid local source as a recoverable placeholder', () => {
+  assert.match(diagramThumbnail, /if \(!String\(source\)\.trim\(\)\) \{\s*setStatus\('empty'\);\s*return undefined;/);
+  assert.match(diagramThumbnail, /status === 'empty' \|\| status === 'error'/);
+  assert.doesNotMatch(diagramThumbnail, /throw new Error\(['"]Empty Mermaid source['"]\)/);
+  assert.doesNotMatch(diagramThumbnail, /console\.error\(/);
+  assert.doesNotMatch(diagramThumbnail, /console\.warn\(/);
 });
 
 test('route layout controls document navigation while the workspace owns one reading surface', () => {
@@ -79,7 +133,8 @@ test('route layout controls document navigation while the workspace owns one rea
 test('home keeps app navigation while diagrams live inside the shared document workspace', () => {
   // 应用导航提升为全局顶栏：所有页面共享，首页/图解/文档库三个入口
   assert.match(appTopNav, /slug: ['"]read['"], label: ['"]首页['"]/);
-  assert.match(appTopNav, /slug: ['"]diagram['"], label: ['"]图解['"]/);
+  assert.match(appTopNav, /slug: ['"]diagram['"], label: ['"]图解库['"]/);
+  assert.match(zhLocale, /'topNav\.diagram': '图解库'/);
   assert.match(appTopNav, /slug: ['"]reader-lab['"], label: ['"]文档库['"]/);
   // 配置齿轮收纳三项入口：模型配置、浮动工具栏与术语表（后两者广播事件由工作台响应）
   assert.match(appTopNav, /onToolbarConfig = \(\) => \{\}/);
@@ -90,8 +145,8 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(homePage, /<AppTopNav/);
   assert.match(homePage, /onNavigate=\{handleHomeNavigate\}/);
   assert.match(homePage, /window\.dispatchEvent\(new Event\(GO_IMPORT_EVENT\)\)/);
-  // 跨路由切换：首页消费 ?view=diagram 直达图解视图后清参
-  assert.match(homePage, /params\.get\('view'\) !== 'diagram'/);
+  // 资源库深链支持图解和文档，并在工作区恢复后清参。
+  assert.match(homePage, /\['diagram', 'read'\]\.includes\(view\)/);
   assert.match(readerLabWorkspace, /<DocumentDiagramPanel\b/);
     assert.match(readerLabWorkspace, /<DocumentDiagramCanvas\b/);
     // 独立形态：画布头部承接原 header 的身份文案（自由图解 + 创建引导），窄屏对话入口随源码按钮进画布头部
@@ -206,14 +261,18 @@ test('the home route keeps the quick import and parse gate before the shared rea
   assert.match(readerLabWorkspace, /onSubmit=\{parseAndOpenDocument\}/);
   assert.match(readerLabWorkspace, /callReaderAnalysisApi\(document\)/);
   assert.match(readerLabWorkspace, /persistImportedDocument\(document, records\)/);
-  assert.match(readerHome, /快速导入一篇文档/);
+  assert.match(readerHome, /t\('home\.quickImportHeading'\)/);
+  assert.match(zhLocale, /'home\.quickImportHeading': '快速导入一篇文档'/);
   // 导入区头部与展示区同构「标题 + 描述」：副标题只讲价值不讲操作，不与下方导入控件重复；
   // 首页三处副标题统一单句结构（中间逗号、结尾句号），与 hero/展示区节奏一致
-  assert.match(readerHome, /用熟悉的语言读懂陌生的专业知识，让第一次接触的领域也能越读越明白、越读越熟悉。/);
+  assert.match(readerHome, /t\('home\.quickImportSub'\)/);
+  assert.match(zhLocale, /用熟悉的语言读懂陌生的专业知识，让第一次接触的领域也能越读越明白、越读越熟悉。/);
   // 文档库入口收在最近文档区头部，替换原排序说明文案
-  assert.match(readerQuickImport, /打开文档库/);
+  assert.match(readerQuickImport, /t\('workspace\.libraryOpen'\)/);
+  assert.match(zhLocale, /'workspace\.libraryOpen': '打开文档库'/);
   assert.match(readerHome, /hasExistingDocuments=\{hasExistingDocuments\}/);
-  assert.match(readerQuickImport, /解析并进入阅读/);
+  assert.match(readerQuickImport, /t\('home\.quick\.parseAndRead'\)/);
+  assert.match(zhLocale, /'home\.quick\.parseAndRead': '解析并进入阅读'/);
   assert.match(readerQuickImport, /accept="\.md,\.markdown,\.txt,\.epub,text\/markdown,text\/plain,application\/epub\+zip"/);
   assert.doesNotMatch(readerQuickImport, /useEditor\(/);
 });
@@ -326,7 +385,8 @@ test('precision markers become clickable cloze chips that flip between plain wor
   assert.match(readerSurface, /masteredClozeTerms\.has\(source\.trim\(\)\.toLowerCase\(\)\)/);
   // 首页宣传该闭环为术语沉淀的核心卖点
   const readerHome = readSource('../components/reader-lab/ReaderHome.jsx');
-  assert.match(readerHome, /点击不懂的词自动记入术语表，掌握后白话辅助自动撤下/);
+  assert.match(readerHome, /home\.showcase\.\$\{slug\}\.desc/);
+  assert.match(zhLocale, /点击不懂的词自动记入术语表，掌握后白话辅助自动撤下/);
   // 白话 Tab 点击定位原文：面板传词条 id，工作台先取回 term 对象；
   // 原文视图有坐标走 focusRange，无坐标词条走 focusTermSignal 文本匹配定位；
   // 白话替代开启时定位不取消模式，阅读面同时匹配『白话』/『原术语』标记形态
@@ -479,7 +539,9 @@ test('the outline drawer is a reading-scene navigation overlay owned by the read
   assert.match(readerLabWorkspace, /anchor-read-outline-open/);
   assert.match(readerLabWorkspace, /onToggleOutline=\{toggleOutline\}/);
   assert.match(readerLabWorkspace, /outlineHidden=\{diagramMode\}/);
-  assert.match(documentLibrary, /aria-label=\{outlineOpen \? '收起目录' : '打开目录'\}/);
+  assert.match(documentLibrary, /aria-label=\{outlineOpen \? t\('library\.collapseOutline'\) : t\('library\.openOutline'\)\}/);
+  assert.match(zhLocale, /'library\.collapseOutline': '收起目录'/);
+  assert.match(zhLocale, /'library\.openOutline': '打开目录'/);
   // 抽屉覆盖在阅读区左侧不挤占布局，点击按 heading 顺序定位；aria-label 走 i18n 键
   assert.match(readerSurfaceSource, /aria-label=\{t\('reader\.outlineNav'\)\}/);
   assert.match(readerSurfaceSource, /scrollToOutlineIndex/);
@@ -527,5 +589,5 @@ test('mermaid is the default diagram engine across hook, panel, history and chat
   assert.match(documentDiagramPanel, /\['text', t\('diagram\.input\.text'\)\],\s*\n\s*\['file', t\('diagram\.input\.file'\)\],\s*\n\s*\['image', t\('diagram\.input\.image'\)\],/);
   // Chat 走受控模式：tabs 与图类型由面板持有，内部不再重复渲染
   assert.match(documentDiagramPanel, /activeTab=\{inputTab\} onTabChange=\{setInputTab\} chartType=\{chartType\} onChartTypeChange=\{setChartType\}/);
-  assert.match(useDiagramHook, /^\s*setChartType,$/m);
+  assert.match(useDiagramHook, /setChartType: changeChartType/);
 });

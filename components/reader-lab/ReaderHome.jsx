@@ -60,12 +60,15 @@ function Highlighter({ action, color, children }) {
 
 export default function ReaderHome({
   recentDocuments = [],
+  recentDrawings = [],
   hasExistingDocuments = false,
   busy = false,
   error = '',
   onSubmit,
   onOpenExisting,
   onOpenDocument,
+  onOpenDrawing,
+  onCreateDiagram,
   onOpenDiagram = () => {},
 }) {
   const { t } = useLocale();
@@ -106,7 +109,7 @@ export default function ReaderHome({
             </button>
             <button
               type="button"
-              onClick={onOpenDiagram}
+              onClick={onCreateDiagram || onOpenDiagram}
               className="inline-flex h-11 items-center rounded-lg border border-stone-300 bg-white px-6 text-sm font-medium text-stone-950 transition hover:border-stone-400 hover:bg-stone-50 dark:border-stone-700 dark:bg-transparent dark:text-stone-100 dark:hover:bg-white/10"
             >
               {t('home.openDiagram')}
@@ -125,12 +128,16 @@ export default function ReaderHome({
 
           <ReaderQuickImport
             recentDocuments={recentDocuments}
+            recentDrawings={recentDrawings}
             hasExistingDocuments={hasExistingDocuments}
             busy={busy}
             error={error}
             onSubmit={onSubmit}
             onOpenExisting={onOpenExisting}
             onOpenDocument={onOpenDocument}
+            onOpenDrawing={onOpenDrawing}
+            onCreateDiagram={onCreateDiagram}
+            onOpenDiagram={onOpenDiagram}
           />
         </section>
 

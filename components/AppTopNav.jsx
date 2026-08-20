@@ -12,7 +12,7 @@ const GITHUB_URL = 'https://github.com/xujinhuan675-cloud/smart-excalidraw-next'
 // 顶部导航项：语义对齐无限画布顶栏，改写为 AnchorRead 的阅读工具入口
 export const navigationTools = [
   { slug: 'read', label: '首页', icon: BookOpenText },
-  { slug: 'diagram', label: '图解', icon: Network },
+  { slug: 'diagram', label: '图解库', icon: Network },
   { slug: 'reader-lab', label: '文档库', icon: Library },
 ];
 

@@ -88,6 +88,14 @@ import { historyManager } from '@/lib/history-manager';
 import { downloadWorkspaceFile, exportWorkspace, supportsSaveFilePicker, saveWorkspaceFileWithPicker } from '@/lib/workspace-file';
 import { buildAnkiText, downloadAnkiFile } from '@/lib/anki-export';
 import { buildObsidianVaultNotes, downloadObsidianZip, supportsDirectoryPicker, saveObsidianNotesToDirectory } from '@/lib/obsidian-export';
+import { createLocalDemoDrawing } from '@/lib/excalidraw-runtime-demo';
+import {
+  markReaderSampleSeeded,
+  READER_DIAGRAM_SAMPLE_SEEDED_KEY,
+  READER_DOCUMENT_SAMPLES_SEEDED_KEY,
+  shouldSeedReaderSample,
+} from '@/lib/reader-sample-seeding';
+import { createDiagramGenerationPlan, DIAGRAM_SCOPES } from '@/lib/diagram-product';
 
 // 阅读辅助都是叠加在原文之上的可选层：多选多生效，全部关闭即纯原文
 // label 渲染时经 i18n 键 workspace.aid.* 取，常量只保留稳定 id
@@ -288,13 +296,20 @@ export default function ReaderLabWorkspace({
   requestedTool = 'read',
   // 导航「图解」入口的独立图解工作区：图解挂在保留虚拟文档下，不绑定当前阅读文档
   standaloneDiagram = false,
+  requestedDrawingId = '',
+  requestedDocumentId = '',
+  newDiagramRequestKey = '',
+  requestedReaderDocumentId = '',
+  readerDocumentRequestKey = '',
   onToolChange,
   onOpenHistory,
   onCurrentDocumentChange,
   historyDrawing,
   headerStatus = null,
-  // 首页（无限画布风格）Hero 的「打开图解」：由宿主页面切到独立图解工作区
+  // 首页 Hero 的「新建图解」和最近图解区的图解库入口由宿主页面分别提供
+  onCreateDiagram = () => {},
   onOpenDiagram = () => {},
+  onOpenDocumentLibrary = null,
 }) {
   const { t } = useLocale();
   const isHomeLayout = layout === 'home';
@@ -425,6 +440,8 @@ export default function ReaderLabWorkspace({
   const saveProgressTimerRef = useRef(null);
   const sessionsRef = useRef({});
   const appliedHistoryRef = useRef('');
+  const appliedDiagramRequestRef = useRef('');
+  const appliedReaderDocumentRequestRef = useRef('');
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -464,12 +481,18 @@ export default function ReaderLabWorkspace({
         const storedDocuments = await workspaceRepository.documents.list();
         const storedReaderDocuments = storedDocuments.filter((document) => document.readerLab);
         const byId = new Map(storedReaderDocuments.map((document) => [document.id, document]));
-        for (const seed of seedDocuments) {
-          if (!byId.has(seed.id)) {
+        const shouldSeedDocuments = shouldSeedReaderSample({
+          storage: window.localStorage,
+          key: READER_DOCUMENT_SAMPLES_SEEDED_KEY,
+          existingCount: storedReaderDocuments.length,
+        });
+        if (shouldSeedDocuments) {
+          for (const seed of seedDocuments) {
             await workspaceRepository.documents.save(seed);
             byId.set(seed.id, seed);
           }
         }
+        markReaderSampleSeeded(window.localStorage, READER_DOCUMENT_SAMPLES_SEEDED_KEY);
 
         const [storedSessions, storedExplanations, storedTerms, storedReviews, storedDrawings, storedCustomActions, storedGlossary] = await Promise.all([
           workspaceRepository.readSessions.list({ index: 'updatedAt', direction: 'prev' }),
@@ -482,6 +505,20 @@ export default function ReaderLabWorkspace({
         ]);
         if (cancelled) return;
 
+        // 全新工作区只种入一次可编辑图解；用户删除后刷新不再自动补回。
+        const localDemoDrawing = storedDrawings.find((drawing) => drawing.isLocalDemo);
+        const shouldSeedDiagram = !localDemoDrawing && shouldSeedReaderSample({
+          storage: window.localStorage,
+          key: READER_DIAGRAM_SAMPLE_SEEDED_KEY,
+          existingCount: storedDrawings.length,
+        });
+        const seededDemoDrawing = shouldSeedDiagram ? createLocalDemoDrawing() : null;
+        const drawingsWithDemo = seededDemoDrawing
+          ? [seededDemoDrawing, ...storedDrawings]
+          : storedDrawings;
+        if (seededDemoDrawing) await workspaceRepository.drawings.save(seededDemoDrawing);
+        markReaderSampleSeeded(window.localStorage, READER_DIAGRAM_SAMPLE_SEEDED_KEY);
+
         const readerSessions = storedSessions.filter((session) => session.readerLab);
         const sessionMap = Object.fromEntries(readerSessions.map((session) => [session.documentId, session]));
         const seedIds = new Set(seedDocuments.map((seed) => seed.id));
@@ -490,11 +527,11 @@ export default function ReaderLabWorkspace({
           .sort((left, right) => right.updatedAt - left.updatedAt);
         const nextDocuments = [
           ...importedDocuments,
-          ...seedDocuments.map((seed) => byId.get(seed.id)),
+          ...seedDocuments.map((seed) => byId.get(seed.id)).filter(Boolean),
         ];
         const initialId = readerSessions[0]?.documentId && byId.has(readerSessions[0].documentId)
           ? readerSessions[0].documentId
-          : nextDocuments[0].id;
+          : (nextDocuments[0]?.id || '');
 
         setDocuments(nextDocuments);
         setSessions(sessionMap);
@@ -543,7 +580,7 @@ export default function ReaderLabWorkspace({
           (state.itemType === 'explanation' || state.id?.startsWith('reader-lab-review-')) &&
           byId.has(state.documentId)
         )));
-        setDrawings(storedDrawings.filter((drawing) => (
+        setDrawings(drawingsWithDemo.filter((drawing) => (
           seedIds.has(drawing.documentId)
           || byId.has(drawing.documentId)
           // 独立图解工作区的自由图解挂在保留虚拟文档下，恢复时同样保留
@@ -568,7 +605,7 @@ export default function ReaderLabWorkspace({
           for (const entry of seededGlossary) await workspaceRepository.glossary.save(entry);
         }
         setGlossary(seededGlossary);
-        const initialDrawing = storedDrawings.find((drawing) => drawing.documentId === initialId);
+        const initialDrawing = drawingsWithDemo.find((drawing) => drawing.documentId === initialId);
         setActiveDrawingId(sessionMap[initialId]?.activeDrawingId || initialDrawing?.id || '');
         setCurrentDocumentId(initialId);
         setAidVisibility(sessionAids(sessionMap[initialId]));
@@ -663,6 +700,31 @@ export default function ReaderLabWorkspace({
       onToolChange?.('read');
     }
   }, [drawings, onToolChange, saveSession, sessions, standaloneDiagram]);
+
+  useEffect(() => {
+    if (!ready || !requestedReaderDocumentId || !readerDocumentRequestKey) return undefined;
+    if (appliedReaderDocumentRequestRef.current === readerDocumentRequestKey) return undefined;
+    appliedReaderDocumentRequestRef.current = readerDocumentRequestKey;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        let target = documents.find((document) => document.id === requestedReaderDocumentId);
+        if (!target) target = await workspaceRepository.documents.get(requestedReaderDocumentId);
+        if (!target || cancelled) return;
+        setDocuments((current) => current.some((document) => document.id === target.id)
+          ? current
+          : [target, ...current]);
+        selectDocument(target.id);
+        setRightPanelView('knowledge');
+        setHomeStarted(true);
+      } catch (error) {
+        if (!cancelled) setNotice(errorNotice(error));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [documents, readerDocumentRequestKey, ready, requestedReaderDocumentId, selectDocument]);
 
   // 多选辅助开关：任何变更立即持久化到当前文档会话，每篇文档记住自己的阅读组合
   const updateAids = useCallback((nextAids) => {
@@ -1288,6 +1350,68 @@ export default function ReaderLabWorkspace({
     await saveSession(drawing.documentId, { activeDrawingId: drawing.id });
   }, [saveSession]);
 
+  // 图解库通过 URL 传入目标，统一在工作区恢复选择、文档和新建空白图解。
+  useEffect(() => {
+    if (!ready) return undefined;
+    const requestKey = newDiagramRequestKey || `${requestedDrawingId}:${requestedDocumentId}`;
+    if (!requestKey || appliedDiagramRequestRef.current === requestKey) return undefined;
+    appliedDiagramRequestRef.current = requestKey;
+    let cancelled = false;
+
+    const restoreDiagramRequest = async () => {
+      try {
+        if (newDiagramRequestKey) {
+          const now = Date.now();
+          await createDrawing({
+            id: createDocumentDrawingId(STANDALONE_DIAGRAM_DOCUMENT_ID, now),
+            documentId: STANDALONE_DIAGRAM_DOCUMENT_ID,
+            title: t('diagram.untitled'),
+            engine: 'mermaid',
+            renderer: 'mermaid',
+            scope: DIAGRAM_SCOPES.freeform,
+            intent: 'auto',
+            chartType: 'auto',
+            source: '',
+            variants: {},
+            prompt: '',
+            createdAt: now,
+            updatedAt: now,
+          });
+          if (!cancelled) setHomeStarted(true);
+          return;
+        }
+        if (!requestedDrawingId) return;
+        let drawing = drawings.find((item) => item.id === requestedDrawingId);
+        if (!drawing) {
+          drawing = await workspaceRepository.drawings.get(requestedDrawingId);
+          if (drawing && !cancelled) setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
+        }
+        if (!drawing || cancelled) return;
+        if (requestedDocumentId && requestedDocumentId !== STANDALONE_DIAGRAM_DOCUMENT_ID) {
+          let requestedDocument = documents.find((item) => item.id === requestedDocumentId);
+          if (!requestedDocument) requestedDocument = await workspaceRepository.documents.get(requestedDocumentId);
+          if (requestedDocument && !cancelled) {
+            setDocuments((current) => current.some((item) => item.id === requestedDocument.id)
+              ? current
+              : [requestedDocument, ...current]);
+            setCurrentDocumentId(requestedDocument.id);
+          }
+          setRightPanelView('diagram');
+        }
+        if (!cancelled) {
+          setActiveDrawingId(drawing.id);
+          setHomeStarted(true);
+          saveSession(drawing.documentId, { activeDrawingId: drawing.id }).catch(console.error);
+        }
+      } catch (error) {
+        if (!cancelled) setNotice(errorNotice(error));
+      }
+    };
+
+    restoreDiagramRequest();
+    return () => { cancelled = true; };
+  }, [createDrawing, documents, drawings, newDiagramRequestKey, ready, requestedDocumentId, requestedDrawingId, saveSession, t]);
+
   const applyHistoryDrawing = useCallback((history) => {
     if (!diagramDocument || !history?.generatedCode) return;
     createDrawing({
@@ -1383,29 +1507,46 @@ export default function ReaderLabWorkspace({
     setPendingInlineDiagram(anchor);
     inlineDiagramRef.current = true;
     setNotice({ type: 'success', messageKey: 'workspace.notice.diagramStarted' });
+    const plan = createDiagramGenerationPlan({
+      scope: DIAGRAM_SCOPES.selection,
+      content: selection.text,
+    });
     await diagramState.generate(
-      '请围绕这段原文建模，梳理其中的核心概念与它们之间的关系，生成一张图解',
-      'auto',
+      plan.prompt,
+      plan.intent,
       'text',
-      'mermaid',
-      anchor
+      plan.renderer,
+      anchor,
+      plan
     );
     inlineDiagramRef.current = false;
     setPendingInlineDiagram(null);
   }, [aidVisibility, currentDocument, diagramState, updateAids]);
 
-  // 一键全文图：切到图表视图并直接发起整篇文档的关系图生成，省去手动输入提示词
-  const generateFullDiagram = useCallback(() => {
+  const generateArticleDiagram = useCallback((scope) => {
     if (!currentDocument || diagramState.isGenerating) return;
+    const plan = createDiagramGenerationPlan({ scope, content: currentDocument.content });
     setRightPanelView('diagram');
     onToolChange?.('diagram');
     diagramState.generate(
-      '请围绕这篇文档的全文内容建模，梳理核心概念与它们之间的关系，生成一张完整的全文关系图',
-      'auto',
+      plan.prompt,
+      plan.intent,
       'text',
-      'mermaid'
+      plan.renderer,
+      null,
+      plan
     );
   }, [currentDocument, diagramState, onToolChange]);
+
+  const generateFullDiagram = useCallback(
+    () => generateArticleDiagram(DIAGRAM_SCOPES.articleOverview),
+    [generateArticleDiagram]
+  );
+
+  const generateDeepDiagram = useCallback(
+    () => generateArticleDiagram(DIAGRAM_SCOPES.articleDeep),
+    [generateArticleDiagram]
+  );
 
   // 一键生成全部：重点 → 解读（含白话）→ 闪卡 → 图解，均依赖模型配置
   const analyzeDocument = useCallback(async () => {
@@ -1912,10 +2053,31 @@ export default function ReaderLabWorkspace({
     [documents, sessions]
   );
 
+  const recentDrawings = useMemo(
+    () => [...drawings]
+      .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0))
+      .slice(0, 4),
+    [drawings]
+  );
+
   const openRecentDocument = useCallback((documentId) => {
     setCurrentDocumentId(documentId);
     setHomeStarted(true);
   }, []);
+
+  const openRecentDrawing = useCallback((drawing) => {
+    if (!drawing?.id || !drawing.documentId) return;
+    setActiveDrawingId(drawing.id);
+    setHomeStarted(true);
+    saveSession(drawing.documentId, { activeDrawingId: drawing.id }).catch(console.error);
+    if (drawing.documentId === STANDALONE_DIAGRAM_DOCUMENT_ID) {
+      onOpenDiagram?.();
+      return;
+    }
+    setCurrentDocumentId(drawing.documentId);
+    setRightPanelView('diagram');
+    onToolChange?.('diagram');
+  }, [onOpenDiagram, onToolChange, saveSession]);
 
   if (!ready) {
     return (
@@ -1934,12 +2096,15 @@ export default function ReaderLabWorkspace({
           <PrivacyNoticeBar onExport={exportBackup} />
           <ReaderHome
             recentDocuments={recentDocuments}
+            recentDrawings={recentDrawings}
             hasExistingDocuments={documents.length > 0}
             busy={busyAction === 'parse'}
             error={notice?.type === 'error' ? notice.message : ''}
             onSubmit={parseAndOpenDocument}
-            onOpenExisting={() => setHomeStarted(true)}
+            onOpenExisting={onOpenDocumentLibrary || (() => setHomeStarted(true))}
             onOpenDocument={openRecentDocument}
+            onOpenDrawing={openRecentDrawing}
+            onCreateDiagram={onCreateDiagram}
             onOpenDiagram={onOpenDiagram}
           />
         </main>
@@ -2318,11 +2483,24 @@ export default function ReaderLabWorkspace({
                     type="button"
                     onClick={() => { setMoreMenuOpen(false); generateFullDiagram(); }}
                     disabled={diagramState.isGenerating}
-                    title={t('workspace.genDiagramTitle')}
+                    title={t('workspace.genOverviewTitle')}
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:text-stone-300 dark:text-stone-600"
                   >
                     <Waypoints size={14} className="shrink-0" />
-                    <span className="min-w-0 flex-1">{t('workspace.genDiagram')}</span>
+                    <span className="min-w-0 flex-1">{t('workspace.genOverview')}</span>
+                    <span className="text-[10px] text-stone-400">Mermaid</span>
+                    {diagramState.isGenerating && <LoaderCircle size={13} className="animate-spin text-stone-400" aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMoreMenuOpen(false); generateDeepDiagram(); }}
+                    disabled={diagramState.isGenerating}
+                    title={t('workspace.genDeepDiagramTitle')}
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:text-stone-300 dark:text-stone-600"
+                  >
+                    <Network size={14} className="shrink-0" />
+                    <span className="min-w-0 flex-1">{t('workspace.genDeepDiagram')}</span>
+                    <span className="text-[10px] text-stone-400">Excalidraw</span>
                     {diagramState.isGenerating && <LoaderCircle size={13} className="animate-spin text-stone-400" aria-hidden="true" />}
                   </button>
                   {/* 生成重点/解读/闪卡属于阅读场景能力，整块画布下只保留生成图解（分栏形态下阅读区可见，保留全部）；

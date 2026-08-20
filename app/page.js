@@ -22,6 +22,8 @@ export default function Home() {
   const [mode, setMode] = useState('article');
   // 导航「图解」入口进的是独立图解工作区；文档内触发（选区/工具栏/历史）仍是文档绑定图解
   const [standaloneDiagram, setStandaloneDiagram] = useState(false);
+  const [diagramRequest, setDiagramRequest] = useState(null);
+  const [readerDocumentRequest, setReaderDocumentRequest] = useState(null);
   const [homeEntered, setHomeEntered] = useState(false);
   const [currentDocument, setCurrentDocument] = useState(null);
   const [pendingHistory, setPendingHistory] = useState(null);
@@ -90,7 +92,7 @@ export default function Home() {
       return;
     }
     if (slug === 'diagram') {
-      handleModeChange('diagram');
+      router.push('/diagrams');
       return;
     }
     // 首页：回到首页视图（退出文档工作区），并广播事件让首页滚到导入区
@@ -99,22 +101,62 @@ export default function Home() {
     window.dispatchEvent(new Event(GO_IMPORT_EVENT));
   };
 
-  // 从其他路由带 ?view=diagram 进入时直达图解视图，消费后清掉参数避免刷新重入
+  const handleCreateDiagram = () => {
+    const now = Date.now();
+    setMode('diagram');
+    setStandaloneDiagram(true);
+    setHomeEntered(true);
+    setDiagramRequest({
+      drawingId: '',
+      documentId: STANDALONE_DIAGRAM_DOCUMENT_ID,
+      createNew: true,
+      requestKey: `new:${now}`,
+    });
+  };
+
+  // 资源库通过短暂 query 把目标交给唯一工作区，恢复后清参避免刷新重入。
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('view') !== 'diagram') return;
-    handleModeChange('diagram');
+    const view = params.get('view');
+    if (!['diagram', 'read'].includes(view)) return;
+    const drawingId = params.get('drawing') || '';
+    const documentId = params.get('document') || (view === 'diagram' ? STANDALONE_DIAGRAM_DOCUMENT_ID : '');
+    const createNew = params.get('new') === '1';
+    const request = {
+      drawingId,
+      documentId,
+      createNew,
+      requestKey: `${drawingId}:${documentId}:${createNew}:${Date.now()}`,
+    };
+    const applyTimer = window.setTimeout(() => {
+      if (view === 'diagram') {
+        setMode('diagram');
+        setStandaloneDiagram(documentId === STANDALONE_DIAGRAM_DOCUMENT_ID);
+        setDiagramRequest(request);
+      } else {
+        setMode('article');
+        setStandaloneDiagram(false);
+        setReaderDocumentRequest({
+          documentId,
+          requestKey: `${documentId}:${Date.now()}`,
+        });
+      }
+      setHomeEntered(true);
+      const nextUrl = params.toString() ? `/?${params.toString()}` : '/';
+      window.history.replaceState(null, '', nextUrl);
+    }, 0);
     params.delete('view');
-    const nextUrl = params.toString() ? `/?${params.toString()}` : '/';
-    window.history.replaceState(null, '', nextUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    params.delete('drawing');
+    params.delete('document');
+    params.delete('new');
+    return () => window.clearTimeout(applyTimer);
   }, []);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f5f7f6] text-stone-900 dark:bg-stone-950 dark:text-stone-100">
       {/* 全局顶栏：所有页面共享的导航入口 */}
       <AppTopNav
-        activeSlug={mode === 'diagram' ? 'diagram' : 'read'}
+        activeSlug={mode === 'diagram' ? 'diagram' : (homeEntered ? 'reader-lab' : 'read')}
         onNavigate={handleHomeNavigate}
         onConfig={() => setIsConfigManagerOpen(true)}
         onToolbarConfig={() => window.dispatchEvent(new Event(OPEN_TOOLBAR_CONFIG_EVENT))}
@@ -126,6 +168,11 @@ export default function Home() {
           started={homeEntered}
           requestedTool={mode === 'diagram' ? 'diagram' : 'read'}
           standaloneDiagram={mode === 'diagram' && standaloneDiagram}
+          requestedDrawingId={diagramRequest?.drawingId || ''}
+          requestedDocumentId={diagramRequest?.documentId || ''}
+          newDiagramRequestKey={diagramRequest?.createNew ? diagramRequest.requestKey : ''}
+          requestedReaderDocumentId={readerDocumentRequest?.documentId || ''}
+          readerDocumentRequestKey={readerDocumentRequest?.requestKey || ''}
           onToolChange={(tool) => {
             // 工作区内触发的图解（选区锚定/一键全文图/历史应用）都是文档绑定形态
             if (tool === 'diagram') setStandaloneDiagram(false);
@@ -134,7 +181,23 @@ export default function Home() {
           onCurrentDocumentChange={setCurrentDocument}
           onOpenHistory={() => setIsHistoryModalOpen(true)}
           historyDrawing={pendingHistory}
-          onOpenDiagram={() => handleModeChange('diagram')}
+          onOpenDocumentLibrary={() => router.push('/reader-lab')}
+          onCreateDiagram={handleCreateDiagram}
+          onOpenDiagram={(drawing) => {
+            if (!drawing) {
+              router.push('/diagrams');
+              return;
+            }
+            setMode('diagram');
+            setStandaloneDiagram(drawing.documentId === STANDALONE_DIAGRAM_DOCUMENT_ID);
+            setHomeEntered(true);
+            setDiagramRequest({
+              drawingId: drawing.id,
+              documentId: drawing.documentId,
+              createNew: false,
+              requestKey: `${drawing.id}:${drawing.documentId}:${Date.now()}`,
+            });
+          }}
           headerStatus={
             usePassword || (config && isConfigValid(config))
               ? (
