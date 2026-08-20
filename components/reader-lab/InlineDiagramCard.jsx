@@ -73,6 +73,7 @@ export default function InlineDiagramCard({ drawing, document, onCreateDrawing, 
                 type="button"
                 onClick={() => handleEngineChange(value)}
                 aria-pressed={engine === value}
+                title={t('diagram.rendererVersionHint', { renderer: label })}
                 className={`flex h-7 items-center rounded px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${engine === value ? 'bg-white text-stone-900 dark:bg-white/10 dark:text-stone-100 shadow-sm' : 'text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200'}`}
               >
                 {label}

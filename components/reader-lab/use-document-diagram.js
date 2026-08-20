@@ -10,6 +10,7 @@ import {
   parseExcalidrawElements,
   postProcessExcalidrawCode,
 } from '@/lib/diagram-generation';
+import { createDiagramMetadata, DIAGRAM_SCOPES, switchDiagramVariant } from '@/lib/diagram-product';
 import { stripMermaidFence } from '@/lib/mermaid-prompts';
 
 // 文档关系图的共享状态：左侧画布区与右侧对话区共用同一份状态，
@@ -35,8 +36,10 @@ export function useDocumentDiagram({
   });
   const [error, setError] = useState('');
   const saveTimerRef = useRef(null);
+  const draftDrawingRef = useRef(activeDrawing);
 
   useEffect(() => {
+    draftDrawingRef.current = activeDrawing;
     setEngine(activeDrawing?.engine || 'mermaid');
     setChartType(activeDrawing?.chartType || 'auto');
     setCode(activeDrawing?.source || '');
@@ -53,21 +56,35 @@ export function useDocumentDiagram({
 
   const persistCurrent = useCallback((changes = {}) => {
     if (!activeDrawing) return;
+    const baseDrawing = draftDrawingRef.current?.id === activeDrawing.id
+      ? draftDrawingRef.current
+      : activeDrawing;
+    const nextEngine = changes.engine || engine;
+    const nextSource = changes.source ?? code;
     const next = {
-      ...activeDrawing,
-      engine,
-      chartType,
-      source: code,
+      ...baseDrawing,
+      engine: nextEngine,
+      chartType: changes.chartType || chartType,
+      source: nextSource,
+      variants: {
+        ...(baseDrawing.variants || {}),
+        [nextEngine]: {
+          source: nextSource,
+          chartType: changes.chartType || chartType,
+          updatedAt: Date.now(),
+        },
+      },
       ...changes,
       updatedAt: Date.now(),
     };
+    draftDrawingRef.current = next;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => onPersistDrawing(next), 400);
   }, [activeDrawing, chartType, code, engine, onPersistDrawing]);
 
   // anchorOverride：划词图解不跳转，锚点在同一次调用里随参数传入，
   // 不等 hook 的 anchor prop 下一帧生效
-  const generate = useCallback(async (message, nextChartType, sourceType, nextEngine, anchorOverride = null) => {
+  const generate = useCallback(async (message, nextChartType, sourceType, nextEngine, anchorOverride = null, generationOptions = {}) => {
     if (isGenerating || !document) return;
     const effectiveAnchor = anchorOverride || anchor;
     setIsGenerating(true);
@@ -124,13 +141,34 @@ export function useDocumentDiagram({
       }
       const finalCode = finalizeDiagramSource(nextEngine, accumulated);
       const nextElements = nextEngine === 'excalidraw' ? parseExcalidrawElements(finalCode) : [];
+      const scope = generationOptions.scope
+        || (effectiveAnchor ? DIAGRAM_SCOPES.selection : document?.standaloneDiagram ? DIAGRAM_SCOPES.freeform : DIAGRAM_SCOPES.articleOverview);
+      const metadata = createDiagramMetadata({
+        scope,
+        intent: generationOptions.intent || nextChartType,
+        renderer: nextEngine,
+        diagramSpec: generationOptions.diagramSpec || null,
+      });
+      const titlePrefix = scope === DIAGRAM_SCOPES.articleDeep
+        ? '深度图解'
+        : scope === DIAGRAM_SCOPES.articleOverview
+          ? '全文概览'
+          : scope === DIAGRAM_SCOPES.selection
+            ? '局部图解'
+            : (nextChartType || '图解');
       const drawing = {
         id: createDocumentDrawingId(document.id),
         documentId: document.id,
-        title: `${nextChartType || '关系图'} · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
-        engine: nextEngine,
-        chartType: nextChartType,
+        title: `${titlePrefix} · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
+        ...metadata,
         source: finalCode,
+        variants: {
+          [nextEngine]: {
+            source: finalCode,
+            chartType: metadata.chartType,
+            updatedAt: Date.now(),
+          },
+        },
         prompt: typeof message === 'string' ? message : message?.text || '',
         anchor: effectiveAnchor ? { from: effectiveAnchor.from, to: effectiveAnchor.to, source: effectiveAnchor.source } : null,
         createdAt: Date.now(),
@@ -186,10 +224,27 @@ export function useDocumentDiagram({
 
   const handleEngineChange = (nextEngine) => {
     if (nextEngine === engine) return;
-    setEngine(nextEngine);
-    setCode('');
-    setElements([]);
-    persistCurrent({ engine: nextEngine, source: '' });
+    const nextVariant = switchDiagramVariant({
+      drawing: draftDrawingRef.current || activeDrawing,
+      currentRenderer: engine,
+      currentSource: code,
+      currentChartType: chartType,
+      nextRenderer: nextEngine,
+    });
+    setEngine(nextVariant.engine);
+    setChartType(nextVariant.chartType);
+    setCode(nextVariant.source);
+    if (nextVariant.engine === 'excalidraw' && nextVariant.source) {
+      try { setElements(parseExcalidrawElements(nextVariant.source)); } catch { setElements([]); }
+    } else {
+      setElements([]);
+    }
+    persistCurrent(nextVariant);
+  };
+
+  const changeChartType = (nextChartType) => {
+    setChartType(nextChartType);
+    persistCurrent({ chartType: nextChartType });
   };
 
   const changeCode = (nextCode) => {
@@ -216,7 +271,7 @@ export function useDocumentDiagram({
   return {
     engine,
     chartType,
-    setChartType,
+    setChartType: changeChartType,
     code,
     elements,
     error,

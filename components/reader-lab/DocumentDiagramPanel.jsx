@@ -141,6 +141,7 @@ export default function DocumentDiagramPanel({
               type="button"
               onClick={() => handleEngineChange(value)}
               disabled={isGenerating}
+              title={t('diagram.rendererVersionHint', { renderer: label })}
               className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${engine === value ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900' : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100'}`}
             >
               {label}

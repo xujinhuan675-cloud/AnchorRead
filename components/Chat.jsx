@@ -176,7 +176,7 @@ export default function Chat({ onSendMessage, isGenerating, initialInput = '', i
       // Mark source as image to avoid syncing into text input
       lastSubmitSourceRef.current = 'image';
       // 生成针对图片的提示词
-      const imagePrompt = generateImagePrompt(chartType);
+      const imagePrompt = generateImagePrompt(chartType, engine);
 
       // 创建包含图片数据的消息对象
       const messageData = {
