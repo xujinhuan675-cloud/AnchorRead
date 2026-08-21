@@ -26,6 +26,11 @@ import {
 } from '@/lib/diagram-library';
 import { createLocalDemoDrawing } from '@/lib/excalidraw-runtime-demo';
 import {
+  ensureDiagramRouteId,
+  isDiagramRouteId,
+  normalizeDiagramRouteIds,
+} from '@/lib/diagram-route-id';
+import {
   markReaderSampleSeeded,
   READER_DIAGRAM_SAMPLE_SEEDED_KEY,
   shouldSeedReaderSample,
@@ -69,10 +74,14 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
           existingCount: storedDrawings.length,
         });
         const seededDrawing = shouldSeed ? createLocalDemoDrawing() : null;
-        if (seededDrawing) await workspaceRepository.drawings.save(seededDrawing);
+        const drawingsWithSeed = seededDrawing ? [seededDrawing, ...storedDrawings] : storedDrawings;
+        const normalizedDrawings = normalizeDiagramRouteIds(drawingsWithSeed);
+        for (const [index, drawing] of normalizedDrawings.entries()) {
+          if (drawing !== drawingsWithSeed[index]) await workspaceRepository.drawings.save(drawing);
+        }
         markReaderSampleSeeded(window.localStorage, READER_DIAGRAM_SAMPLE_SEEDED_KEY);
         if (cancelled) return;
-        setDrawings(seededDrawing ? [seededDrawing, ...storedDrawings] : storedDrawings);
+        setDrawings(normalizedDrawings);
         setDocuments(storedDocuments);
       } catch (error) {
         console.error('Failed to open diagram library:', error);
@@ -105,10 +114,12 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
   };
 
   const copyDrawing = async (drawing) => {
-    const next = duplicateDrawing(drawing, {
+    const duplicate = duplicateDrawing(drawing, {
       id: createDocumentDrawingId(drawing.documentId),
       titleSuffix: t('diagramLibrary.copySuffix'),
     });
+    const usedRouteIds = new Set(drawings.map((item) => item.routeId).filter(isDiagramRouteId));
+    const next = ensureDiagramRouteId(duplicate, usedRouteIds);
     await workspaceRepository.drawings.save(next);
     setDrawings((current) => [next, ...current]);
     setMenuId('');

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AppTopNav from '@/components/AppTopNav';
 import ReaderLabWorkspace from '@/components/ReaderLabWorkspace';
@@ -12,6 +12,9 @@ import { GO_IMPORT_EVENT } from '@/components/reader-lab/ReaderHome';
 import { OPEN_GLOSSARY_EVENT, OPEN_TOOLBAR_CONFIG_EVENT } from '@/components/ReaderLabWorkspace';
 import { getConfig, isConfigValid } from '@/lib/config';
 import { STANDALONE_DIAGRAM_DOCUMENT_ID } from '@/lib/diagram-generation';
+import { getDiagramRouteId } from '@/lib/diagram-route-id';
+import { getDocumentRouteId } from '@/lib/document-route-id';
+import { buildDiagramPath, buildDocumentPath, buildNewDiagramPath, parseWorkspaceResourceLocation } from '@/lib/workspace-routes';
 
 export default function Home() {
   const router = useRouter();
@@ -102,26 +105,35 @@ export default function Home() {
   };
 
   const handleCreateDiagram = () => {
-    const now = Date.now();
-    setMode('diagram');
-    setStandaloneDiagram(true);
-    setHomeEntered(true);
-    setDiagramRequest({
-      drawingId: '',
-      documentId: STANDALONE_DIAGRAM_DOCUMENT_ID,
-      createNew: true,
-      requestKey: `new:${now}`,
-    });
+    router.push(buildNewDiagramPath());
   };
+
+  const handleDiagramResolved = useCallback((drawing) => {
+    if (!drawing?.id || !drawing.documentId) {
+      router.replace('/diagrams');
+      return;
+    }
+    setMode('diagram');
+    setStandaloneDiagram(drawing.documentId === STANDALONE_DIAGRAM_DOCUMENT_ID);
+    setHomeEntered(true);
+    const href = buildDiagramPath(getDiagramRouteId(drawing));
+    if (window.location.pathname !== href || window.location.search) router.replace(href);
+  }, [router]);
+
+  const handleDocumentResolved = useCallback((document) => {
+    if (!document?.id) {
+      router.replace('/reader-lab');
+      return;
+    }
+    const href = buildDocumentPath(getDocumentRouteId(document));
+    if (window.location.pathname !== href || window.location.search) router.replace(href);
+  }, [router]);
 
   // 资源库通过短暂 query 把目标交给唯一工作区，恢复后清参避免刷新重入。
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const view = params.get('view');
-    if (!['diagram', 'read'].includes(view)) return;
-    const drawingId = params.get('drawing') || '';
-    const documentId = params.get('document') || (view === 'diagram' ? STANDALONE_DIAGRAM_DOCUMENT_ID : '');
-    const createNew = params.get('new') === '1';
+    const location = parseWorkspaceResourceLocation(window.location.pathname, window.location.search);
+    if (!location) return;
+    const { view, drawingId, documentId, createNew, stable } = location;
     const request = {
       drawingId,
       documentId,
@@ -142,15 +154,21 @@ export default function Home() {
         });
       }
       setHomeEntered(true);
-      const nextUrl = params.toString() ? `/?${params.toString()}` : '/';
-      window.history.replaceState(null, '', nextUrl);
+      if (!stable && !createNew) {
+        if (view === 'diagram' && drawingId) router.replace(buildDiagramPath(drawingId));
+        if (view === 'read' && documentId) router.replace(buildDocumentPath(documentId));
+      } else if (!stable) {
+        const params = new URLSearchParams(window.location.search);
+        params.delete('view');
+        params.delete('drawing');
+        params.delete('document');
+        params.delete('new');
+        const nextSearch = params.toString();
+        window.history.replaceState(null, '', nextSearch ? `/?${nextSearch}` : '/');
+      }
     }, 0);
-    params.delete('view');
-    params.delete('drawing');
-    params.delete('document');
-    params.delete('new');
     return () => window.clearTimeout(applyTimer);
-  }, []);
+  }, [router]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f5f7f6] text-stone-900 dark:bg-stone-950 dark:text-stone-100">
@@ -171,6 +189,8 @@ export default function Home() {
           requestedDrawingId={diagramRequest?.drawingId || ''}
           requestedDocumentId={diagramRequest?.documentId || ''}
           newDiagramRequestKey={diagramRequest?.createNew ? diagramRequest.requestKey : ''}
+          onDiagramResolved={handleDiagramResolved}
+          onDocumentResolved={handleDocumentResolved}
           requestedReaderDocumentId={readerDocumentRequest?.documentId || ''}
           readerDocumentRequestKey={readerDocumentRequest?.requestKey || ''}
           onToolChange={(tool) => {

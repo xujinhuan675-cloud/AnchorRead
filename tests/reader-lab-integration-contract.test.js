@@ -17,6 +17,11 @@ const diagramThumbnail = readSource('../components/reader-lab/DiagramThumbnail.j
 const diagramLibraryLib = readSource('../lib/diagram-library.js');
 const documentLibraryHub = readSource('../components/reader-lab/DocumentLibraryHub.jsx');
 const documentLibraryLib = readSource('../lib/document-library.js');
+const workspaceRoutes = readSource('../lib/workspace-routes.js');
+const diagramRouteIds = readSource('../lib/diagram-route-id.js');
+const documentRouteIds = readSource('../lib/document-route-id.js');
+const diagramDetailRoute = readSource('../app/diagrams/[drawingId]/page.js');
+const documentDetailRoute = readSource('../app/documents/[documentId]/page.js');
 const readerLabWorkspace = readSource('../components/ReaderLabWorkspace.jsx');
 const documentDiagramPanel = readSource('../components/reader-lab/DocumentDiagramPanel.jsx');
 const documentDiagramCanvas = readSource('../components/reader-lab/DocumentDiagramCanvas.jsx');
@@ -66,7 +71,12 @@ test('document library manages local records and hands one selected document to 
   assert.match(documentLibraryLib, /DOCUMENT_OWNED_COLLECTIONS\.map/);
   assert.match(documentLibraryLib, /flashcards\?\.removeForDocument/);
   assert.match(documentLibraryLib, /histories\?\.removeForDocument/);
-  assert.match(documentLibraryLib, /view: 'read'/);
+  assert.match(documentLibraryLib, /buildDocumentPath/);
+  assert.match(documentLibraryLib, /getDocumentRouteId/);
+  assert.match(documentRouteIds, /DOCUMENT_ROUTE_ID_PREFIX/);
+  assert.match(readerLabWorkspace, /findDocumentByRouteId\(documents, requestedReaderDocumentId\)/);
+  assert.match(workspaceRoutes, /buildDocumentPath/);
+  assert.match(documentDetailRoute, /import Home from ['"]\.\.\/\.\.\/page['"]/);
   assert.match(homePage, /requestedReaderDocumentId=\{readerDocumentRequest\?\.documentId/);
   assert.match(readerLabWorkspace, /appliedReaderDocumentRequestRef/);
   assert.match(readerLabWorkspace, /selectDocument\(target\.id\)/);
@@ -81,7 +91,12 @@ test('diagram library routes are separate from the editor and preserve drawing h
   assert.match(diagramLibraryShell, /router\.push\(buildNewDiagramHref\(\)\)/);
   assert.match(diagramLibrary, /filterAndSortDrawings/);
   assert.match(diagramLibrary, /workspaceRepository\.drawings\.remove/);
-  assert.match(diagramLibraryLib, /view: 'diagram'/);
+  assert.match(diagramLibraryLib, /buildDiagramPath/);
+  assert.match(diagramLibraryLib, /getDiagramRouteId/);
+  assert.match(workspaceRoutes, /buildDiagramPath/);
+  assert.match(diagramRouteIds, /DIAGRAM_ROUTE_ID_PREFIX/);
+  assert.match(readerLabWorkspace, /item\.routeId === requestedDrawingId/);
+  assert.match(diagramDetailRoute, /import Home from ['"]\.\.\/\.\.\/page['"]/);
   assert.match(homePage, /router\.push\('\/diagrams'\)/);
   assert.match(homePage, /requestedDrawingId=\{diagramRequest\?\.drawingId/);
   assert.match(readerLabWorkspace, /newDiagramRequestKey/);
@@ -145,8 +160,9 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(homePage, /<AppTopNav/);
   assert.match(homePage, /onNavigate=\{handleHomeNavigate\}/);
   assert.match(homePage, /window\.dispatchEvent\(new Event\(GO_IMPORT_EVENT\)\)/);
-  // 资源库深链支持图解和文档，并在工作区恢复后清参。
-  assert.match(homePage, /\['diagram', 'read'\]\.includes\(view\)/);
+  // 资源库深链支持图解和文档，并在工作区恢复后保留稳定资源路径。
+  assert.match(homePage, /parseWorkspaceResourceLocation/);
+  assert.match(workspaceRoutes, /stable: true/);
   assert.match(readerLabWorkspace, /<DocumentDiagramPanel\b/);
     assert.match(readerLabWorkspace, /<DocumentDiagramCanvas\b/);
     // 独立形态：画布头部承接原 header 的身份文案（自由图解 + 创建引导），窄屏对话入口随源码按钮进画布头部
@@ -564,7 +580,7 @@ test('selection diagrams stay inline: placeholder first, insert on finish', () =
   const useDiagramHook = readSource('../components/reader-lab/use-document-diagram.js');
   // 不跳转：createDrawing 借 inlineDiagramRef 跳过切换到图解画布
   assert.match(readerLabWorkspace, /const stayInline = inlineDiagramRef\.current/);
-  assert.match(readerLabWorkspace, /if \(!stayInline\) setRightPanelView\('diagram'\)/);
+  assert.match(readerLabWorkspace, /if \(!stayInline\) \{[\s\S]*?setRightPanelView\('diagram'\)/);
   // 锚点同帧随参数传入 generate，不等 anchor prop 下一帧生效
   assert.match(useDiagramHook, /anchorOverride = null/);
   assert.match(useDiagramHook, /const effectiveAnchor = anchorOverride \|\| anchor/);

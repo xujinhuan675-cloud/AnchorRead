@@ -96,6 +96,17 @@ import {
   shouldSeedReaderSample,
 } from '@/lib/reader-sample-seeding';
 import { createDiagramGenerationPlan, DIAGRAM_SCOPES } from '@/lib/diagram-product';
+import {
+  ensureDiagramRouteId,
+  isDiagramRouteId,
+  normalizeDiagramRouteIds,
+} from '@/lib/diagram-route-id';
+import {
+  ensureDocumentRouteId,
+  findDocumentByRouteId,
+  isDocumentRouteId,
+  normalizeDocumentRouteIds,
+} from '@/lib/document-route-id';
 
 // 阅读辅助都是叠加在原文之上的可选层：多选多生效，全部关闭即纯原文
 // label 渲染时经 i18n 键 workspace.aid.* 取，常量只保留稳定 id
@@ -309,6 +320,8 @@ export default function ReaderLabWorkspace({
   // 首页 Hero 的「新建图解」和最近图解区的图解库入口由宿主页面分别提供
   onCreateDiagram = () => {},
   onOpenDiagram = () => {},
+  onDiagramResolved = () => {},
+  onDocumentResolved = () => {},
   onOpenDocumentLibrary = null,
 }) {
   const { t } = useLocale();
@@ -487,11 +500,18 @@ export default function ReaderLabWorkspace({
           existingCount: storedReaderDocuments.length,
         });
         if (shouldSeedDocuments) {
-          for (const seed of seedDocuments) {
-            await workspaceRepository.documents.save(seed);
-            byId.set(seed.id, seed);
+          for (const seed of seedDocuments) byId.set(seed.id, seed);
+        }
+        const documentsBeforeRouteMigration = [...byId.values()];
+        const normalizedDocuments = normalizeDocumentRouteIds(documentsBeforeRouteMigration);
+        const storedDocumentIds = new Set(storedReaderDocuments.map((document) => document.id));
+        for (const [index, document] of normalizedDocuments.entries()) {
+          if (document !== documentsBeforeRouteMigration[index] || !storedDocumentIds.has(document.id)) {
+            await workspaceRepository.documents.save(document);
           }
         }
+        byId.clear();
+        for (const document of normalizedDocuments) byId.set(document.id, document);
         markReaderSampleSeeded(window.localStorage, READER_DOCUMENT_SAMPLES_SEEDED_KEY);
 
         const [storedSessions, storedExplanations, storedTerms, storedReviews, storedDrawings, storedCustomActions, storedGlossary] = await Promise.all([
@@ -516,7 +536,10 @@ export default function ReaderLabWorkspace({
         const drawingsWithDemo = seededDemoDrawing
           ? [seededDemoDrawing, ...storedDrawings]
           : storedDrawings;
-        if (seededDemoDrawing) await workspaceRepository.drawings.save(seededDemoDrawing);
+        const normalizedDrawings = normalizeDiagramRouteIds(drawingsWithDemo);
+        for (const [index, drawing] of normalizedDrawings.entries()) {
+          if (drawing !== drawingsWithDemo[index]) await workspaceRepository.drawings.save(drawing);
+        }
         markReaderSampleSeeded(window.localStorage, READER_DIAGRAM_SAMPLE_SEEDED_KEY);
 
         const readerSessions = storedSessions.filter((session) => session.readerLab);
@@ -580,7 +603,7 @@ export default function ReaderLabWorkspace({
           (state.itemType === 'explanation' || state.id?.startsWith('reader-lab-review-')) &&
           byId.has(state.documentId)
         )));
-        setDrawings(drawingsWithDemo.filter((drawing) => (
+        setDrawings(normalizedDrawings.filter((drawing) => (
           seedIds.has(drawing.documentId)
           || byId.has(drawing.documentId)
           // 独立图解工作区的自由图解挂在保留虚拟文档下，恢复时同样保留
@@ -605,7 +628,7 @@ export default function ReaderLabWorkspace({
           for (const entry of seededGlossary) await workspaceRepository.glossary.save(entry);
         }
         setGlossary(seededGlossary);
-        const initialDrawing = drawingsWithDemo.find((drawing) => drawing.documentId === initialId);
+        const initialDrawing = normalizedDrawings.find((drawing) => drawing.documentId === initialId);
         setActiveDrawingId(sessionMap[initialId]?.activeDrawingId || initialDrawing?.id || '');
         setCurrentDocumentId(initialId);
         setAidVisibility(sessionAids(sessionMap[initialId]));
@@ -687,6 +710,8 @@ export default function ReaderLabWorkspace({
   }, []);
 
   const selectDocument = useCallback((documentId) => {
+    const selectedDocument = documents.find((document) => document.id === documentId);
+    if (selectedDocument) onDocumentResolved(selectedDocument);
     setCurrentDocumentId(documentId);
     setAidVisibility(sessionAids(sessions[documentId]));
     setLibraryOpen(false);
@@ -699,7 +724,7 @@ export default function ReaderLabWorkspace({
       setRightPanelView('knowledge');
       onToolChange?.('read');
     }
-  }, [drawings, onToolChange, saveSession, sessions, standaloneDiagram]);
+  }, [documents, drawings, onDocumentResolved, onToolChange, saveSession, sessions, standaloneDiagram]);
 
   useEffect(() => {
     if (!ready || !requestedReaderDocumentId || !readerDocumentRequestKey) return undefined;
@@ -709,12 +734,26 @@ export default function ReaderLabWorkspace({
 
     (async () => {
       try {
-        let target = documents.find((document) => document.id === requestedReaderDocumentId);
+        let target = findDocumentByRouteId(documents, requestedReaderDocumentId);
         if (!target) target = await workspaceRepository.documents.get(requestedReaderDocumentId);
-        if (!target || cancelled) return;
+        if (!target) {
+          const storedDocuments = await workspaceRepository.documents.list();
+          target = findDocumentByRouteId(storedDocuments, requestedReaderDocumentId);
+        }
+        if (target && !isDocumentRouteId(target.routeId)) {
+          const usedRouteIds = new Set(documents.map((document) => document.routeId).filter(isDocumentRouteId));
+          target = ensureDocumentRouteId(target, usedRouteIds);
+          await workspaceRepository.documents.save(target);
+        }
+        if (!target || cancelled) {
+          if (!cancelled) onDocumentResolved(null);
+          return;
+        }
+        const targetWasLoaded = documents.some((document) => document.id === target.id);
         setDocuments((current) => current.some((document) => document.id === target.id)
           ? current
           : [target, ...current]);
+        if (!targetWasLoaded) onDocumentResolved(target);
         selectDocument(target.id);
         setRightPanelView('knowledge');
         setHomeStarted(true);
@@ -724,7 +763,7 @@ export default function ReaderLabWorkspace({
     })();
 
     return () => { cancelled = true; };
-  }, [documents, readerDocumentRequestKey, ready, requestedReaderDocumentId, selectDocument]);
+  }, [documents, onDocumentResolved, readerDocumentRequestKey, ready, requestedReaderDocumentId, selectDocument]);
 
   // 多选辅助开关：任何变更立即持久化到当前文档会话，每篇文档记住自己的阅读组合
   const updateAids = useCallback((nextAids) => {
@@ -857,12 +896,14 @@ export default function ReaderLabWorkspace({
   }, [currentDocumentId, saveSession]);
 
   const persistImportedDocument = useCallback(async (document, analysisRecords = []) => {
-    await workspaceRepository.documents.save(document);
+    const usedRouteIds = new Set(documents.map((item) => item.routeId).filter(isDocumentRouteId));
+    const nextDocument = ensureDocumentRouteId(document, usedRouteIds);
+    await workspaceRepository.documents.save(nextDocument);
     for (const record of analysisRecords) await workspaceRepository.explanations.save(record);
     // 导入即分析时同样把派生术语写入术语库，保持与工作台「分析」按钮一致的术语沉淀
     const importedTerms = analysisRecords.flatMap((record) => record.terms || []);
     for (const term of importedTerms) await workspaceRepository.terms.save(term);
-    setDocuments((current) => [document, ...current.filter((item) => item.id !== document.id)]);
+    setDocuments((current) => [nextDocument, ...current.filter((item) => item.id !== nextDocument.id)]);
     setExplanations((current) => [
       ...current.filter((record) => record.documentId !== document.id || !record.batchAnalysis),
       ...analysisRecords,
@@ -871,13 +912,14 @@ export default function ReaderLabWorkspace({
       ...current.filter((term) => !(term.documentId === document.id && term.batchAnalysis)),
       ...importedTerms,
     ]);
-    setCurrentDocumentId(document.id);
+    setCurrentDocumentId(nextDocument.id);
+    onDocumentResolved(nextDocument);
     setAidVisibility({ ...DEFAULT_AIDS });
     setLibraryOpen(false);
     setHomeStarted(true);
-    await saveSession(document.id, { aids: DEFAULT_AIDS, progress: 0, scrollTop: 0 });
-    setNotice({ type: 'success', messageKey: 'workspace.notice.imported', params: { title: document.title } });
-  }, [saveSession]);
+    await saveSession(nextDocument.id, { aids: DEFAULT_AIDS, progress: 0, scrollTop: 0 });
+    setNotice({ type: 'success', messageKey: 'workspace.notice.imported', params: { title: nextDocument.title } });
+  }, [documents, onDocumentResolved, saveSession]);
 
   // 浏览器扩展深链导入：/?import=<url>；带 via=clipper 时优先接收扩展提取的已渲染 DOM，
   // 避免服务端重抓取失败（纯 JS 渲染、强反爬、内网页面）；握手失败时回退到重抓取
@@ -1335,20 +1377,31 @@ export default function ReaderLabWorkspace({
   const activeDrawing = currentDrawings.find((drawing) => drawing.id === activeDrawingId) || currentDrawings[0] || null;
 
   const selectDrawing = useCallback((drawingId) => {
+    const drawing = currentDrawings.find((item) => item.id === drawingId);
+    if (drawing) onDiagramResolved(drawing);
     setActiveDrawingId(drawingId);
     saveSession(diagramDocumentId, { activeDrawingId: drawingId }).catch(console.error);
-  }, [diagramDocumentId, saveSession]);
+  }, [currentDrawings, diagramDocumentId, onDiagramResolved, saveSession]);
 
   const createDrawing = useCallback(async (drawing) => {
-    await workspaceRepository.drawings.save(drawing);
-    setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
-    setActiveDrawingId(drawing.id);
+    const usedRouteIds = new Set(
+      drawings
+        .filter((item) => item.id !== drawing.id && isDiagramRouteId(item.routeId))
+        .map((item) => item.routeId)
+    );
+    const nextDrawing = ensureDiagramRouteId(drawing, usedRouteIds);
+    await workspaceRepository.drawings.save(nextDrawing);
+    setDrawings((current) => [nextDrawing, ...current.filter((item) => item.id !== nextDrawing.id)]);
+    setActiveDrawingId(nextDrawing.id);
     // 划词图解留在原文就地插入，不切到图解画布；其余入口照旧跳转展示
     const stayInline = inlineDiagramRef.current;
     inlineDiagramRef.current = false;
-    if (!stayInline) setRightPanelView('diagram');
-    await saveSession(drawing.documentId, { activeDrawingId: drawing.id });
-  }, [saveSession]);
+    if (!stayInline) {
+      setRightPanelView('diagram');
+      onDiagramResolved(nextDrawing);
+    }
+    await saveSession(nextDrawing.documentId, { activeDrawingId: nextDrawing.id });
+  }, [drawings, onDiagramResolved, saveSession]);
 
   // 图解库通过 URL 传入目标，统一在工作区恢复选择、文档和新建空白图解。
   useEffect(() => {
@@ -1381,15 +1434,30 @@ export default function ReaderLabWorkspace({
           return;
         }
         if (!requestedDrawingId) return;
-        let drawing = drawings.find((item) => item.id === requestedDrawingId);
+        let drawing = drawings.find((item) => (
+          item.id === requestedDrawingId || item.routeId === requestedDrawingId
+        ));
         if (!drawing) {
           drawing = await workspaceRepository.drawings.get(requestedDrawingId);
+          if (!drawing) {
+            const storedDrawings = await workspaceRepository.drawings.list();
+            drawing = storedDrawings.find((item) => item.routeId === requestedDrawingId);
+          }
+          if (drawing && !isDiagramRouteId(drawing.routeId)) {
+            const usedRouteIds = new Set(drawings.map((item) => item.routeId).filter(isDiagramRouteId));
+            drawing = ensureDiagramRouteId(drawing, usedRouteIds);
+            await workspaceRepository.drawings.save(drawing);
+          }
           if (drawing && !cancelled) setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
         }
-        if (!drawing || cancelled) return;
-        if (requestedDocumentId && requestedDocumentId !== STANDALONE_DIAGRAM_DOCUMENT_ID) {
-          let requestedDocument = documents.find((item) => item.id === requestedDocumentId);
-          if (!requestedDocument) requestedDocument = await workspaceRepository.documents.get(requestedDocumentId);
+        if (!drawing || cancelled) {
+          if (!cancelled) onDiagramResolved(null);
+          return;
+        }
+        const drawingDocumentId = drawing.documentId;
+        if (drawingDocumentId && drawingDocumentId !== STANDALONE_DIAGRAM_DOCUMENT_ID) {
+          let requestedDocument = documents.find((item) => item.id === drawingDocumentId);
+          if (!requestedDocument) requestedDocument = await workspaceRepository.documents.get(drawingDocumentId);
           if (requestedDocument && !cancelled) {
             setDocuments((current) => current.some((item) => item.id === requestedDocument.id)
               ? current
@@ -1401,6 +1469,7 @@ export default function ReaderLabWorkspace({
         if (!cancelled) {
           setActiveDrawingId(drawing.id);
           setHomeStarted(true);
+          onDiagramResolved(drawing);
           saveSession(drawing.documentId, { activeDrawingId: drawing.id }).catch(console.error);
         }
       } catch (error) {
@@ -1410,7 +1479,7 @@ export default function ReaderLabWorkspace({
 
     restoreDiagramRequest();
     return () => { cancelled = true; };
-  }, [createDrawing, documents, drawings, newDiagramRequestKey, ready, requestedDocumentId, requestedDrawingId, saveSession, t]);
+  }, [createDrawing, documents, drawings, newDiagramRequestKey, onDiagramResolved, ready, requestedDocumentId, requestedDrawingId, saveSession, t]);
 
   const applyHistoryDrawing = useCallback((history) => {
     if (!diagramDocument || !history?.generatedCode) return;
@@ -1465,15 +1534,18 @@ export default function ReaderLabWorkspace({
     const remaining = currentDrawings.filter((drawing) => drawing.id !== drawingId);
     setDrawings((current) => current.filter((drawing) => drawing.id !== drawingId));
     setActiveDrawingId(remaining[0]?.id || '');
+    onDiagramResolved(remaining[0] || null);
     await saveSession(diagramDocumentId, { activeDrawingId: remaining[0]?.id || '' });
-  }, [currentDrawings, diagramDocumentId, saveSession]);
+  }, [currentDrawings, diagramDocumentId, onDiagramResolved, saveSession]);
 
   const openDiagram = useCallback((drawingId) => {
+    const drawing = currentDrawings.find((item) => item.id === drawingId);
+    if (drawing) onDiagramResolved(drawing);
     setActiveDrawingId(drawingId);
     saveSession(diagramDocumentId, { activeDrawingId: drawingId }).catch(console.error);
     setRightPanelView('diagram');
     onToolChange?.('diagram');
-  }, [diagramDocumentId, onToolChange, saveSession]);
+  }, [currentDrawings, diagramDocumentId, onDiagramResolved, onToolChange, saveSession]);
 
   const clearDiagramAnchor = useCallback(() => setDiagramAnchor(null), []);
 
@@ -2061,23 +2133,23 @@ export default function ReaderLabWorkspace({
   );
 
   const openRecentDocument = useCallback((documentId) => {
-    setCurrentDocumentId(documentId);
+    selectDocument(documentId);
     setHomeStarted(true);
-  }, []);
+  }, [selectDocument]);
 
   const openRecentDrawing = useCallback((drawing) => {
     if (!drawing?.id || !drawing.documentId) return;
     setActiveDrawingId(drawing.id);
     setHomeStarted(true);
     saveSession(drawing.documentId, { activeDrawingId: drawing.id }).catch(console.error);
+    onDiagramResolved(drawing);
     if (drawing.documentId === STANDALONE_DIAGRAM_DOCUMENT_ID) {
-      onOpenDiagram?.();
       return;
     }
     setCurrentDocumentId(drawing.documentId);
     setRightPanelView('diagram');
     onToolChange?.('diagram');
-  }, [onOpenDiagram, onToolChange, saveSession]);
+  }, [onDiagramResolved, onToolChange, saveSession]);
 
   if (!ready) {
     return (

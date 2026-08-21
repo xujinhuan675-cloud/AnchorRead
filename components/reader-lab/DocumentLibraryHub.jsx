@@ -33,6 +33,11 @@ import { historyManager } from '@/lib/history-manager';
 import { workspaceRepository } from '@/lib/local-workspace-db';
 import { createReaderLabSeedDocuments } from '@/lib/reader-lab';
 import {
+  ensureDocumentRouteId,
+  isDocumentRouteId,
+  normalizeDocumentRouteIds,
+} from '@/lib/document-route-id';
+import {
   createReaderDocumentFromFile,
   createReaderDocumentFromPaste,
   createReaderDocumentFromUrl,
@@ -94,11 +99,16 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
           existingCount: readerDocuments.length,
         });
         const seededDocuments = shouldSeed ? createReaderLabSeedDocuments() : [];
-        for (const document of seededDocuments) await workspaceRepository.documents.save(document);
+        const documentsWithSeeds = [...readerDocuments, ...seededDocuments];
+        const normalizedDocuments = normalizeDocumentRouteIds(documentsWithSeeds);
+        for (const [index, document] of normalizedDocuments.entries()) {
+          if (document !== documentsWithSeeds[index] || index >= readerDocuments.length) {
+            await workspaceRepository.documents.save(document);
+          }
+        }
         markReaderSampleSeeded(window.localStorage, READER_DOCUMENT_SAMPLES_SEEDED_KEY);
         if (cancelled) return;
-        const documentMap = new Map(readerDocuments.map((document) => [document.id, document]));
-        for (const document of seededDocuments) documentMap.set(document.id, document);
+        const documentMap = new Map(normalizedDocuments.map((document) => [document.id, document]));
         setDocuments([...documentMap.values()]);
         setSessions(Object.fromEntries(storedSessions
           .filter((session) => session.readerLab)
@@ -131,9 +141,11 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
   };
 
   const persistImportedDocument = async (document) => {
-    await workspaceRepository.documents.save(document);
-    setDocuments((current) => [document, ...current.filter((item) => item.id !== document.id)]);
-    openDocument(document);
+    const usedRouteIds = new Set(documents.map((item) => item.routeId).filter(isDocumentRouteId));
+    const nextDocument = ensureDocumentRouteId(document, usedRouteIds);
+    await workspaceRepository.documents.save(nextDocument);
+    setDocuments((current) => [nextDocument, ...current.filter((item) => item.id !== nextDocument.id)]);
+    openDocument(nextDocument);
   };
 
   const importFile = async (event) => {

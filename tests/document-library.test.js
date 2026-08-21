@@ -57,7 +57,7 @@ test('document library supports activity, update, creation and title ordering', 
 });
 
 test('document library hands documents to the reader and archives without mutating input', () => {
-  assert.equal(buildDocumentReaderHref(documents[0]), '/?view=read&document=doc-a');
+  assert.equal(buildDocumentReaderHref({ ...documents[0], routeId: 'doc-k7m2p9x4' }), '/documents/doc-k7m2p9x4');
   assert.equal(buildDocumentReaderHref(null), '/reader-lab');
   const archived = setDocumentArchived(documents[0], true, 200);
   assert.equal(archived.status, 'archived');

@@ -9,7 +9,7 @@ import {
 } from '../lib/diagram-library.js';
 
 const drawings = [
-  { id: 'free-1', documentId: STANDALONE_DIAGRAM_DOCUMENT_ID, title: 'Agent map', engine: 'excalidraw', createdAt: 1, updatedAt: 5 },
+  { id: 'free-1', routeId: 'dg-k7m2p9x4', documentId: STANDALONE_DIAGRAM_DOCUMENT_ID, title: 'Agent map', engine: 'excalidraw', createdAt: 1, updatedAt: 5 },
   { id: 'doc-1-drawing', documentId: 'doc-1', title: 'Overview', engine: 'mermaid', createdAt: 3, updatedAt: 4 },
   { id: 'doc-2-drawing', documentId: 'doc-2', title: 'Timeline', engine: 'mermaid', createdAt: 2, updatedAt: 6 },
 ];
@@ -30,8 +30,8 @@ test('diagram library supports created and updated ordering', () => {
 });
 
 test('diagram library routes selected assets and new creation into the editor', () => {
-  assert.equal(buildDiagramEditorHref(drawings[0]), '/?view=diagram&drawing=free-1&document=reader-lab-standalone-diagrams');
-  assert.equal(buildNewDiagramHref(), '/?view=diagram&new=1');
+  assert.equal(buildDiagramEditorHref(drawings[0]), '/diagrams/dg-k7m2p9x4');
+  assert.equal(buildNewDiagramHref(), '/diagrams/new');
 });
 
 test('duplicating a drawing preserves content without preserving demo identity', () => {
@@ -44,5 +44,6 @@ test('duplicating a drawing preserves content without preserving demo identity',
   assert.equal(duplicate.title, 'Agent map copy');
   assert.equal(duplicate.source, '[1]');
   assert.equal(duplicate.isLocalDemo, false);
+  assert.equal(duplicate.routeId, undefined);
   assert.equal(duplicate.createdAt, 10);
 });
