@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  ArrowUpRight,
   Copy,
   FileText,
   MoreHorizontal,
@@ -209,9 +208,6 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
                       <DiagramThumbnail drawing={drawing} title={title} />
                       <span className="absolute left-2.5 top-2.5 rounded bg-white/90 px-2 py-1 text-[10px] font-medium uppercase text-stone-600 shadow-sm backdrop-blur dark:bg-stone-900/90 dark:text-stone-300">
                         {getDrawingRenderer(drawing)}
-                      </span>
-                      <span className="absolute right-2.5 top-2.5 flex size-7 items-center justify-center rounded bg-white/90 text-stone-600 opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 dark:bg-stone-900/90 dark:text-stone-300">
-                        <ArrowUpRight size={15} aria-hidden="true" />
                       </span>
                     </div>
                     <div className="border-t border-stone-100 px-3 pb-3 pt-3 dark:border-stone-800">

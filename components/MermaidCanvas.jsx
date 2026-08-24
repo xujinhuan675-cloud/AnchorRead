@@ -174,7 +174,14 @@ export default function MermaidCanvas({
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1" aria-label={t('diagram.zoomAria')}>
+        <div className="flex shrink-0 items-center gap-1">
+          {headerActions}
+        </div>
+      </header>
+
+      {/* 画布区铺满：去掉外边距与卡片描边/阴影，绘图区直接贴边；暗色下铺深色底衬托 SVG */}
+      <div className="relative min-h-0 flex-1 overflow-auto bg-white dark:bg-stone-900">
+        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-md border border-stone-200 bg-white/95 p-0.5 shadow-sm backdrop-blur dark:border-stone-700 dark:bg-stone-900/95" aria-label={t('diagram.zoomAria')}>
           <IconButton
             label={t('diagram.zoomOut')}
             disabled={zoom <= MERMAID_ZOOM.min}
@@ -199,12 +206,7 @@ export default function MermaidCanvas({
           >
             <Plus aria-hidden="true" className="h-4 w-4" />
           </IconButton>
-          {headerActions}
         </div>
-      </header>
-
-      {/* 画布区铺满：去掉外边距与卡片描边/阴影，绘图区直接贴边；暗色下铺深色底衬托 SVG */}
-      <div className="relative min-h-0 flex-1 overflow-auto bg-white dark:bg-stone-900">
         <div
           ref={hostRef}
           className="min-h-full w-full bg-white p-4 dark:bg-stone-900"

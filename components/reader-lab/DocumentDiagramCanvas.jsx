@@ -38,14 +38,14 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     <button
       type="button"
       onClick={() => setCodeOpen((open) => !open)}
+      aria-label={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
       aria-pressed={codeOpen}
       title={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
       className={variant === 'header'
         ? `flex h-8 w-8 shrink-0 items-center justify-center rounded transition-colors outline-none focus-visible:ring-2 focus-visible:ring-stone-400 ${codeOpen ? 'text-stone-900 dark:text-stone-100' : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 hover:text-stone-900 dark:hover:bg-white/10 dark:hover:text-stone-100'}`
-        : `absolute bottom-3 right-3 z-10 flex h-7 items-center gap-1.5 rounded border px-2.5 text-xs font-medium shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-stone-950 dark:focus-visible:ring-stone-100 ${codeOpen ? 'border-stone-300 bg-white text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100' : 'border-stone-200 bg-white text-stone-600 hover:text-stone-900 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400 dark:hover:text-stone-100'}`}
+        : `absolute bottom-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded border shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-stone-950 dark:focus-visible:ring-stone-100 ${codeOpen ? 'border-stone-300 bg-white text-stone-900 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100' : 'border-stone-200 bg-white text-stone-600 hover:text-stone-900 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400 dark:hover:text-stone-100'}`}
     >
-      <FileCode2 size={variant === 'header' ? 15 : 13} aria-hidden="true" />
-      {variant !== 'header' && (codeOpen ? t('diagram.collapseSource') : t('diagram.source'))}
+      <FileCode2 size={15} aria-hidden="true" />
     </button>
   );
 

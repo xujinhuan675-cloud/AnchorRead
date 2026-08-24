@@ -133,7 +133,7 @@ test('route layout controls document navigation while the workspace owns one rea
   assert.match(readerLabWorkspace, /hideClose=\{rightPanelView !== 'diagram'\}/);
   assert.match(readerLabWorkspace, /<SheetClose/);
   // 独立图解工作区右栏是主界面，不受折叠开关影响；注意正则中 JSX 的字面括号需转义
-  assert.match(readerLabWorkspace, /\{\(standaloneDiagram \|\| !rightCollapsed\) && \([\s\S]*?id="reader-knowledge"/);
+  assert.match(readerLabWorkspace, /\{!rightCollapsed && \([\s\S]*?id="reader-knowledge"/);
   // 右栏开关图标全断点统一为带箭头族：展开态 PanelRightClose、收起态 PanelRightOpen，窄屏不再用无箭头 PanelRight
   assert.match(readerLabWorkspace, /rightPanelExpanded \? <PanelRightClose size=\{18\} \/> : <PanelRightOpen size=\{18\} \/>/);
   assert.doesNotMatch(readerLabWorkspace, /<PanelRight size=/);

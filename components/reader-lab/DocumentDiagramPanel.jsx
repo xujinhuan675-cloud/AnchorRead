@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, Crosshair, History, LoaderCircle, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Crosshair, History, LoaderCircle, PanelRightClose, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import Chat from '@/components/Chat';
 import { useLocale } from '@/components/LocaleProvider';
@@ -17,6 +17,7 @@ export default function DocumentDiagramPanel({
   onCreateDrawing,
   onDeleteDrawing,
   onOpenHistory,
+  onToggleSidebar = null,
   onRenameDrawing = () => {},
   anchor = null,
   onClearAnchor,
@@ -112,6 +113,7 @@ export default function DocumentDiagramPanel({
         {isGenerating ? <LoaderCircle size={13} className="shrink-0 animate-spin text-stone-400" aria-hidden="true" /> : null}
         <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: t('diagram.untitled'), engine: 'mermaid', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.create')} aria-label={t('diagram.create')}><Plus size={15} /></button>
         <button type="button" onClick={onOpenHistory} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.openHistory')} aria-label={t('diagram.openHistory')}><History size={15} /></button>
+        {onToggleSidebar ? <button type="button" onClick={onToggleSidebar} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('workspace.collapseRightPanel')} aria-label={t('workspace.collapseRightPanel')}><PanelRightClose size={15} /></button> : null}
       </header>
       {/* 控制子栏：输入模式、引擎与图类型集中收纳在头部，Chat 内容区只留输入本身 */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-1.5 dark:border-stone-800 dark:bg-white/5">

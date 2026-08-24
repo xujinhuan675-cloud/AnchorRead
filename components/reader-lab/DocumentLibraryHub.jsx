@@ -3,7 +3,6 @@
 import {
   Archive,
   ArchiveRestore,
-  ArrowUpRight,
   BookOpen,
   Clock3,
   FilePlus2,
@@ -310,7 +309,6 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
                   <button type="button" onClick={() => openDocument(document)} className="block min-h-56 w-full p-4 text-left" aria-label={`${t('documentLibrary.open')}: ${document.title}`}>
                     <div className="flex items-start justify-between gap-3">
                       <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-stone-100 text-stone-600 dark:bg-white/10 dark:text-stone-300"><FileText size={18} aria-hidden="true" /></span>
-                      <ArrowUpRight size={16} className="text-stone-400 opacity-0 transition group-hover:opacity-100" aria-hidden="true" />
                     </div>
                     <h2 className="mt-4 line-clamp-2 min-h-12 text-base font-semibold leading-6">{document.title}</h2>
                     <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-stone-500 dark:text-stone-400">{document.category || sourceLabel(document, t)}</p>

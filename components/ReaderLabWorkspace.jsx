@@ -2305,6 +2305,10 @@ export default function ReaderLabWorkspace({
         if (onOpenHistory) onOpenHistory(diagramDocument.id);
         else setInternalHistoryOpen(true);
       }}
+      onToggleSidebar={() => {
+        if (isDesktop) updateRightCollapsed(true);
+        else setKnowledgeOpen(false);
+      }}
     />
   );
     const diagramCanvas = <DocumentDiagramCanvas diagram={diagramState} standalone={standaloneDiagram} onOpenChat={standaloneDiagram ? () => setKnowledgeOpen(true) : null} />;
@@ -2679,25 +2683,37 @@ export default function ReaderLabWorkspace({
                 </>
               )}
               <ResizablePanel id="reader-content" defaultSize={isHomeLayout ? '72%' : '57%'} minSize="420px">
-                {diagramSplit ? (
-                  <ResizablePanelGroup orientation="horizontal" id="reader-diagram-split">
-                    <ResizablePanel id="reader-split-article" defaultSize="55%" minSize="320px">
-                      <section className="h-full min-h-0" aria-label={t('workspace.readingArea')}>{readingSurface}</section>
-                    </ResizablePanel>
-                    <ResizableHandle />
-                    <ResizablePanel id="reader-split-canvas" defaultSize="45%" minSize="320px">
-                      {diagramCanvas}
-                    </ResizablePanel>
-                  </ResizablePanelGroup>
-                ) : rightPanelView === 'diagram' ? (
-                  diagramCanvas
-                ) : (
-                  <section className="h-full min-h-0" aria-label={t('workspace.readingArea')}>{readingSurface}</section>
-                )}
+                <div className="relative h-full min-h-0">
+                  {diagramSplit ? (
+                    <ResizablePanelGroup orientation="horizontal" id="reader-diagram-split">
+                      <ResizablePanel id="reader-split-article" defaultSize="55%" minSize="320px">
+                        <section className="h-full min-h-0" aria-label={t('workspace.readingArea')}>{readingSurface}</section>
+                      </ResizablePanel>
+                      <ResizableHandle />
+                      <ResizablePanel id="reader-split-canvas" defaultSize="45%" minSize="320px">
+                        {diagramCanvas}
+                      </ResizablePanel>
+                    </ResizablePanelGroup>
+                  ) : rightPanelView === 'diagram' ? (
+                    diagramCanvas
+                  ) : (
+                    <section className="h-full min-h-0" aria-label={t('workspace.readingArea')}>{readingSurface}</section>
+                  )}
+                  {standaloneDiagram && rightCollapsed ? (
+                    <button
+                      type="button"
+                      onClick={() => updateRightCollapsed(false)}
+                      title={t('workspace.expandRightPanel')}
+                      aria-label={t('workspace.expandRightPanel')}
+                      className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded border border-stone-200 bg-white/95 text-stone-600 shadow-sm outline-none hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-700 dark:bg-stone-900/95 dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-stone-100"
+                    >
+                      <PanelRightOpen size={18} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </div>
               </ResizablePanel>
-              {/* 右栏折叠时整列移出布局，主区自动占满；与左侧文档库折叠同一模式；
-                  独立图解工作区没有 header 开关，右栏是唯一输入入口，强制保持展开 */}
-              {(standaloneDiagram || !rightCollapsed) && (
+              {/* 右栏折叠时整列移出布局，主区自动占满；独立图解收起后由画布内按钮恢复。 */}
+              {!rightCollapsed && (
                 <>
                   <ResizableHandle />
                   <ResizablePanel id="reader-knowledge" defaultSize={isHomeLayout ? '28%' : '23%'} minSize="260px" maxSize="440px">

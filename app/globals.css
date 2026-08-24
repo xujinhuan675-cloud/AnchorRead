@@ -26,6 +26,14 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Keep the embedded Excalidraw surface focused on diagram editing. */
+.anchor-read-excalidraw .help-icon,
+.anchor-read-excalidraw [data-testid='help-menu-item'],
+.anchor-read-excalidraw .dropdown-menu-group:has(a[href]),
+.anchor-read-excalidraw a[target='_blank'] {
+  display: none !important;
+}
+
 /* Hide scrollbar utility class */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;

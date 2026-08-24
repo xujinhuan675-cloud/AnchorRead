@@ -71,7 +71,7 @@ export default function ExcalidrawCanvas({ elements, onElementsChange }) {
   }, [convertedElements, isDark]);
 
   return (
-    <div className="w-full h-full">
+    <div className="anchor-read-excalidraw relative h-full w-full">
       <Excalidraw
         key={canvasKey}
         excalidrawAPI={(api) => setExcalidrawAPI(api)}
