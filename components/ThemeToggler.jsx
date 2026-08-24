@@ -4,9 +4,10 @@
  * 明暗主题切换按钮（移植自 infinite-canvas whiteboard 的 animated-theme-toggler.tsx）
  * 改写点：TS -> JSX；去掉 react-i18next 依赖，sr-only 文案回退到 aria-label；其余 View Transition 逻辑原样保留
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { Moon, Sun } from 'lucide-react';
+import { useAppTheme } from '@/lib/theme';
 
 function polygonCollapsed(cx, cy, vertexCount) {
   const pairs = Array.from({ length: vertexCount }, () => `${cx}px ${cy}px`).join(', ');
@@ -75,29 +76,9 @@ function getThemeTransitionClipPaths(variant, cx, cy, maxRadius, viewportWidth, 
 
 export default function ThemeToggler({ className, duration = 400, variant, fromCenter = false, theme, targetTheme, onThemeChange, children, ...props }) {
   const shape = variant ?? 'circle';
-  const [isDark, setIsDark] = useState(false);
+  const { theme: observedTheme, setTheme: setObservedTheme } = useAppTheme();
+  const isDark = (theme ?? observedTheme) === 'dark';
   const buttonRef = useRef(null);
-
-  useEffect(() => {
-    if (theme) {
-      setIsDark(theme === 'dark');
-      return;
-    }
-
-    const updateTheme = () => {
-      setIsDark(document.documentElement.classList.contains('dark'));
-    };
-
-    updateTheme();
-
-    const observer = new MutationObserver(updateTheme);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-
-    return () => observer.disconnect();
-  }, [theme]);
 
   const toggleTheme = useCallback(() => {
     const button = buttonRef.current;
@@ -122,10 +103,8 @@ export default function ThemeToggler({ className, duration = 400, variant, fromC
     const applyThemeChange = () => {
       const nextTheme = targetTheme ?? (isDark ? 'light' : 'dark');
       if (nextTheme === (isDark ? 'dark' : 'light')) return;
-      setIsDark(nextTheme === 'dark');
-      document.documentElement.classList.toggle('dark', nextTheme === 'dark');
-      document.documentElement.style.colorScheme = nextTheme;
-      onThemeChange?.(nextTheme);
+      if (onThemeChange) onThemeChange(nextTheme);
+      else setObservedTheme(nextTheme);
     };
 
     if (typeof document.startViewTransition !== 'function') {
@@ -172,7 +151,7 @@ export default function ThemeToggler({ className, duration = 400, variant, fromC
         );
       });
     }
-  }, [shape, fromCenter, duration, isDark, targetTheme, onThemeChange]);
+  }, [shape, fromCenter, duration, isDark, targetTheme, onThemeChange, setObservedTheme]);
 
   return (
     <button type="button" ref={buttonRef} onClick={toggleTheme} className={className} {...props}>
