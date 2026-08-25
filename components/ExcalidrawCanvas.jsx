@@ -17,12 +17,33 @@ const getConvertFunction = async () => {
   return excalidrawModule.convertToExcalidrawElements;
 };
 
-export default function ExcalidrawCanvas({ elements, onElementsChange }) {
+export default function ExcalidrawCanvas({
+  elements,
+  onElementsChange,
+  appState,
+  files,
+  onSceneChange,
+}) {
   const [convertToExcalidrawElements, setConvertFunction] = useState(null);
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   // 画布随全站明暗切换：theme 传给 Excalidraw，并纳入 remount key 保证背景色同步
   const { theme } = useAppTheme();
   const isDark = theme === 'dark';
+  const hasPersistedAppState = Boolean(appState && [
+    'scrollX',
+    'scrollY',
+    'zoom',
+    'viewModeEnabled',
+  ].some((key) => Object.hasOwn(appState, key)));
+
+  // Keep the existing theme defaults, while allowing a persisted scene to
+  // restore any additional Excalidraw app state (zoom, viewport, selections,
+  // and so on). Explicit values from the caller take precedence.
+  const initialAppState = useMemo(() => ({
+    viewBackgroundColor: isDark ? '#1c1c1c' : '#ffffff',
+    currentItemFontFamily: 1,
+    ...appState,
+  }), [appState, isDark]);
 
   // Load convert function on mount
   useEffect(() => {
@@ -50,7 +71,7 @@ export default function ExcalidrawCanvas({ elements, onElementsChange }) {
 
   // Auto zoom to fit content when API is ready and elements change
   useEffect(() => {
-    if (excalidrawAPI && convertedElements.length > 0) {
+    if (excalidrawAPI && convertedElements.length > 0 && !hasPersistedAppState) {
       // Small delay to ensure elements are rendered
       setTimeout(() => {
         excalidrawAPI.scrollToContent(convertedElements, {
@@ -60,7 +81,7 @@ export default function ExcalidrawCanvas({ elements, onElementsChange }) {
         });
       }, 100);
     }
-  }, [excalidrawAPI, convertedElements]);
+  }, [excalidrawAPI, convertedElements, hasPersistedAppState]);
 
   // Generate unique key when elements change to force remount
   const canvasKey = useMemo(() => {
@@ -78,13 +99,21 @@ export default function ExcalidrawCanvas({ elements, onElementsChange }) {
         theme={isDark ? 'dark' : 'light'}
         initialData={{
           elements: convertedElements,
-          appState: {
-            viewBackgroundColor: isDark ? '#1c1c1c' : '#ffffff',
-            currentItemFontFamily: 1,
-          },
-          scrollToContent: true,
+          appState: initialAppState,
+          ...(files === undefined ? {} : { files }),
+          scrollToContent: !hasPersistedAppState,
         }}
-        onChange={(nextElements) => onElementsChange?.(nextElements)}
+        onChange={(nextElements, nextAppState, nextFiles) => {
+          // Preserve the original callback contract for existing callers.
+          onElementsChange?.(nextElements);
+          // Expose one canonical scene object to persistence consumers while
+          // keeping the legacy element-only callback above unchanged.
+          onSceneChange?.({
+            elements: nextElements,
+            appState: nextAppState,
+            files: nextFiles,
+          });
+        }}
       />
     </div>
   );

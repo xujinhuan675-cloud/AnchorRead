@@ -27,6 +27,10 @@ test('diagram sources keep Mermaid fences and Excalidraw arrays valid', () => {
   assert.equal(finalizeDiagramSource('mermaid', '```mermaid\ngraph TD\nA-->B\n```'), 'graph TD\nA-->B');
   const source = finalizeDiagramSource('excalidraw', '```json\n[{"type":"text","text":"支付"}]\n```');
   assert.deepEqual(parseExcalidrawElements(source), [{ type: 'text', text: '支付' }]);
+  assert.deepEqual(
+    parseExcalidrawElements(JSON.stringify({ type: 'excalidraw', version: 2, elements: [{ id: 'node-1', type: 'rectangle' }] })),
+    [{ id: 'node-1', type: 'rectangle' }],
+  );
 });
 
 test('drawing ids are namespaced by document', () => {

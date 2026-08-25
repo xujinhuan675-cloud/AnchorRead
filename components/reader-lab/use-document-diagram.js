@@ -10,6 +10,16 @@ import {
   parseExcalidrawElements,
   postProcessExcalidrawCode,
 } from '@/lib/diagram-generation';
+import {
+  normalizeExcalidrawScene,
+  parseExcalidrawScene,
+} from '@/lib/excalidraw-scene';
+import {
+  commitDiagramScene,
+  createDiagramRevision,
+  getDiagramRevision,
+  restoreDiagramRevision,
+} from '@/lib/diagram-scene-record';
 import { createDiagramMetadata, DIAGRAM_SCOPES, switchDiagramVariant } from '@/lib/diagram-product';
 import { stripMermaidFence } from '@/lib/mermaid-prompts';
 
@@ -24,6 +34,16 @@ export function useDocumentDiagram({
   onClearAnchor,
   onNotice,
 }) {
+  const initialExcalidrawScene = (() => {
+    if (activeDrawing?.engine !== 'excalidraw') {
+      return normalizeExcalidrawScene([]);
+    }
+    try {
+      return parseExcalidrawScene(activeDrawing.scene || activeDrawing.variants?.excalidraw?.scene || activeDrawing.source || []);
+    } catch {
+      return normalizeExcalidrawScene([]);
+    }
+  })();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isApplyingCode, setIsApplyingCode] = useState(false);
   const [isOptimizingCode, setIsOptimizingCode] = useState(false);
@@ -32,8 +52,13 @@ export function useDocumentDiagram({
   const [chartType, setChartType] = useState(activeDrawing?.chartType || 'auto');
   const [code, setCode] = useState(activeDrawing?.source || '');
   const [elements, setElements] = useState(() => {
-    try { return activeDrawing?.engine === 'excalidraw' ? parseExcalidrawElements(activeDrawing.source) : []; } catch { return []; }
+    return initialExcalidrawScene.elements;
   });
+  const [appState, setAppState] = useState(() => initialExcalidrawScene.appState);
+  const [files, setFiles] = useState(() => initialExcalidrawScene.files);
+  const [revisionHistory, setRevisionHistory] = useState(() => (
+    Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []
+  ));
   const [error, setError] = useState('');
   const saveTimerRef = useRef(null);
   const draftDrawingRef = useRef(activeDrawing);
@@ -43,11 +68,17 @@ export function useDocumentDiagram({
     setEngine(activeDrawing?.engine || 'mermaid');
     setChartType(activeDrawing?.chartType || 'auto');
     setCode(activeDrawing?.source || '');
-    try {
-      setElements(activeDrawing?.engine === 'excalidraw' ? parseExcalidrawElements(activeDrawing.source) : []);
-    } catch {
-      setElements([]);
-    }
+    const nextScene = activeDrawing?.engine === 'excalidraw'
+      ? (() => {
+        try {
+          return parseExcalidrawScene(activeDrawing.scene || activeDrawing.variants?.excalidraw?.scene || activeDrawing.source || []);
+        } catch { return normalizeExcalidrawScene([]); }
+      })()
+      : normalizeExcalidrawScene([]);
+    setElements(nextScene.elements);
+    setAppState(nextScene.appState);
+    setFiles(nextScene.files);
+    setRevisionHistory(Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []);
   }, [activeDrawing]);
 
   useEffect(() => () => {
@@ -56,31 +87,76 @@ export function useDocumentDiagram({
 
   const persistCurrent = useCallback((changes = {}) => {
     if (!activeDrawing) return;
+    const recordChanges = { ...changes };
+    delete recordChanges.elements;
+    delete recordChanges.appState;
+    delete recordChanges.files;
+    delete recordChanges.scene;
     const baseDrawing = draftDrawingRef.current?.id === activeDrawing.id
       ? draftDrawingRef.current
       : activeDrawing;
     const nextEngine = changes.engine || engine;
     const nextSource = changes.source ?? code;
-    const next = {
-      ...baseDrawing,
-      engine: nextEngine,
-      chartType: changes.chartType || chartType,
-      source: nextSource,
-      variants: {
-        ...(baseDrawing.variants || {}),
-        [nextEngine]: {
-          source: nextSource,
-          chartType: changes.chartType || chartType,
-          updatedAt: Date.now(),
+    const nextElements = changes.elements ?? elements;
+    const nextAppState = changes.appState ?? appState;
+    const nextFiles = changes.files ?? files;
+    const nextScene = nextEngine === 'excalidraw'
+      ? normalizeExcalidrawScene({
+        elements: nextElements,
+        appState: nextAppState,
+        files: nextFiles,
+      })
+      : null;
+    const now = Date.now();
+    const shouldCommitScene = Boolean(
+      nextScene
+      && (Object.hasOwn(changes, 'elements')
+        || Object.hasOwn(changes, 'appState')
+        || Object.hasOwn(changes, 'files')),
+    );
+    let next;
+    if (shouldCommitScene) {
+      const metadataChanges = { ...recordChanges };
+      delete metadataChanges.engine;
+      delete metadataChanges.renderer;
+      delete metadataChanges.source;
+      next = commitDiagramScene(baseDrawing, nextScene, {
+        expectedRevision: getDiagramRevision(baseDrawing),
+        author: 'user',
+        reason: changes.reason || 'edit',
+        now,
+      });
+      next = {
+        ...next,
+        chartType: changes.chartType || chartType,
+        ...metadataChanges,
+        updatedAt: now,
+      };
+    } else {
+      next = {
+        ...baseDrawing,
+        engine: nextEngine,
+        chartType: changes.chartType || chartType,
+        source: nextSource,
+        scene: nextScene,
+        variants: {
+          ...(baseDrawing.variants || {}),
+          [nextEngine]: {
+            source: nextSource,
+            ...(nextScene ? { scene: nextScene } : {}),
+            chartType: changes.chartType || chartType,
+            updatedAt: now,
+          },
         },
-      },
-      ...changes,
-      updatedAt: Date.now(),
-    };
+        ...recordChanges,
+        updatedAt: now,
+      };
+    }
     draftDrawingRef.current = next;
+    setRevisionHistory(Array.isArray(next.revisionHistory) ? next.revisionHistory : []);
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => onPersistDrawing(next), 400);
-  }, [activeDrawing, chartType, code, engine, onPersistDrawing]);
+  }, [activeDrawing, appState, chartType, code, elements, engine, files, onPersistDrawing]);
 
   // anchorOverride：划词图解不跳转，锚点在同一次调用里随参数传入，
   // 不等 hook 的 anchor prop 下一帧生效
@@ -141,6 +217,9 @@ export function useDocumentDiagram({
       }
       const finalCode = finalizeDiagramSource(nextEngine, accumulated);
       const nextElements = nextEngine === 'excalidraw' ? parseExcalidrawElements(finalCode) : [];
+      const nextScene = nextEngine === 'excalidraw'
+        ? normalizeExcalidrawScene({ elements: nextElements })
+        : null;
       const scope = generationOptions.scope
         || (effectiveAnchor ? DIAGRAM_SCOPES.selection : document?.standaloneDiagram ? DIAGRAM_SCOPES.freeform : DIAGRAM_SCOPES.articleOverview);
       const metadata = createDiagramMetadata({
@@ -155,16 +234,29 @@ export function useDocumentDiagram({
           ? '全文概览'
           : scope === DIAGRAM_SCOPES.selection
             ? '局部图解'
-            : (nextChartType || '图解');
+          : (nextChartType || '图解');
+      const drawingId = createDocumentDrawingId(document.id);
+      const generatedRevision = nextScene
+        ? createDiagramRevision({
+          drawingId,
+          revision: 1,
+          scene: nextScene,
+          author: 'agent',
+          reason: 'generate',
+        })
+        : null;
       const drawing = {
-        id: createDocumentDrawingId(document.id),
+        id: drawingId,
         documentId: document.id,
         title: `${titlePrefix} · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
         ...metadata,
         source: finalCode,
+        ...(nextScene ? { scene: nextScene } : {}),
+        ...(generatedRevision ? { revision: 1, revisionHistory: [generatedRevision] } : {}),
         variants: {
           [nextEngine]: {
             source: finalCode,
+            ...(nextScene ? { scene: nextScene } : {}),
             chartType: metadata.chartType,
             updatedAt: Date.now(),
           },
@@ -176,6 +268,9 @@ export function useDocumentDiagram({
       };
       setCode(finalCode);
       setElements(nextElements);
+      setAppState(nextScene?.appState || {});
+      setFiles(nextScene?.files || {});
+      setRevisionHistory(generatedRevision ? [generatedRevision] : []);
       await onCreateDrawing(drawing);
       onClearAnchor?.();
       historyManager.addHistory({
@@ -200,7 +295,7 @@ export function useDocumentDiagram({
     try {
       const nextElements = engine === 'excalidraw' ? parseExcalidrawElements(code) : [];
       setElements(nextElements);
-      persistCurrent({ source: code });
+      persistCurrent({ source: code, elements: nextElements });
     } catch (caughtError) {
       setError(caughtError.message);
     } finally {
@@ -213,8 +308,9 @@ export function useDocumentDiagram({
     try {
       const optimized = finalizeDiagramSource('excalidraw', code);
       setCode(optimized);
-      setElements(parseExcalidrawElements(optimized));
-      persistCurrent({ engine: 'excalidraw', source: optimized });
+      const nextElements = parseExcalidrawElements(optimized);
+      setElements(nextElements);
+      persistCurrent({ engine: 'excalidraw', source: optimized, elements: nextElements });
     } catch (caughtError) {
       setError(caughtError.message);
     } finally {
@@ -234,12 +330,30 @@ export function useDocumentDiagram({
     setEngine(nextVariant.engine);
     setChartType(nextVariant.chartType);
     setCode(nextVariant.source);
+    let nextElements = [];
+    let nextAppState = normalizeExcalidrawScene([]).appState;
+    let nextFiles = {};
     if (nextVariant.engine === 'excalidraw' && nextVariant.source) {
-      try { setElements(parseExcalidrawElements(nextVariant.source)); } catch { setElements([]); }
-    } else {
-      setElements([]);
+      try {
+        const nextScene = parseExcalidrawScene(nextVariant.scene || nextVariant.source);
+        nextElements = nextScene.elements;
+        nextAppState = nextScene.appState;
+        nextFiles = nextScene.files;
+      } catch {
+        nextElements = [];
+      }
     }
-    persistCurrent(nextVariant);
+    setElements(nextElements);
+    setAppState(nextAppState);
+    setFiles(nextFiles);
+    persistCurrent({
+      engine: nextVariant.engine,
+      source: nextVariant.source,
+      chartType: nextVariant.chartType,
+      elements: nextElements,
+      appState: nextAppState,
+      files: nextFiles,
+    });
   };
 
   const changeChartType = (nextChartType) => {
@@ -255,7 +369,9 @@ export function useDocumentDiagram({
   const clearCode = () => {
     setCode('');
     setElements([]);
-    persistCurrent({ source: '' });
+    setAppState(normalizeExcalidrawScene([]).appState);
+    setFiles({});
+    persistCurrent({ source: '', elements: [], appState: normalizeExcalidrawScene([]).appState, files: {} });
   };
 
   const changeElements = (nextElements) => {
@@ -264,9 +380,45 @@ export function useDocumentDiagram({
     // Excalidraw 会在初始化/规范化时重复触发 onChange，内容未变时不再回写，避免持久化循环
     if (source !== code) {
       setCode(source);
-      persistCurrent({ source });
+      persistCurrent({ source, elements: nextElements });
     }
   };
+
+  const changeScene = (nextScene) => {
+    const normalized = normalizeExcalidrawScene(nextScene);
+    const source = JSON.stringify(normalized.elements, null, 2);
+    setElements(normalized.elements);
+    setAppState(normalized.appState);
+    setFiles(normalized.files);
+    setCode(source);
+    persistCurrent({
+      source,
+      elements: normalized.elements,
+      appState: normalized.appState,
+      files: normalized.files,
+    });
+  };
+
+  const restoreRevision = useCallback((revisionOrId) => {
+    const baseDrawing = draftDrawingRef.current || activeDrawing;
+    if (!baseDrawing || engine !== 'excalidraw') return;
+    try {
+      const next = restoreDiagramRevision(baseDrawing, revisionOrId, {
+        expectedRevision: getDiagramRevision(baseDrawing),
+        author: 'user',
+        now: Date.now(),
+      });
+      draftDrawingRef.current = next;
+      setElements(next.scene.elements);
+      setAppState(next.scene.appState);
+      setFiles(next.scene.files);
+      setCode(next.source);
+      setRevisionHistory(next.revisionHistory || []);
+      onPersistDrawing(next);
+    } catch (caughtError) {
+      setError(caughtError.message || '图解版本恢复失败。');
+    }
+  }, [activeDrawing, engine, onPersistDrawing]);
 
   return {
     engine,
@@ -274,6 +426,10 @@ export function useDocumentDiagram({
     setChartType: changeChartType,
     code,
     elements,
+    appState,
+    files,
+    revision: getDiagramRevision(draftDrawingRef.current || activeDrawing),
+    revisionHistory,
     error,
     setError,
     isGenerating,
@@ -286,5 +442,7 @@ export function useDocumentDiagram({
     changeCode,
     clearCode,
     changeElements,
+    changeScene,
+    restoreRevision,
   };
 }
