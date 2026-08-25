@@ -57,3 +57,28 @@ test('applies live browser patches with optimistic revision checks', async () =>
   );
 });
 
+test('migrated canvas tools operate on the browser workspace and retain named snapshots', async () => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Canvas tools',
+      engine: 'excalidraw',
+      scene: { elements: [
+        { id: 'a', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 },
+        { id: 'b', type: 'rectangle', x: 60, y: 0, width: 20, height: 20 },
+      ] },
+    },
+  }, { repository: workspace, now: 100 });
+  const grouped = await executeDiagramAgentCommand({ tool: 'group_elements', args: { id: created.id, elementIds: ['a', 'b'], groupId: 'g1', expectedRevision: 1 } }, { repository: workspace, now: 110 });
+  assert.equal(grouped.groupId, 'g1');
+  const duplicated = await executeDiagramAgentCommand({ tool: 'duplicate_elements', args: { id: created.id, elementIds: ['a', 'b'], expectedRevision: 2 } }, { repository: workspace, now: 120 });
+  assert.equal(duplicated.elements.length, 2);
+  const snap = await executeDiagramAgentCommand({ tool: 'snapshot_scene', args: { id: created.id, name: 'grouped' } }, { repository: workspace, now: 130 });
+  assert.equal(snap.snapshots[0].name, 'grouped');
+  const unlocked = await executeDiagramAgentCommand({ tool: 'unlock_elements', args: { id: created.id, elementIds: ['a', 'b'], expectedRevision: 3 } }, { repository: workspace, now: 140 });
+  assert.equal(unlocked.revision, 4);
+  const restored = await executeDiagramAgentCommand({ tool: 'restore_snapshot', args: { id: created.id, name: 'grouped', expectedRevision: 4 } }, { repository: workspace, now: 150 });
+  assert.equal(restored.revision, 5);
+  assert.deepEqual(restored.scene.elements.find((item) => item.id === 'a').groupIds, ['g1']);
+});

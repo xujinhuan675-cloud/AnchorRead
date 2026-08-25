@@ -1,11 +1,6 @@
 import { NextResponse } from 'next/server';
-import {
-  claimDiagramAgentRequests,
-  cancelDiagramAgentRequest,
-  createDiagramAgentRequest,
-  resolveDiagramAgentRequest,
-  waitForDiagramAgentRequests,
-} from '@/lib/diagram-agent-broker';
+import { getDiagramAgentTransport } from '@/lib/diagram-agent-transport';
+import { getDiagramMcpPairingStore } from '@/lib/diagram-mcp-pairing-store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,13 +17,30 @@ function isLoopback(request) {
   return new Set(['localhost', '127.0.0.1', '::1']).has(requestHostname(request));
 }
 
+function isSameOriginBrowserRequest(request) {
+  const origin = String(request.headers.get('origin') || '').trim();
+  if (origin) {
+    try {
+      return origin === new URL(request.url).origin;
+    } catch {
+      return false;
+    }
+  }
+  // Fetch metadata headers are browser-controlled and cannot be set by a
+  // cross-origin page. Same-origin polling therefore works on a deployed
+  // AnchorRead host without opening the queue to arbitrary servers.
+  return request.headers.get('sec-fetch-site') === 'same-origin';
+}
+
 function authorized(request, action) {
-  // This bridge deliberately serves the local Codex + local browser loop only.
-  // A deployed AnchorRead instance must not expose a browser command queue.
+  // Poll/resolve are browser-side operations. They may run on the deployed
+  // AnchorRead origin, while command submission remains token protected.
+  const remoteBridgeEnabled = String(process.env.ANCHORREAD_DIAGRAM_REMOTE_BRIDGE || '').toLowerCase() === 'true';
+  if (!isLoopback(request) && remoteBridgeEnabled && ['poll', 'register', 'unregister', 'resolve'].includes(action) && isSameOriginBrowserRequest(request)) return true;
   if (!isLoopback(request)) return false;
   const expected = String(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN || '').trim();
   const supplied = String(request.headers.get('x-anchorread-bridge-token') || '').trim();
-  if (action === 'poll' || action === 'resolve') return true;
+  if (['poll', 'register', 'unregister', 'resolve'].includes(action)) return true;
   if (expected) return supplied === expected;
   return true;
 }
@@ -37,16 +49,67 @@ function jsonError(message, status = 400, code = 'BRIDGE_ERROR') {
   return NextResponse.json({ ok: false, error: message, code }, { status });
 }
 
+function pairingContext(request, values = {}) {
+  return {
+    workspaceId: values.workspaceId || '',
+    browserSessionId: values.browserSessionId || '',
+    tabId: values.tabId || '',
+    clientId: values.clientId || '',
+    href: values.href || '',
+    managementSecret: request.headers.get('x-anchorread-session-secret') || '',
+  };
+}
+
+function pairingError(error) {
+  const code = String(error?.code || 'PAIRING_ERROR');
+  const status = code === 'CONNECTION_REPLACED' ? 409 : (code === 'BROWSER_SESSION_OFFLINE' ? 503 : 403);
+  return jsonError(String(error?.message || error), status, code);
+}
+
 export async function GET(request) {
   const url = new URL(request.url);
   const action = url.searchParams.get('action') || 'poll';
   if (!authorized(request, action)) return jsonError('Diagram bridge authorization failed.', 401, 'UNAUTHORIZED');
-  if (action !== 'poll') return jsonError(`Unsupported diagram bridge GET action: ${action}`);
   const clientId = url.searchParams.get('clientId') || '';
+  const tabId = url.searchParams.get('tabId') || '';
+  const workspaceId = url.searchParams.get('workspaceId') || '';
+  const browserSessionId = url.searchParams.get('browserSessionId') || '';
+  const visible = url.searchParams.get('visible') !== 'false';
+  const focused = url.searchParams.get('focused') !== 'false';
+  const href = url.searchParams.get('href') || '';
+  const context = pairingContext(request, { clientId, tabId, workspaceId, browserSessionId, href });
+  const store = getDiagramMcpPairingStore();
+  const transport = getDiagramAgentTransport();
+  if (action === 'register') {
+    try {
+      const connection = await store.registerConnection(context, { replace: false });
+      return NextResponse.json({
+        ok: true,
+        connection,
+        client: await transport.registerClient(clientId, { tabId, workspaceId, browserSessionId, visible, focused, href }),
+      });
+    } catch (error) {
+      return pairingError(error);
+    }
+  }
+  if (action === 'unregister') {
+    try {
+      const disconnected = await store.disconnectConnection(context);
+      return NextResponse.json({ ok: true, disconnected, removed: await transport.unregisterClient(clientId) });
+    } catch (error) {
+      return pairingError(error);
+    }
+  }
+  if (action !== 'poll') return jsonError(`Unsupported diagram bridge GET action: ${action}`);
+  try {
+    await store.registerConnection(context, { replace: false });
+  } catch (error) {
+    return pairingError(error);
+  }
   const waitMs = Math.max(0, Math.min(Number(url.searchParams.get('waitMs')) || 0, 25_000));
   const requests = waitMs
-    ? await waitForDiagramAgentRequests(clientId, { waitMs })
-    : claimDiagramAgentRequests(clientId);
+    ? await transport.waitForRequests(clientId, { waitMs, client: { tabId, workspaceId, browserSessionId, visible, focused, href } })
+    : await transport.claimRequests(clientId, { client: { tabId, workspaceId, browserSessionId, visible, focused, href } });
   return NextResponse.json({ ok: true, requests });
 }
 
@@ -65,13 +128,14 @@ export async function POST(request) {
       return jsonError('A diagram bridge request must include tool and args.');
     }
     try {
-      const { id, promise } = createDiagramAgentRequest(command, { ttlMs: body?.ttlMs });
+      const transport = getDiagramAgentTransport();
+      const { id, promise } = await transport.createRequest(command, { ttlMs: body?.ttlMs });
       const timeoutMs = Math.max(1_000, Math.min(Number(body?.timeoutMs) || 45_000, 120_000));
       const timeout = new Promise((_, reject) => {
         const timer = setTimeout(() => {
           const error = new Error('No open AnchorRead browser claimed the diagram request before timeout.');
           error.code = 'BRIDGE_TIMEOUT';
-          cancelDiagramAgentRequest(id, error);
+          transport.cancelRequest(id, error);
           reject(error);
         }, timeoutMs);
         timer.unref?.();
@@ -84,7 +148,12 @@ export async function POST(request) {
     }
   }
   if (action === 'resolve') {
-    const accepted = resolveDiagramAgentRequest(
+    try {
+      await getDiagramMcpPairingStore().assertConnectionOwner(pairingContext(request, body));
+    } catch (error) {
+      return pairingError(error);
+    }
+    const accepted = await getDiagramAgentTransport().resolveRequest(
       body?.id,
       body?.claimToken,
       body?.error ? undefined : body?.result,

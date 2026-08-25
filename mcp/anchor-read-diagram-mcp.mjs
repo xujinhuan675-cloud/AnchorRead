@@ -23,7 +23,20 @@
 
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { applyScenePatch, describeScene, querySceneElements } from '../lib/excalidraw-scene-ops.js';
+import {
+  applyScenePatch,
+  alignScene,
+  createSceneSnapshot,
+  describeScene,
+  duplicateScene,
+  distributeScene,
+  groupScene,
+  querySceneElements,
+  restoreSceneSnapshot,
+  setSceneElementsLocked,
+  setSceneViewport,
+  ungroupScene,
+} from '../lib/excalidraw-scene-ops.js';
 import { parseExcalidrawScene, serializeExcalidrawScene } from '../lib/excalidraw-scene.js';
 import {
   commitDiagramScene,
@@ -126,6 +139,39 @@ function writeDrawing(payload, nextDrawing) {
   };
 }
 
+function namedSnapshots(drawing) {
+  return Array.isArray(drawing?.namedSnapshots) ? drawing.namedSnapshots : [];
+}
+
+function snapshotSummary(drawing) {
+  return namedSnapshots(drawing).map(({ elements, appState, files, ...summary }) => summary);
+}
+
+function saveNamedSnapshot(drawing, scene, name) {
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) throw new Error('snapshot requires a non-empty name');
+  const snapshot = createSceneSnapshot(scene, { name: normalizedName, id: `${drawing.id}:snapshot:${normalizedName}` });
+  return {
+    ...drawing,
+    namedSnapshots: [...namedSnapshots(drawing).filter((item) => item.name !== normalizedName), snapshot],
+    updatedAt: Date.now(),
+  };
+}
+
+function findNamedSnapshot(drawing, name) {
+  const target = String(name || '').trim();
+  const snapshot = namedSnapshots(drawing).find((item) => item.name === target || item.id === target);
+  if (!snapshot) throw new Error(`Diagram snapshot not found: ${target}`);
+  return snapshot;
+}
+
+function applyRequestedScenePatch(scene, patch = {}) {
+  let next = applyScenePatch(scene, patch);
+  if (patch.align) next = alignScene(next, patch.align);
+  if (patch.distribute) next = distributeScene(next, patch.distribute);
+  return next;
+}
+
 const BASE_TOOLS = [
   {
     name: 'list_diagrams',
@@ -163,6 +209,11 @@ const BASE_TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
   },
   {
+    name: 'list_diagram_snapshots',
+    description: '列出图解中保存的命名快照。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  },
+  {
     name: 'export_excalidraw',
     description: '导出完整标准 .excalidraw JSON 文本，供文件保存或外部 Excalidraw 工具继续编辑。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
@@ -192,6 +243,74 @@ const CREATE_TOOL = {
 };
 
 const WRITE_TOOLS = [
+  {
+    name: 'group_elements',
+    description: '将多个元素加入同一个 Excalidraw 分组。',
+    inputSchema: {
+      type: 'object', properties: {
+        id: { type: 'string' }, elementIds: { type: 'array', items: { type: 'string' }, minItems: 2 }, groupId: { type: 'string' },
+        expectedRevision: { type: 'number' }, author: { type: 'string' },
+      }, required: ['id', 'elementIds'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'ungroup_elements',
+    description: '移除指定 groupId，或移除指定元素上的分组。',
+    inputSchema: {
+      type: 'object', properties: {
+        id: { type: 'string' }, elementIds: { type: 'array', items: { type: 'string' } }, groupId: { type: 'string' },
+        expectedRevision: { type: 'number' }, author: { type: 'string' },
+      }, required: ['id'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'lock_elements',
+    description: '锁定元素，防止画布中的后续编辑误改。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, elementIds: { type: 'array', items: { type: 'string' } }, expectedRevision: { type: 'number' } }, required: ['id', 'elementIds'], additionalProperties: false },
+  },
+  {
+    name: 'unlock_elements',
+    description: '解除元素锁定。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, elementIds: { type: 'array', items: { type: 'string' } }, expectedRevision: { type: 'number' } }, required: ['id', 'elementIds'], additionalProperties: false },
+  },
+  {
+    name: 'duplicate_elements',
+    description: '复制指定元素，可设置平移偏移量，并保留复制组内箭头绑定。',
+    inputSchema: {
+      type: 'object', properties: {
+        id: { type: 'string' }, elementIds: { type: 'array', items: { type: 'string' }, minItems: 1 }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, expectedRevision: { type: 'number' },
+      }, required: ['id', 'elementIds'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'snapshot_scene',
+    description: '保存当前图解的命名快照，快照留在 AnchorRead 工作区中。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } }, required: ['id', 'name'], additionalProperties: false },
+  },
+  {
+    name: 'restore_snapshot',
+    description: '将当前图解恢复到命名快照，并创建新的 revision。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, expectedRevision: { type: 'number' } }, required: ['id', 'name'], additionalProperties: false },
+  },
+  {
+    name: 'set_viewport',
+    description: '控制图解视口：适配全部元素、聚焦元素或设置 zoom/scroll。',
+    inputSchema: {
+      type: 'object', properties: {
+        id: { type: 'string' }, scrollToContent: { type: 'boolean' }, scrollToElementIds: { type: 'array', items: { type: 'string' } }, scrollToElementId: { type: 'string' }, viewportZoomFactor: { type: 'number' }, zoom: { type: 'number' }, scrollX: { type: 'number' }, scrollY: { type: 'number' }, expectedRevision: { type: 'number' },
+      }, required: ['id'], additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_canvas_screenshot',
+    description: '从当前 AnchorRead 浏览器画布捕获 PNG，供模型进行视觉验收。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  },
+  {
+    name: 'share_diagram',
+    description: '生成当前 AnchorRead 图解的本地路由链接；不上传到第三方服务。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  },
   {
     name: 'apply_diagram_patch',
     description: '以 revision 乐观锁提交元素 create/update/delete/align/distribute patch。',
@@ -277,12 +396,69 @@ async function callTool(name, args = {}) {
       return textResult(querySceneElements(getDrawingScene(getDrawing(payload, args.id)), args.filters || {}));
     case 'list_diagram_revisions':
       return textResult(listDiagramRevisions(getDrawing(payload, args.id)));
+    case 'list_diagram_snapshots':
+      return textResult(snapshotSummary(getDrawing(payload, args.id)));
     case 'export_excalidraw':
       return textResult(serializeExcalidrawScene(getDrawingScene(getDrawing(payload, args.id))));
+    case 'group_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const result = groupScene(getDrawingScene(drawing), { ids: args.elementIds, groupId: args.groupId });
+      const nextDrawing = commitDiagramScene(drawing, result.scene, { ...args, reason: 'group-elements' });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, groupId: result.groupId, scene: nextDrawing.scene });
+    }
+    case 'ungroup_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const result = ungroupScene(getDrawingScene(drawing), { ids: args.elementIds, groupId: args.groupId });
+      const nextDrawing = commitDiagramScene(drawing, result.scene, { ...args, reason: 'ungroup-elements' });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, scene: nextDrawing.scene });
+    }
+    case 'lock_elements':
+    case 'unlock_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = setSceneElementsLocked(getDrawingScene(drawing), { ids: args.elementIds, locked: name === 'lock_elements' });
+      const nextDrawing = commitDiagramScene(drawing, scene, { ...args, reason: name });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, scene: nextDrawing.scene });
+    }
+    case 'duplicate_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const result = duplicateScene(getDrawingScene(drawing), args);
+      const nextDrawing = commitDiagramScene(drawing, result.scene, { ...args, reason: 'duplicate-elements' });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, elements: result.elements, scene: nextDrawing.scene });
+    }
+    case 'snapshot_scene': {
+      const drawing = getDrawing(payload, args.id);
+      const nextDrawing = saveNamedSnapshot(drawing, getDrawingScene(drawing), args.name);
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, snapshots: snapshotSummary(nextDrawing) });
+    }
+    case 'restore_snapshot': {
+      const drawing = getDrawing(payload, args.id);
+      const snapshot = findNamedSnapshot(drawing, args.name);
+      const nextDrawing = commitDiagramScene(drawing, restoreSceneSnapshot(snapshot), { ...args, reason: `restore-snapshot:${snapshot.name}` });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, snapshot: snapshot.name, scene: nextDrawing.scene });
+    }
+    case 'set_viewport': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = setSceneViewport(getDrawingScene(drawing), args);
+      const nextDrawing = commitDiagramScene(drawing, scene, { ...args, reason: 'set-viewport' });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, appState: nextDrawing.scene.appState });
+    }
+    case 'share_diagram': {
+      const drawing = getDrawing(payload, args.id);
+      return textResult({ routeId: drawing.routeId, url: `/diagrams/${encodeURIComponent(drawing.routeId)}`, local: true });
+    }
+    case 'get_canvas_screenshot':
+      throw new Error('get_canvas_screenshot requires live browser mode.');
     case 'apply_diagram_patch': {
       const drawing = getDrawing(payload, args.id);
       const currentScene = getDrawingScene(drawing);
-      const patchedScene = applyScenePatch(currentScene, args.patch || {});
+      const patchedScene = applyRequestedScenePatch(currentScene, args.patch || {});
       const nextDrawing = commitDiagramScene(drawing, patchedScene, args);
       await writeWorkspace(writeDrawing(payload, nextDrawing));
       return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, scene: nextDrawing.scene });
