@@ -101,6 +101,7 @@ import {
   isDiagramRouteId,
   normalizeDiagramRouteIds,
 } from '@/lib/diagram-route-id';
+import { DIAGRAM_AGENT_DRAWING_EVENT } from '@/components/DiagramAgentBridge';
 import {
   ensureDocumentRouteId,
   findDocumentByRouteId,
@@ -1518,6 +1519,22 @@ export default function ReaderLabWorkspace({
   const persistDrawing = useCallback(async (drawing) => {
     await workspaceRepository.drawings.save(drawing);
     setDrawings((current) => current.map((item) => item.id === drawing.id ? drawing : item));
+  }, []);
+
+  // 全局浏览器桥接已把命令落到 IndexedDB；工作台只同步内存状态，避免任何文件中转。
+  useEffect(() => {
+    const handleDrawing = (event) => {
+      const drawing = event.detail?.drawing;
+      if (!drawing?.id) return;
+      setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
+      if (event.detail?.open) {
+        setActiveDrawingId(drawing.id);
+        setHomeStarted(true);
+        setRightPanelView('diagram');
+      }
+    };
+    window.addEventListener(DIAGRAM_AGENT_DRAWING_EVENT, handleDrawing);
+    return () => window.removeEventListener(DIAGRAM_AGENT_DRAWING_EVENT, handleDrawing);
   }, []);
 
   // 重命名图解：只改标题与更新时间，走与 persistDrawing 同一存储通道
