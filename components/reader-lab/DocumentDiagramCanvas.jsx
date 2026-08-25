@@ -1,11 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { FileCode2, PanelRightOpen } from 'lucide-react';
+import { Download, FileCode2, History, PanelRightOpen, Upload } from 'lucide-react';
 import CodeEditor from '@/components/CodeEditor';
 import MermaidCanvas from '@/components/MermaidCanvas';
 import { useLocale } from '@/components/LocaleProvider';
+import {
+  parseExcalidrawScene,
+  serializeExcalidrawScene,
+} from '@/lib/excalidraw-scene';
 
 const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), { ssr: false });
 
@@ -15,11 +19,17 @@ const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), 
 export default function DocumentDiagramCanvas({ diagram, showCode, standalone = false, onOpenChat = null }) {
   const { t } = useLocale();
   const [codeOpen, setCodeOpen] = useState(false);
+  const [selectedRevision, setSelectedRevision] = useState('');
+  const fileInputRef = useRef(null);
   const isCodeVisible = typeof showCode === 'boolean' ? showCode : codeOpen;
   const {
     engine,
     code,
     elements,
+    appState,
+    files,
+    revision,
+    revisionHistory,
     error,
     setError,
     isGenerating,
@@ -29,8 +39,31 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     handleOptimize,
     changeCode,
     clearCode,
-    changeElements,
+    changeScene,
+    restoreRevision,
   } = diagram;
+
+  const exportExcalidraw = () => {
+    const scene = serializeExcalidrawScene({ elements, appState, files });
+    const blob = new Blob([scene], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${standalone ? 'anchor-read-freeform' : 'anchor-read-diagram'}.excalidraw`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importExcalidraw = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      changeScene(parseExcalidrawScene(await file.text()));
+    } catch (caughtError) {
+      setError(caughtError.message || t('diagram.importFailed'));
+    }
+  };
 
   // 源码开关：自管模式下才可切换，样式随宿主位置（头部图标位 / 悬浮文字钮）而变
   const canToggleCode = typeof showCode !== 'boolean';
@@ -78,7 +111,73 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
               ) : null}
             />
           )
-          : <ExcalidrawCanvas elements={elements} onElementsChange={changeElements} />}
+          : <ExcalidrawCanvas
+            elements={elements}
+            appState={appState}
+            files={files}
+            onSceneChange={changeScene}
+          />}
+        {engine === 'excalidraw' && (
+          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-md border border-stone-200 bg-white/95 p-0.5 shadow-sm backdrop-blur dark:border-stone-700 dark:bg-stone-900/95">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label={t('diagram.importExcalidraw')}
+              title={t('diagram.importExcalidraw')}
+              className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-300 dark:hover:bg-white/10 dark:hover:text-white"
+            >
+              <Upload size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={exportExcalidraw}
+              aria-label={t('diagram.exportExcalidraw')}
+              title={t('diagram.exportExcalidraw')}
+              className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-300 dark:hover:bg-white/10 dark:hover:text-white"
+            >
+              <Download size={15} aria-hidden="true" />
+            </button>
+            {revisionHistory?.length > 0 && (
+              <>
+                <select
+                  value={selectedRevision}
+                  onChange={(event) => setSelectedRevision(event.target.value)}
+                  aria-label={t('diagram.revisionSelect')}
+                  title={t('diagram.revisionSelect')}
+                  className="h-8 max-w-40 rounded px-1 text-[11px] text-stone-600 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:bg-stone-900 dark:text-stone-300"
+                >
+                  <option value="">v{revision || 0}</option>
+                  {[...revisionHistory].reverse().map((item) => (
+                    <option key={item.id} value={item.id}>
+                      v{item.revision} · {item.reason}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedRevision) return;
+                    restoreRevision(selectedRevision);
+                    setSelectedRevision('');
+                  }}
+                  disabled={!selectedRevision}
+                  aria-label={t('diagram.restoreRevision')}
+                  title={t('diagram.restoreRevision')}
+                  className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-40 dark:text-stone-300 dark:hover:bg-white/10 dark:hover:text-white"
+                >
+                  <History size={15} aria-hidden="true" />
+                </button>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".excalidraw,application/json"
+              className="hidden"
+              onChange={importExcalidraw}
+            />
+          </div>
+        )}
         {/* excalidraw 画布没有头部：源码开关仍悬浮在右下角，避开其自带的顶部按钮 */}
         {engine !== 'mermaid' && canToggleCode && sourceCodeButton('float')}
       </div>
