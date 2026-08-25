@@ -103,6 +103,11 @@ import {
 } from '@/lib/diagram-route-id';
 import { DIAGRAM_AGENT_DRAWING_EVENT } from '@/components/DiagramAgentBridge';
 import {
+  createBrowserTabId,
+  createDiagramSyncChannel,
+  isNewerDrawing,
+} from '@/lib/diagram-agent-session';
+import {
   ensureDocumentRouteId,
   findDocumentByRouteId,
   isDocumentRouteId,
@@ -347,6 +352,53 @@ export default function ReaderLabWorkspace({
     window.addEventListener(OPEN_GLOSSARY_EVENT, handleOpenGlossary);
     return () => window.removeEventListener(OPEN_GLOSSARY_EVENT, handleOpenGlossary);
   }, []);
+  // BroadcastChannel keeps sibling AnchorRead tabs convergent without turning
+  // IndexedDB into a server: the tab that owns the browser bridge writes once,
+  // and other tabs merge newer drawing records into their local view.
+  useEffect(() => {
+    const tabId = createBrowserTabId();
+    const channel = createDiagramSyncChannel();
+    diagramSyncRef.current = { tabId, channel };
+    if (!channel) return undefined;
+    const publishCurrentDrawings = () => {
+      for (const drawing of drawingsRef.current) {
+        channel.postMessage({
+          type: 'drawing-upsert',
+          sourceTabId: tabId,
+          drawing,
+          emittedAt: Date.now(),
+        });
+      }
+    };
+    channel.onmessage = (event) => {
+      const message = event.data || {};
+      if (!message || message.sourceTabId === tabId) return;
+      if (message.type === 'diagram-sync-hello') {
+        publishCurrentDrawings();
+        return;
+      }
+      if (message.type === 'drawing-remove') {
+        const drawingId = String(message.drawingId || '');
+        if (!drawingId) return;
+        setDrawings((current) => current.filter((drawing) => drawing.id !== drawingId));
+        return;
+      }
+      if (message.type !== 'drawing-upsert' || !message.drawing?.id) return;
+      setDrawings((current) => {
+        const index = current.findIndex((drawing) => drawing.id === message.drawing.id);
+        if (index < 0) return [message.drawing, ...current];
+        if (!isNewerDrawing(message.drawing, current[index])) return current;
+        const next = [...current];
+        next[index] = message.drawing;
+        return next;
+      });
+    };
+    channel.postMessage({ type: 'diagram-sync-hello', sourceTabId: tabId, emittedAt: Date.now() });
+    return () => {
+      channel.close();
+      diagramSyncRef.current = null;
+    };
+  }, []);
   const [ready, setReady] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [currentDocumentId, setCurrentDocumentId] = useState('');
@@ -402,6 +454,11 @@ export default function ReaderLabWorkspace({
   const [rightPanelView, setRightPanelView] = useState(requestedTool === 'diagram' ? 'diagram' : 'knowledge');
   const [drawings, setDrawings] = useState([]);
   const [activeDrawingId, setActiveDrawingId] = useState('');
+  const drawingsRef = useRef(drawings);
+  const diagramSyncRef = useRef(null);
+  useEffect(() => {
+    drawingsRef.current = drawings;
+  }, [drawings]);
   const [diagramAnchor, setDiagramAnchor] = useState(null);
   // 划词图解生成中的锚点：驱动选区下方的占位卡，完成后被正式图解卡替换
   const [pendingInlineDiagram, setPendingInlineDiagram] = useState(null);
@@ -1377,6 +1434,28 @@ export default function ReaderLabWorkspace({
   );
   const activeDrawing = currentDrawings.find((drawing) => drawing.id === activeDrawingId) || currentDrawings[0] || null;
 
+  const broadcastDrawing = useCallback((drawing) => {
+    const channel = diagramSyncRef.current?.channel;
+    if (!channel || !drawing?.id) return;
+    channel.postMessage({
+      type: 'drawing-upsert',
+      sourceTabId: diagramSyncRef.current.tabId,
+      drawing,
+      emittedAt: Date.now(),
+    });
+  }, []);
+
+  const broadcastDrawingRemoval = useCallback((drawingId) => {
+    const channel = diagramSyncRef.current?.channel;
+    if (!channel || !drawingId) return;
+    channel.postMessage({
+      type: 'drawing-remove',
+      sourceTabId: diagramSyncRef.current.tabId,
+      drawingId,
+      emittedAt: Date.now(),
+    });
+  }, []);
+
   const selectDrawing = useCallback((drawingId) => {
     const drawing = currentDrawings.find((item) => item.id === drawingId);
     if (drawing) onDiagramResolved(drawing);
@@ -1392,6 +1471,7 @@ export default function ReaderLabWorkspace({
     );
     const nextDrawing = ensureDiagramRouteId(drawing, usedRouteIds);
     await workspaceRepository.drawings.save(nextDrawing);
+    broadcastDrawing(nextDrawing);
     setDrawings((current) => [nextDrawing, ...current.filter((item) => item.id !== nextDrawing.id)]);
     setActiveDrawingId(nextDrawing.id);
     // 划词图解留在原文就地插入，不切到图解画布；其余入口照旧跳转展示
@@ -1402,7 +1482,7 @@ export default function ReaderLabWorkspace({
       onDiagramResolved(nextDrawing);
     }
     await saveSession(nextDrawing.documentId, { activeDrawingId: nextDrawing.id });
-  }, [drawings, onDiagramResolved, saveSession]);
+  }, [broadcastDrawing, drawings, onDiagramResolved, saveSession]);
 
   // 图解库通过 URL 传入目标，统一在工作区恢复选择、文档和新建空白图解。
   useEffect(() => {
@@ -1518,8 +1598,9 @@ export default function ReaderLabWorkspace({
 
   const persistDrawing = useCallback(async (drawing) => {
     await workspaceRepository.drawings.save(drawing);
+    broadcastDrawing(drawing);
     setDrawings((current) => current.map((item) => item.id === drawing.id ? drawing : item));
-  }, []);
+  }, [broadcastDrawing]);
 
   // 全局浏览器桥接已把命令落到 IndexedDB；工作台只同步内存状态，避免任何文件中转。
   useEffect(() => {
@@ -1543,17 +1624,19 @@ export default function ReaderLabWorkspace({
     if (!target || !title) return;
     const next = { ...target, title, updatedAt: Date.now() };
     await workspaceRepository.drawings.save(next);
+    broadcastDrawing(next);
     setDrawings((current) => current.map((item) => (item.id === drawingId ? next : item)));
-  }, [currentDrawings]);
+  }, [broadcastDrawing, currentDrawings]);
 
   const deleteDrawing = useCallback(async (drawingId) => {
     await workspaceRepository.drawings.remove(drawingId);
+    broadcastDrawingRemoval(drawingId);
     const remaining = currentDrawings.filter((drawing) => drawing.id !== drawingId);
     setDrawings((current) => current.filter((drawing) => drawing.id !== drawingId));
     setActiveDrawingId(remaining[0]?.id || '');
     onDiagramResolved(remaining[0] || null);
     await saveSession(diagramDocumentId, { activeDrawingId: remaining[0]?.id || '' });
-  }, [currentDrawings, diagramDocumentId, onDiagramResolved, saveSession]);
+  }, [broadcastDrawingRemoval, currentDrawings, diagramDocumentId, onDiagramResolved, saveSession]);
 
   const openDiagram = useCallback((drawingId) => {
     const drawing = currentDrawings.find((item) => item.id === drawingId);
