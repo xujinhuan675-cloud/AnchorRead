@@ -47,3 +47,6 @@ graphify-out/
 # 本地临时产物（提交拆分工件、调试输出、代码评审图谱）
 tmp-*
 .code-review-graph/
+
+# Local persistent MCP pairing data
+.anchorread-data/

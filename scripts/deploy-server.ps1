@@ -5,6 +5,7 @@ param(
   [string]$Branch = 'main',
   [string]$ContainerName = 'anchorread',
   [string]$ImageRepository = 'anchorread',
+  [string]$DataVolume = 'anchorread-data',
   [int]$HostPort = 3001,
   [int]$CandidatePort = 3002,
   [string]$HealthUrl = 'https://anchorread.flowguide.cc/',
@@ -44,6 +45,7 @@ if ($RemoteDir -notmatch '^/[a-zA-Z0-9._/-]+$') { throw 'RemoteDir must be an ab
 if ($Branch -notmatch '^[a-zA-Z0-9._/-]+$') { throw 'Branch contains unsupported characters.' }
 if ($ContainerName -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'ContainerName contains unsupported characters.' }
 if ($ImageRepository -notmatch '^[a-zA-Z0-9_./-]+$') { throw 'ImageRepository contains unsupported characters.' }
+if ($DataVolume -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'DataVolume contains unsupported characters.' }
 if ($HostPort -lt 1 -or $HostPort -gt 65535) { throw 'HostPort is outside the valid range.' }
 if ($CandidatePort -lt 1 -or $CandidatePort -gt 65535 -or $CandidatePort -eq $HostPort) {
   throw 'CandidatePort must be valid and different from HostPort.'
@@ -80,6 +82,7 @@ git checkout --detach '__COMMIT__'
 test "$(git rev-parse HEAD)" = '__COMMIT__'
 
 docker build --label 'org.opencontainers.image.revision=__COMMIT__' -t '__IMAGE_TAG__' .
+docker volume create '__DATA_VOLUME__' >/dev/null
 
 old_container='__CONTAINER__'
 candidate_container='__CONTAINER__-candidate-__SHORT_COMMIT__'
@@ -111,7 +114,7 @@ else
 fi
 
 docker rm -f "$candidate_container" >/dev/null 2>&1 || true
-docker run -d --name "$candidate_container" --env-file "$env_file" --restart no -p 127.0.0.1:__CANDIDATE_PORT__:3000 '__IMAGE_TAG__' >/dev/null
+docker run -d --name "$candidate_container" --env-file "$env_file" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart no -p 127.0.0.1:__CANDIDATE_PORT__:3000 '__IMAGE_TAG__' >/dev/null
 check_url http://127.0.0.1:__CANDIDATE_PORT__/
 docker rm -f "$candidate_container" >/dev/null
 
@@ -132,7 +135,7 @@ restore_rollback() {
   fi
 }
 
-if ! docker run -d --name "$old_container" --env-file "$env_file" --restart unless-stopped -p 127.0.0.1:__HOST_PORT__:3000 '__IMAGE_TAG__' >/dev/null; then
+if ! docker run -d --name "$old_container" --env-file "$env_file" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart unless-stopped -p 127.0.0.1:__HOST_PORT__:3000 '__IMAGE_TAG__' >/dev/null; then
   restore_rollback
   exit 1
 fi
@@ -153,6 +156,7 @@ $remoteScript = $remoteScript.Replace('__COMMIT__', $localCommit)
 $remoteScript = $remoteScript.Replace('__SHORT_COMMIT__', $shortCommit)
 $remoteScript = $remoteScript.Replace('__IMAGE_TAG__', $imageTag)
 $remoteScript = $remoteScript.Replace('__CONTAINER__', $ContainerName)
+$remoteScript = $remoteScript.Replace('__DATA_VOLUME__', $DataVolume)
 $remoteScript = $remoteScript.Replace('__HOST_PORT__', [string]$HostPort)
 $remoteScript = $remoteScript.Replace('__CANDIDATE_PORT__', [string]$CandidatePort)
 

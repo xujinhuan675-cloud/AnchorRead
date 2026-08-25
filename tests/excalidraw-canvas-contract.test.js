@@ -21,4 +21,6 @@ test('ExcalidrawCanvas accepts a complete persisted scene without breaking the l
   assert.match(componentSource, /onChange=\{\(nextElements,\s*nextAppState,\s*nextFiles\)\s*=>/u);
   assert.match(componentSource, /onElementsChange\?\.\(nextElements\)/u);
   assert.match(componentSource, /onSceneChange\?\.\(\{\s*elements:\s*nextElements,\s*appState:\s*nextAppState,\s*files:\s*nextFiles,/u);
+  assert.match(componentSource, /nextValue !== undefined\s*&&\s*nextValue !== null/u);
+  assert.doesNotMatch(componentSource, /Number\(current\?\.scrollX\)\s*!==\s*Number\(initialAppState\.scrollX\)/u);
 });
