@@ -24,7 +24,18 @@ export default function RootLayout({ children }) {
     <html lang="zh-CN" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        // Browser automation extensions may add data-* attributes before
+        // React hydrates; suppress that external attribute-only mismatch.
+        suppressHydrationWarning
       >
+        {/* Automa marks the body before React hydrates; remove only its probe attribute. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try {
+  document.body.removeAttribute("data-atm-ext-installed");
+} catch (e) {}`,
+          }}
+        />
         {/* 主题防闪烁脚本（移植自 infinite-canvas whiteboard index.html，存储键改为 anchor-read-theme）：
             在首帧渲染前按本地存储应用 dark 类，默认浅色 */}
         <script
