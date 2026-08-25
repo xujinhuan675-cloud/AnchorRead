@@ -1,9 +1,10 @@
 'use client';
 
-import { BookMarked, BookOpenText, Library, Menu, Network, Settings2, WandSparkles, X } from 'lucide-react';
+import { BookMarked, BookOpenText, Library, Menu, Network, PlugZap, Settings2, WandSparkles, X } from 'lucide-react';
 import { useState } from 'react';
 
 import ThemeToggler from './ThemeToggler';
+import McpConnectionPanel from './McpConnectionPanel';
 import { useLocale } from './LocaleProvider';
 import { useAppTheme } from '@/lib/theme';
 
@@ -24,6 +25,7 @@ const actionIconClass =
 export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onConfig = () => {}, onToolbarConfig = () => {}, onGlossary = () => {} }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
   // 语言状态集中在 LocaleProvider，切换后全站组件随上下文重渲染
   const { locale, t, setLocale } = useLocale();
   const { theme, setTheme } = useAppTheme();
@@ -104,6 +106,14 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                     >
                       <Settings2 size={14} className="shrink-0" />
                       {t('topNav.modelConfig')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSettingsOpen(false); setMcpOpen(true); }}
+                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 outline-none hover:bg-stone-50 dark:text-stone-300 dark:hover:bg-white/5"
+                    >
+                      <PlugZap size={14} className="shrink-0" />
+                      {t('topNav.mcpConnection')}
                     </button>
                     <button
                       type="button"
@@ -199,6 +209,11 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
           </div>
         </div>
       ) : null}
+      <McpConnectionPanel
+        isOpen={mcpOpen}
+        onClose={() => setMcpOpen(false)}
+        onOpenDiagrams={() => onNavigate('diagram')}
+      />
     </>
   );
 }
