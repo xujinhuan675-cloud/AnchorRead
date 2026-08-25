@@ -17,6 +17,28 @@ const getConvertFunction = async () => {
   return excalidrawModule.convertToExcalidrawElements;
 };
 
+function zoomValue(value) {
+  return value && typeof value === 'object' ? value.value : value;
+}
+
+function viewportValueChanged(currentAppState, nextAppState) {
+  const numericKeys = ['scrollX', 'scrollY'];
+  const positionChanged = numericKeys.some((key) => {
+    const nextValue = nextAppState?.[key];
+    // Missing viewport fields are valid for legacy scenes. Do not turn
+    // undefined into NaN: NaN !== NaN would create an update loop.
+    return nextValue !== undefined
+      && nextValue !== null
+      && currentAppState?.[key] !== nextValue;
+  });
+  const nextZoom = zoomValue(nextAppState?.zoom);
+  const currentZoom = zoomValue(currentAppState?.zoom);
+  const zoomChanged = nextZoom !== undefined
+    && nextZoom !== null
+    && currentZoom !== nextZoom;
+  return positionChanged || zoomChanged;
+}
+
 export default function ExcalidrawCanvas({
   elements,
   onElementsChange,
@@ -82,6 +104,19 @@ export default function ExcalidrawCanvas({
       }, 100);
     }
   }, [excalidrawAPI, convertedElements, hasPersistedAppState]);
+
+  // Apply a persisted viewport to an already-mounted Excalidraw instance.
+  // Remounting on every appState change would interrupt normal pan/zoom input,
+  // so only update the camera when the incoming values differ from the API.
+  useEffect(() => {
+    if (!excalidrawAPI || !hasPersistedAppState || typeof excalidrawAPI.updateScene !== 'function') return;
+    const current = typeof excalidrawAPI.getAppState === 'function'
+      ? excalidrawAPI.getAppState()
+      : null;
+    if (viewportValueChanged(current, initialAppState)) {
+      excalidrawAPI.updateScene({ appState: initialAppState });
+    }
+  }, [excalidrawAPI, hasPersistedAppState, initialAppState]);
 
   // Generate unique key when elements change to force remount
   const canvasKey = useMemo(() => {

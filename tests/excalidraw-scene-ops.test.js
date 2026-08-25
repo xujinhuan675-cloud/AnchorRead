@@ -6,6 +6,11 @@ import {
   createSceneSnapshot,
   describeScene,
   distributeScene,
+  duplicateScene,
+  groupScene,
+  setSceneElementsLocked,
+  setSceneViewport,
+  ungroupScene,
   getElementBounds,
   querySceneElements,
   restoreSceneSnapshot,
@@ -90,4 +95,30 @@ test('distribute spaces selected elements across their existing span', () => {
   };
   const distributed = distributeScene(current, { ids: ['a', 'b', 'c'] });
   assert.deepEqual(distributed.elements.map((element) => element.x), [0, 75, 140]);
+});
+
+test('groups, ungroups, locks, and duplicates elements without mutating source', () => {
+  const current = scene();
+  const grouped = groupScene(current, { ids: ['a', 'b'], groupId: 'g2' });
+  assert.equal(grouped.groupId, 'g2');
+  assert.deepEqual(grouped.scene.elements.find((item) => item.id === 'a').groupIds, ['g2']);
+  const ungrouped = ungroupScene(grouped.scene, { groupId: 'g2' });
+  assert.deepEqual(ungrouped.scene.elements.find((item) => item.id === 'a').groupIds, []);
+  const locked = setSceneElementsLocked(ungrouped.scene, { ids: ['a', 'b'] });
+  assert.equal(locked.elements.find((item) => item.id === 'a').locked, true);
+  const unlocked = setSceneElementsLocked(locked, { ids: ['a', 'b'], locked: false });
+  assert.equal(unlocked.elements.find((item) => item.id === 'a').locked, false);
+  const duplicated = duplicateScene(current, { ids: ['a', 'arrow'], offsetX: 10, offsetY: 5 });
+  assert.equal(duplicated.elements.length, 2);
+  assert.equal(duplicated.elements[0].x, 10);
+  assert.equal(duplicated.elements[1].startBinding.elementId, duplicated.idMap.a);
+  assert.equal(current.elements.length, 5);
+});
+
+test('viewport operation persists camera fields in appState', () => {
+  const next = setSceneViewport(scene(), { zoom: 1.5, scrollX: -100, scrollY: 24, viewBackgroundColor: '#eee' });
+  assert.equal(next.appState.zoom.value, 1.5);
+  assert.equal(next.appState.scrollX, -100);
+  assert.equal(next.appState.scrollY, 24);
+  assert.equal(next.appState.viewBackgroundColor, '#eee');
 });
