@@ -73,11 +73,13 @@ test('diagram MCP lists, describes and commits with revision protection', async 
       { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
       { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_diagrams', arguments: {} } },
       { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'describe_diagram', arguments: { id: 'drawing-1' } } },
+      { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'get_presentation', arguments: { id: 'drawing-1' } } },
     ], false);
     assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram-mcp');
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'query_diagram'));
     assert.match(responses[2].result.content[0].text, /Architecture/);
     assert.match(responses[3].result.content[0].text, /Total elements: 1/);
+    assert.match(responses[4].result.content[0].text, /"presentation": null/);
 
     const writes = await callServer(workspacePath, [
       { jsonrpc: '2.0', id: 5, method: 'tools/call', params: {
@@ -94,6 +96,10 @@ test('diagram MCP lists, describes and commits with revision protection', async 
         name: 'apply_diagram_patch',
         arguments: { id: 'drawing-1', patch: { update: [{ id: 'a', text: 'Stale' }] }, expectedRevision: 0 },
       } },
+      { jsonrpc: '2.0', id: 8, method: 'tools/call', params: {
+        name: 'set_presentation',
+        arguments: { id: 'drawing-1', presentation: { steps: [{ id: 'start', visibleElementIds: ['a'] }] } },
+      } },
     ], true);
     assert.match(writes[0].result.content[0].text, /"revision": 1/);
     assert.equal(writes[1].result.isError, true);
@@ -101,6 +107,7 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     const updated = JSON.parse(await readFile(workspacePath, 'utf8'));
     assert.equal(updated.data.drawings[0].revision, 1);
     assert.equal(updated.data.drawings[0].scene.elements[0].text, 'Updated');
+    assert.equal(updated.data.drawings[0].presentation.steps[0].visibleElementIds[0], 'a');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

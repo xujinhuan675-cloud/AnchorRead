@@ -82,3 +82,28 @@ test('migrated canvas tools operate on the browser workspace and retain named sn
   assert.equal(restored.revision, 5);
   assert.deepEqual(restored.scene.elements.find((item) => item.id === 'a').groupIds, ['g1']);
 });
+
+test('persists presentation steps separately from scene revisions and emits playback controls', async () => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: { title: 'Presentation', engine: 'excalidraw', scene: { elements: [{ id: 'a', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 }] } },
+  }, { repository: workspace, now: 100 });
+  const events = [];
+  const presentation = await executeDiagramAgentCommand({
+    tool: 'set_presentation',
+    args: {
+      id: created.id,
+      presentation: { title: 'A to B', steps: [{ id: 'a', title: 'A', visibleElementIds: ['a'], focusElementIds: ['a'], durationMs: 20 }] },
+    },
+  }, { repository: workspace, onPresentation: (event) => events.push(event), now: 200 });
+  assert.equal(presentation.revision, 1);
+  assert.equal(presentation.presentation.steps[0].visibleElementIds[0], 'a');
+  const read = await executeDiagramAgentCommand({ tool: 'get_presentation', args: { id: created.id } }, { repository: workspace });
+  assert.equal(read.presentation.title, 'A to B');
+  const played = await executeDiagramAgentCommand({ tool: 'play_presentation', args: { id: created.id, stepIndex: 0 } }, { repository: workspace, onPresentation: (event) => events.push(event) });
+  assert.equal(played.action, 'play');
+  assert.deepEqual(events.map((event) => event.action), ['play']);
+  const stored = (await workspace.drawings.list())[0];
+  assert.equal(stored.revision, 1);
+});
