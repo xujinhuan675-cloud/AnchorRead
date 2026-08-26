@@ -21,6 +21,7 @@ import {
   restoreDiagramRevision,
 } from '@/lib/diagram-scene-record';
 import { createDiagramMetadata, DIAGRAM_SCOPES, switchDiagramVariant } from '@/lib/diagram-product';
+import { parseStreamSnapshot } from '@/lib/diagram-stream';
 import { stripMermaidFence } from '@/lib/mermaid-prompts';
 
 // 文档关系图的共享状态：左侧画布区与右侧对话区共用同一份状态，
@@ -60,6 +61,8 @@ export function useDocumentDiagram({
     Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []
   ));
   const [presentation, setPresentation] = useState(() => activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
+  // 流式生成预览：SSE 增量解析出的可绘制元素，画布侧逐个显现且不回写持久化
+  const [streamElements, setStreamElements] = useState(null);
   const [error, setError] = useState('');
   const saveTimerRef = useRef(null);
   const draftDrawingRef = useRef(activeDrawing);
@@ -214,10 +217,17 @@ export function useDocumentDiagram({
           if (data.content) {
             accumulated += data.content;
             setCode(nextEngine === 'mermaid' ? stripMermaidFence(accumulated) : postProcessExcalidrawCode(accumulated));
+            if (nextEngine === 'excalidraw') {
+              // 实时渐进渲染：部分 JSON 容错解析后推给画布逐个显现；
+              // 元素数未变的 chunk 复用旧引用避免无谓重渲染
+              const snapshot = parseStreamSnapshot(accumulated);
+              setStreamElements((previous) => (previous && previous.length === snapshot.length ? previous : snapshot));
+            }
           }
         }
       }
       const finalCode = finalizeDiagramSource(nextEngine, accumulated);
+      setStreamElements(null);
       const nextElements = nextEngine === 'excalidraw' ? parseExcalidrawElements(finalCode) : [];
       const nextScene = nextEngine === 'excalidraw'
         ? normalizeExcalidrawScene({ elements: nextElements })
@@ -288,6 +298,7 @@ export function useDocumentDiagram({
       setError(caughtError.message || '图解生成失败。');
       onNotice?.({ type: 'error', message: caughtError.message || '图解生成失败。' });
     } finally {
+      setStreamElements(null);
       setIsGenerating(false);
     }
   }, [document, isGenerating, anchor, onCreateDrawing, onClearAnchor, onNotice]);
@@ -386,21 +397,40 @@ export function useDocumentDiagram({
     }
   };
 
+  // Excalidraw 运行时协作字段每次回调都会变化（versionNonce/updated/seed 等），
+  // 全量 JSON 比较永远不等，会把无变化的场景反复入库产生修订风暴。
+  const ELEMENT_RUNTIME_FIELDS = ['versionNonce', 'updated', 'seed'];
+  const stableElementKey = (element) => {
+    if (!element || typeof element !== 'object') return JSON.stringify(element);
+    const cleaned = { ...element };
+    for (const key of ELEMENT_RUNTIME_FIELDS) delete cleaned[key];
+    return JSON.stringify(cleaned);
+  };
+  const stableElementsEqual = (left, right) => (
+    Array.isArray(left) && Array.isArray(right)
+    && left.length === right.length
+    && left.every((element, index) => stableElementKey(element) === stableElementKey(right[index]))
+  );
+
   const changeScene = (nextScene) => {
     const normalized = normalizeExcalidrawScene(nextScene);
+    // Excalidraw 运行时的画布容器尺寸字段（width/height/offsetLeft/offsetTop）由
+    // Excalidraw 自管：入库后再回传会与真实容器尺寸叠加形成倍增循环，需先剔除。
+    const sanitizedAppState = { ...normalized.appState };
+    for (const key of ['width', 'height', 'offsetLeft', 'offsetTop']) delete sanitizedAppState[key];
     const current = normalizeExcalidrawScene({ elements, appState, files });
-    if (JSON.stringify(normalized.elements) === JSON.stringify(current.elements)
-      && JSON.stringify(normalized.appState) === JSON.stringify(current.appState)
+    if (stableElementsEqual(normalized.elements, current.elements)
+      && JSON.stringify(sanitizedAppState) === JSON.stringify(current.appState)
       && JSON.stringify(normalized.files) === JSON.stringify(current.files)) return;
     const source = JSON.stringify(normalized.elements, null, 2);
     setElements(normalized.elements);
-    setAppState(normalized.appState);
+    setAppState(sanitizedAppState);
     setFiles(normalized.files);
     setCode(source);
     persistCurrent({
       source,
       elements: normalized.elements,
-      appState: normalized.appState,
+      appState: sanitizedAppState,
       files: normalized.files,
     });
   };
@@ -438,6 +468,7 @@ export function useDocumentDiagram({
     revision: getDiagramRevision(draftDrawingRef.current || activeDrawing),
     revisionHistory,
     presentation,
+    streamElements,
     error,
     setError,
     isGenerating,
