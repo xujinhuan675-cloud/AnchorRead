@@ -33,9 +33,9 @@ export function SheetContent({
         {!hideClose && (
           <DialogPrimitive.Close
             aria-label={t('common.closePanel')}
-            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
+            className="absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
           >
-            <CloseIcon size={18} aria-hidden="true" />
+            <CloseIcon size={16} aria-hidden="true" />
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>

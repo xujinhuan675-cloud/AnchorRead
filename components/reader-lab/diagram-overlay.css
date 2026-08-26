@@ -1,0 +1,86 @@
+/* AnchorRead 悬浮控件的 Excalidraw 原生风格：视觉值直接写死在本文件，
+   与 Excalidraw 的 CSS（含 .excalidraw 类）完全解耦——那个类自带画布容器
+   布局规则（position/height:100% 等）且为无 layer 样式，会压过 Tailwind
+   工具类撑坏按钮定位。色值摘自 @excalidraw/excalidraw 0.18 主题：
+   按钮 hover 用官方 --button-hover-bg（= --color-surface-high），
+   激活/选中态才用深一档的 --color-surface-primary-container，
+   与画布内原生按钮（缩放区、工具栏）交互完全一致。 */
+
+/* Island 容器：复刻官方左下缩放区（zoom-actions）的胶囊外观——
+   整体填充 --color-surface-low 淡紫底，外圈 1px --color-surface-lowest
+   描边，无悬浮阴影；岛内按钮常态透明、hover 官方 --button-hover-bg，
+   与缩放区按钮交互完全一致 */
+.ar-overlay-island {
+  background-color: #ececf4;
+  color: #1b1b1f;
+  border-radius: 0.5rem;
+  box-shadow: 0 0 0 1px #ffffff;
+}
+
+/* 岛内工具按钮：与左下原生缩放区一致——常态透明底，hover 官方淡紫
+   （--button-hover-bg = --color-surface-high），选中态才是深一档紫 */
+.ar-overlay-tool {
+  color: #1b1b1f;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+.ar-overlay-tool:hover:not(:disabled) {
+  background-color: #f1f0ff;
+}
+.ar-overlay-tool.is-active,
+.ar-overlay-tool.is-active:hover:not(:disabled) {
+  background-color: #e0dfff;
+  color: #030064;
+}
+
+/* 画布右上角自定义面板触发器（Excalidraw renderTopRightUI 槽位）：
+   与 Library 触发器同一 flex 行并排，order: 99 把它排到 Library 右侧；
+   尺寸对齐原生 sidebar-trigger（--lg-button-size: 2.25rem），底色也完全
+   复刻官方 sidebar-trigger：常态 --color-surface-low（#ececf4），
+   hover --button-hover-bg（#f1f0ff）。hover 规则与 .ar-overlay-tool:hover
+   同特异性（均含 :hover:not(:disabled)），靠文件顺序覆盖其透明底 */
+.ar-expand-panel-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  order: 99;
+  background-color: #ececf4;
+}
+.ar-expand-panel-trigger:hover:not(:disabled) {
+  background-color: #f1f0ff;
+}
+
+/* 暗色主题：与 .excalidraw.theme--dark 同值；画布内的触发器由 Excalidraw
+   根部 theme--dark 类自动命中，画布外的悬浮控件由容器自挂 theme--dark */
+.theme--dark .ar-overlay-island,
+.ar-overlay-island.theme--dark {
+  background-color: hsl(240, 8%, 15%);
+  color: #e3e3e8;
+  box-shadow: 0 0 0 1px hsl(0, 0%, 7%);
+}
+.theme--dark .ar-overlay-tool,
+.ar-overlay-tool.theme--dark {
+  color: #e3e3e8;
+  background-color: transparent;
+}
+.theme--dark .ar-overlay-tool:hover:not(:disabled),
+.ar-overlay-tool.theme--dark:hover:not(:disabled) {
+  background-color: hsl(245, 10%, 21%);
+}
+.theme--dark .ar-overlay-tool.is-active,
+.ar-overlay-tool.theme--dark.is-active,
+.theme--dark .ar-overlay-tool.is-active:hover:not(:disabled),
+.ar-overlay-tool.theme--dark.is-active:hover:not(:disabled) {
+  background-color: #403e6a;
+  color: #e0dfff;
+}
+.theme--dark .ar-expand-panel-trigger {
+  background-color: hsl(240, 8%, 15%);
+}
+.theme--dark .ar-expand-panel-trigger:hover:not(:disabled) {
+  background-color: hsl(245, 10%, 21%);
+}
