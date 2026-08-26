@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, Crosshair, History, LoaderCircle, PanelRightClose, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Crosshair, History, LoaderCircle, PanelRightClose, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import Chat from '@/components/Chat';
 import { useLocale } from '@/components/LocaleProvider';
@@ -15,7 +15,6 @@ export default function DocumentDiagramPanel({
   activeDrawing,
   onSelectDrawing,
   onCreateDrawing,
-  onDeleteDrawing,
   onOpenHistory,
   onToggleSidebar = null,
   onRenameDrawing = () => {},
@@ -67,7 +66,7 @@ export default function DocumentDiagramPanel({
               else if (event.key === 'Escape') setRenaming(false);
             }}
             aria-label={t('diagram.renameAria')}
-            className="min-w-0 flex-1 rounded border border-stone-300 bg-white px-2 py-1 text-sm font-semibold text-stone-900 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-700 dark:bg-white/5 dark:text-stone-100"
+            className="h-8 min-w-0 flex-1 rounded border border-stone-300 bg-white px-2 text-sm font-semibold text-stone-900 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-700 dark:bg-white/5 dark:text-stone-100"
           />
         ) : (
           <div className="relative min-w-0 flex-1">
@@ -79,7 +78,7 @@ export default function DocumentDiagramPanel({
               aria-expanded={menuOpen}
               aria-label={t('diagram.selectAria')}
               title={t('diagram.selectHint')}
-              className="flex w-full items-center gap-1 rounded border border-stone-200 bg-white px-2 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-800 dark:bg-white/5"
+              className="flex h-8 w-full items-center gap-1 rounded border border-stone-200 bg-white px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-800 dark:bg-white/5"
             >
               <span className="min-w-0 flex-1 truncate text-sm font-semibold text-stone-900 dark:text-stone-100">{activeDrawing?.title || t('diagram.untitled')}</span>
               <ChevronDown size={12} className="shrink-0 text-stone-400" aria-hidden="true" />
@@ -109,7 +108,6 @@ export default function DocumentDiagramPanel({
             )}
           </div>
         )}
-        {activeDrawing ? <button type="button" onClick={() => onDeleteDrawing(activeDrawing.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-stone-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/60 dark:hover:text-red-400" title={t('diagram.deleteCurrent')} aria-label={t('diagram.deleteCurrent')}><Trash2 size={13} /></button> : null}
         {isGenerating ? <LoaderCircle size={13} className="shrink-0 animate-spin text-stone-400" aria-hidden="true" /> : null}
         <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: t('diagram.untitled'), engine: 'mermaid', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.create')} aria-label={t('diagram.create')}><Plus size={15} /></button>
         <button type="button" onClick={onOpenHistory} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.openHistory')} aria-label={t('diagram.openHistory')}><History size={15} /></button>

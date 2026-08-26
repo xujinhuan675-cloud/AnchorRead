@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import AppTopNav from '@/components/AppTopNav';
 import ReaderLabWorkspace from '@/components/ReaderLabWorkspace';
 import ConfigManager from '@/components/ConfigManager';
-import HistoryModal from '@/components/HistoryModal';
 import Notification from '@/components/Notification';
 import { useLocale } from '@/components/LocaleProvider';
 import { GO_IMPORT_EVENT } from '@/components/reader-lab/ReaderHome';
@@ -21,7 +20,6 @@ export default function Home() {
   const { t } = useLocale();
   const [config, setConfig] = useState(null);
   const [isConfigManagerOpen, setIsConfigManagerOpen] = useState(false);
-  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [mode, setMode] = useState('article');
   // 导航「图解」入口进的是独立图解工作区；文档内触发（选区/工具栏/历史）仍是文档绑定图解
   const [standaloneDiagram, setStandaloneDiagram] = useState(false);
@@ -29,7 +27,6 @@ export default function Home() {
   const [readerDocumentRequest, setReaderDocumentRequest] = useState(null);
   const [homeEntered, setHomeEntered] = useState(false);
   const [currentDocument, setCurrentDocument] = useState(null);
-  const [pendingHistory, setPendingHistory] = useState(null);
   const [usePassword, setUsePassword] = useState(false);
   const [notification, setNotification] = useState({
     isOpen: false,
@@ -65,14 +62,6 @@ export default function Home() {
 
   const handleConfigSelect = (selectedConfig) => {
     if (selectedConfig) setConfig(selectedConfig);
-  };
-
-  const handleApplyHistory = (history) => {
-    if (!history?.generatedCode) return;
-    setPendingHistory({ ...history, nonce: Date.now() });
-    setStandaloneDiagram(false);
-    setMode('diagram');
-    setIsHistoryModalOpen(false);
   };
 
   const handleModeChange = (nextMode) => {
@@ -199,8 +188,6 @@ export default function Home() {
             setMode(tool === 'diagram' ? 'diagram' : 'article');
           }}
           onCurrentDocumentChange={setCurrentDocument}
-          onOpenHistory={() => setIsHistoryModalOpen(true)}
-          historyDrawing={pendingHistory}
           onOpenDocumentLibrary={() => router.push('/reader-lab')}
           onCreateDiagram={handleCreateDiagram}
           onOpenDiagram={(drawing) => {
@@ -234,7 +221,6 @@ export default function Home() {
       </main>
 
       <ConfigManager isOpen={isConfigManagerOpen} onClose={() => setIsConfigManagerOpen(false)} onConfigSelect={handleConfigSelect} />
-      <HistoryModal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} onApply={handleApplyHistory} documentId={mode === 'diagram' && standaloneDiagram ? STANDALONE_DIAGRAM_DOCUMENT_ID : (currentDocument?.id || '')} />
       <Notification isOpen={notification.isOpen} onClose={() => setNotification({ ...notification, isOpen: false })} title={notification.title} message={notification.message} type={notification.type} />
     </div>
   );

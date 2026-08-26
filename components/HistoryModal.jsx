@@ -6,13 +6,13 @@ import { CHART_TYPES } from '../lib/constants.js';
 import ConfirmDialog from './ConfirmDialog';
 import { useLocale } from './LocaleProvider';
 
-export default function HistoryModal({ isOpen, onClose, onApply, documentId = '' }) {
+export default function HistoryModal({ isOpen, onClose, onApply, documentId = '', onDeleteDrawing = null, onClearAll = null }) {
   if (!isOpen) return null;
 
-  return <HistoryModalContent onClose={onClose} onApply={onApply} documentId={documentId} />;
+  return <HistoryModalContent onClose={onClose} onApply={onApply} documentId={documentId} onDeleteDrawing={onDeleteDrawing} onClearAll={onClearAll} />;
 }
 
-function HistoryModalContent({ onClose, onApply, documentId }) {
+function HistoryModalContent({ onClose, onApply, documentId, onDeleteDrawing, onClearAll }) {
   const { t } = useLocale();
   const [histories, setHistories] = useState(() => documentId ? historyManager.getForDocument(documentId) : historyManager.getHistories());
   const [confirmDialog, setConfirmDialog] = useState({
@@ -38,12 +38,16 @@ function HistoryModalContent({ onClose, onApply, documentId }) {
   };
 
   const handleDelete = (id) => {
+    // 历史与图解一一对应后，删除历史条目同时移除关联图解，
+    // 避免图解还在、下次打开又被回填复活
+    const entry = histories.find((item) => item.id === id);
     setConfirmDialog({
       isOpen: true,
       title: t('diagram.confirmDeleteTitle'),
       message: t('diagram.confirmDeleteMessage'),
       onConfirm: () => {
         historyManager.deleteHistory(id);
+        if (entry?.drawingId && onDeleteDrawing) onDeleteDrawing(entry.drawingId);
         loadHistories();
       }
     });
@@ -55,7 +59,9 @@ function HistoryModalContent({ onClose, onApply, documentId }) {
       title: t('diagram.confirmClearTitle'),
       message: t('diagram.confirmClearMessage'),
       onConfirm: () => {
-        historyManager.clearAll();
+        // 图解上下文传入文档级清空（连图解一起删）；缺省保留全局清空旧行为
+        if (onClearAll) onClearAll();
+        else historyManager.clearAll();
         loadHistories();
       }
     });
@@ -100,58 +106,55 @@ function HistoryModalContent({ onClose, onApply, documentId }) {
             </div>
           )}
 
-          <div className="space-y-3">
-            {histories.length === 0 ? (
-              <div className="text-center py-8 text-stone-500 dark:text-stone-400">
-                {t('diagram.historyEmpty')}
-              </div>
-            ) : (
-              histories.map((history) => (
-                <div
+          {histories.length === 0 ? (
+            <div className="text-center py-8 text-stone-500 dark:text-stone-400">
+              {t('diagram.historyEmpty')}
+            </div>
+          ) : (
+            // 列表形态：单行多列（序号 | 标题 | 类型 | 引擎 | 时间 | 操作）+ 分隔线；
+            // 窄屏隐藏引擎/时间列避免换行，标题 truncate 并在 title 属性保留全文
+            <ul className="divide-y divide-stone-200 overflow-hidden rounded-lg border border-stone-200 dark:divide-stone-800 dark:border-stone-800">
+              {histories.map((history, index) => (
+                <li
                   key={history.id}
-                  className="border border-stone-200 rounded-lg p-4 hover:border-stone-300 dark:border-stone-800 dark:hover:border-stone-600"
+                  className="flex items-center gap-3 px-4 py-2 transition-colors hover:bg-stone-50 dark:hover:bg-white/5"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded dark:bg-blue-950 dark:text-blue-300">
-                          {chartTypeLabel(history.chartType)}
-                        </span>
-                        <span className="px-2 py-1 text-xs bg-stone-100 text-stone-600 rounded dark:bg-white/10 dark:text-stone-300">
-                          {history.engine === 'mermaid' ? 'Mermaid' : 'Excalidraw'}
-                        </span>
-                        <span className="text-xs text-stone-500 dark:text-stone-400">
-                          {new Date(history.timestamp).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="text-sm text-stone-900 mb-2 dark:text-stone-100">
-                        {truncateText(history.userInput)}
-                      </p>
-                      {history.config && (
-                        <div className="text-xs text-stone-500 dark:text-stone-400">
-                          {t('diagram.historyModel', { name: history.config.name, model: history.config.model })}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      <button
-                        onClick={() => handleApply(history)}
-                        className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200"
-                      >
-                        {t('diagram.apply')}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(history.id)}
-                        className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors duration-200"
-                      >
-                        {t('common.delete')}
-                      </button>
-                    </div>
+                  <span className="w-6 shrink-0 text-right text-xs tabular-nums text-stone-400 dark:text-stone-500" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <p
+                    className="min-w-0 flex-1 truncate text-sm text-stone-900 dark:text-stone-100"
+                    title={typeof history.userInput === 'object' ? history.userInput?.text : history.userInput}
+                  >
+                    {truncateText(history.userInput)}
+                  </p>
+                  <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                    {chartTypeLabel(history.chartType)}
+                  </span>
+                  <span className="hidden w-16 shrink-0 text-xs text-stone-500 dark:text-stone-400 sm:block">
+                    {history.engine === 'mermaid' ? 'Mermaid' : 'Excalidraw'}
+                  </span>
+                  <time className="hidden shrink-0 text-xs text-stone-500 dark:text-stone-400 sm:block">
+                    {new Date(history.timestamp).toLocaleString()}
+                  </time>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => handleApply(history)}
+                      className="rounded border border-blue-500 px-2.5 py-1 text-xs text-blue-600 transition-colors hover:bg-blue-500 hover:text-white dark:text-blue-400 dark:hover:text-white"
+                    >
+                      {t('diagram.apply')}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(history.id)}
+                      className="rounded border border-stone-300 px-2.5 py-1 text-xs text-stone-500 transition-colors hover:border-red-500 hover:bg-red-500 hover:text-white dark:border-stone-700 dark:text-stone-400"
+                    >
+                      {t('common.delete')}
+                    </button>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 

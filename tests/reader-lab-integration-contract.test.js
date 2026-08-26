@@ -126,8 +126,9 @@ test('route layout controls document navigation while the workspace owns one rea
   assert.match(readerLabWorkspace, /updateLibraryCollapsed\(!libraryCollapsed\)/);
   // 右栏与文档库对称：桌面开关按钮直接收起/展开整列，状态持久化；文档库按钮换侧边栏样式图标
   assert.match(readerLabWorkspace, /anchor-read-right-collapsed/);
-  // 窄屏展开的 Sheet 关闭按钮与顶栏图标按钮同规格：h-9 w-9 + 18px 图标 + 同色系
-  assert.match(sheetUi, /h-9 w-9 items-center justify-center rounded text-stone-600 dark:text-stone-400/);
+  // 窄屏展开的 Sheet 关闭按钮与画布悬浮控件同规格：h-8 w-8 + 16px 图标 + 同色系
+  assert.match(sheetUi, /right-2\.5 top-2\.5 flex h-8 w-8 items-center justify-center rounded text-stone-600 dark:text-stone-400/);
+  assert.match(sheetUi, /<CloseIcon size=\{16\} aria-hidden="true" \/>/);
   // 知识面板 Sheet 隐藏绝对定位关闭（改走页签行内联槽位），图解/文档库 Sheet 保留
   assert.match(sheetUi, /hideClose = false/);
   assert.match(readerLabWorkspace, /hideClose=\{rightPanelView !== 'diagram'\}/);
@@ -166,7 +167,7 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(readerLabWorkspace, /<DocumentDiagramPanel\b/);
     assert.match(readerLabWorkspace, /<DocumentDiagramCanvas\b/);
     // 独立形态：画布头部承接原 header 的身份文案（自由图解 + 创建引导），窄屏对话入口随源码按钮进画布头部
-    assert.match(readerLabWorkspace, /<DocumentDiagramCanvas diagram=\{diagramState\} standalone=\{standaloneDiagram\} onOpenChat=/);
+    assert.match(readerLabWorkspace, /<DocumentDiagramCanvas diagram=\{diagramState\} standalone=\{standaloneDiagram\} onOpenChat=[\s\S]*?onCloseChat=/);
     assert.doesNotMatch(readerLabWorkspace, /fixed bottom-12 right-4/);
     assert.match(documentDiagramCanvas, /aria-label=\{t\('diagram\.openChat'\)\}/);
     assert.match(documentDiagramCanvas, /lg:hidden/);
@@ -176,7 +177,7 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(documentDiagramCanvas, /<CodeEditor\b/);
   assert.match(documentDiagramCanvas, /<MermaidCanvas\b/);
   assert.match(documentDiagramCanvas, /<ExcalidrawCanvas\b/);
-  // 源码开关位置：mermaid 下提到画布头部放大按钮右侧（headerActions 插槽），excalidraw 才悬浮右下角
+  // 源码开关位置：mermaid 下提到画布头部放大按钮右侧（headerActions 插槽）
   assert.match(mermaidCanvas, /headerActions = null/);
   assert.match(mermaidCanvas, /\{headerActions\}/);
   // 空态副标题替代「等待源码」：自由图解下传达创建入口语义
@@ -184,16 +185,15 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(mermaidCanvas, /\(subtitle \|\| t\('diagram\.statusWaiting'\)\)/);
   assert.match(documentDiagramCanvas, /title=\{standalone \? t\('diagram\.freeTitle'\) : t\('diagram\.docTitle'\)\}/);
   assert.match(documentDiagramCanvas, /t\('diagram\.freeSubtitle'\)/);
-  assert.match(documentDiagramCanvas, /headerActions=\{\(canToggleCode \|\| onOpenChat\) \? \(/);
-  assert.match(documentDiagramCanvas, /engine !== ['"]mermaid['"] && canToggleCode && sourceCodeButton\(['"]float['"]\)/);
+  assert.match(documentDiagramCanvas, /headerActions=\{\(canToggleCode \|\| onOpenChat \|\| onCloseChat\) \? \(/);
+  // excalidraw 源码开关收进画布左上角主菜单（onToggleSourceCode），不再悬浮右下角
+  assert.match(documentDiagramCanvas, /onToggleSourceCode=\{canToggleCode \? \(\) => setCodeOpen\(\(open\) => !open\) : null\}/);
+  assert.doesNotMatch(documentDiagramCanvas, /sourceCodeButton\(['"]float['"]\)/);
   assert.doesNotMatch(homePage, /<Chat\b|<CodeEditor\b|<MermaidCanvas\b|<ExcalidrawCanvas\b/);
 
-  for (const component of [
-    'HistoryModal',
-    'ConfigManager',
-  ]) {
-    assert.match(homePage, new RegExp(`<${component}\\b`));
-  }
+  // 历史与配置弹窗随重构下沉：历史进工作区、配置进页面壳，首页不再直接挂载
+  assert.match(readerLabWorkspace, /<HistoryModal\b/);
+  assert.match(readerLabPageShell, /<ConfigManager\b/);
 });
 
 test('nav diagram entry opens a standalone free-form diagram workspace', () => {

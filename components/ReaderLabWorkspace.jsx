@@ -1578,6 +1578,35 @@ export default function ReaderLabWorkspace({
     setInternalHistoryOpen(false);
   }, [createDrawing, diagramDocument]);
 
+  // 历史以图解列表为基准回填：MCP agent 命令、新建/请求恢复、历史应用、预设样例等
+  // 创建路径不经过 generate()、不写历史，会造成历史比图解下拉少记录。
+  // 打开历史时按 drawingId 匹配去重，用图解自身数据补录缺失条目，
+  // 存量老数据一次补齐、未来新增创建路径也自动覆盖；补录后整体按时间倒序。
+  const syncDrawingHistories = useCallback(() => {
+    const knownDrawingIds = new Set(
+      historyManager.getForDocument(diagramDocumentId)
+        .map((history) => history.drawingId)
+        .filter(Boolean),
+    );
+    const missing = currentDrawings
+      .filter((drawing) => drawing && !knownDrawingIds.has(drawing.id) && (drawing.source || drawing.scene));
+    if (missing.length === 0) return;
+    for (const drawing of missing) {
+      historyManager.addHistory({
+        documentId: diagramDocumentId,
+        drawingId: drawing.id,
+        chartType: drawing.chartType || 'auto',
+        userInput: drawing.prompt || drawing.title || '',
+        generatedCode: drawing.source || '',
+        engine: drawing.engine || 'mermaid',
+        timestamp: drawing.createdAt || Date.now(),
+      });
+    }
+    historyManager.replaceAll(
+      historyManager.getHistories().sort((left, right) => (right.timestamp || 0) - (left.timestamp || 0)),
+    );
+  }, [currentDrawings, diagramDocumentId]);
+
   useEffect(() => {
     if (!historyDrawing || !diagramDocument) return;
     const requestKey = `${historyDrawing.id || ''}:${historyDrawing.nonce || ''}`;
@@ -2298,6 +2327,18 @@ export default function ReaderLabWorkspace({
   const diagramSplit = diagramMode && !standaloneDiagram && isDesktop && isWide;
   // 右栏展开态跨断点统一：桌面看折叠开关，窄屏看 Sheet 开合；顶栏图标因此全断点同款
   const rightPanelExpanded = isDesktop ? !rightCollapsed : knowledgeOpen;
+  // 右栏展开回调跨断点统一：桌面恢复折叠的右栏，窄屏打开 Sheet；
+  // 触发器已移入画布右上角与 Library 并排（Excalidraw renderTopRightUI 槽位）
+  const expandRightPanel = () => {
+    if (isDesktop) updateRightCollapsed(false);
+    else setKnowledgeOpen(true);
+  };
+  // 右栏收起回调与展开跨断点对称：触发器在画布右上角与展开入口同槽位
+  // （Library 右侧）两态切换，点击位置保持一致
+  const collapseRightPanel = () => {
+    if (isDesktop) updateRightCollapsed(true);
+    else setKnowledgeOpen(false);
+  };
 
   const library = (
     <DocumentLibrary
@@ -2395,7 +2436,6 @@ export default function ReaderLabWorkspace({
       activeDrawing={activeDrawing}
       onSelectDrawing={selectDrawing}
       onCreateDrawing={createDrawing}
-      onDeleteDrawing={deleteDrawing}
       onRenameDrawing={renameDrawing}
       onNotice={setNotice}
       anchor={diagramAnchor?.documentId === diagramDocument.id ? diagramAnchor : null}
@@ -2403,15 +2443,20 @@ export default function ReaderLabWorkspace({
       diagram={diagramState}
       onOpenHistory={() => {
         if (onOpenHistory) onOpenHistory(diagramDocument.id);
-        else setInternalHistoryOpen(true);
+        else {
+          syncDrawingHistories();
+          setInternalHistoryOpen(true);
+        }
       }}
-      onToggleSidebar={() => {
+      onToggleSidebar={standaloneDiagram ? null : () => {
+        // 独立图解的收起已收进画布右上角同槽位触发器，头部不再重复；
+        // 文章内图解无画布触发器，保留头部收起钮
         if (isDesktop) updateRightCollapsed(true);
         else setKnowledgeOpen(false);
       }}
     />
   );
-    const diagramCanvas = <DocumentDiagramCanvas diagram={diagramState} standalone={standaloneDiagram} onOpenChat={standaloneDiagram ? () => setKnowledgeOpen(true) : null} />;
+  const diagramCanvas = <DocumentDiagramCanvas diagram={diagramState} standalone={standaloneDiagram} onOpenChat={standaloneDiagram && rightCollapsed ? expandRightPanel : null} onCloseChat={standaloneDiagram && !rightCollapsed ? collapseRightPanel : null} />;
     const rightPanel = rightPanelView === 'diagram' ? diagram : knowledge;
   // 图解画布形态：阅读区不渲染，解读/白话/重点等阅读专属控件随之收起，顶栏只留图解相关动作
 
@@ -2752,7 +2797,7 @@ export default function ReaderLabWorkspace({
           <Tooltip content={rightPanelExpanded ? t('workspace.collapseRightPanel') : t('workspace.expandRightPanel')}>
             <button
               type="button"
-              onClick={() => { if (isDesktop) updateRightCollapsed(!rightCollapsed); else setKnowledgeOpen(true); }}
+              onClick={() => { if (isDesktop) updateRightCollapsed(!rightCollapsed); else setKnowledgeOpen(!knowledgeOpen); }}
               aria-label={rightPanelExpanded ? t('workspace.collapseRightPanel') : t('workspace.expandRightPanel')}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400"
             >
@@ -2799,17 +2844,6 @@ export default function ReaderLabWorkspace({
                   ) : (
                     <section className="h-full min-h-0" aria-label={t('workspace.readingArea')}>{readingSurface}</section>
                   )}
-                  {standaloneDiagram && rightCollapsed ? (
-                    <button
-                      type="button"
-                      onClick={() => updateRightCollapsed(false)}
-                      title={t('workspace.expandRightPanel')}
-                      aria-label={t('workspace.expandRightPanel')}
-                      className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded border border-stone-200 bg-white/95 text-stone-600 shadow-sm outline-none hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-700 dark:bg-stone-900/95 dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-stone-100"
-                    >
-                      <PanelRightOpen size={18} aria-hidden="true" />
-                    </button>
-                  ) : null}
                 </div>
               </ResizablePanel>
               {/* 右栏折叠时整列移出布局，主区自动占满；独立图解收起后由画布内按钮恢复。 */}
@@ -2864,6 +2898,13 @@ export default function ReaderLabWorkspace({
             onClose={() => setInternalHistoryOpen(false)}
             onApply={applyHistoryDrawing}
             documentId={diagramDocumentId}
+            onDeleteDrawing={(drawingId) => { if (drawingId) deleteDrawing(drawingId).catch(console.error); }}
+            onClearAll={() => {
+              // 文档级清空：当前文档的图解逐条移除 + 该文档历史条目清除，
+              // 不用全局 clearAll，避免误伤其他文档的历史
+              currentDrawings.forEach((drawing) => { deleteDrawing(drawing.id).catch(console.error); });
+              historyManager.removeForDocument(diagramDocumentId);
+            }}
           />
         )}
         <WorkspaceSyncPanel isOpen={syncOpen} onClose={() => setSyncOpen(false)} />
