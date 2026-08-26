@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [string]$SshTarget = 'lcayun-1panel',
   [string]$RemoteDir = '/opt/anchorread',
