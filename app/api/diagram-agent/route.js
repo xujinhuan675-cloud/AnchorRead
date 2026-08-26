@@ -21,7 +21,14 @@ function isSameOriginBrowserRequest(request) {
   const origin = String(request.headers.get('origin') || '').trim();
   if (origin) {
     try {
-      return origin === new URL(request.url).origin;
+      const requestUrl = new URL(request.url);
+      if (origin === requestUrl.origin) return true;
+      const originUrl = new URL(origin);
+      const forwardedHost = String(request.headers.get('x-forwarded-host') || '').split(',')[0].trim();
+      const host = forwardedHost || String(request.headers.get('host') || '').split(',')[0].trim();
+      const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
+      if (!host || originUrl.host !== host) return false;
+      return !forwardedProto || originUrl.protocol === `${forwardedProto}:`;
     } catch {
       return false;
     }

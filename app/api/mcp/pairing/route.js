@@ -13,7 +13,15 @@ function sameOriginBrowserRequest(request) {
     const url = new URL(request.url);
     if (new Set(['localhost', '127.0.0.1', '::1']).has(url.hostname.toLowerCase())) return true;
     const origin = String(request.headers.get('origin') || '').trim();
-    if (origin) return origin === url.origin;
+    if (origin) {
+      if (origin === url.origin) return true;
+      const originUrl = new URL(origin);
+      const forwardedHost = String(request.headers.get('x-forwarded-host') || '').split(',')[0].trim();
+      const host = forwardedHost || String(request.headers.get('host') || '').split(',')[0].trim();
+      const forwardedProto = String(request.headers.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
+      if (!host || originUrl.host !== host) return false;
+      return !forwardedProto || originUrl.protocol === `${forwardedProto}:`;
+    }
     return request.headers.get('sec-fetch-site') === 'same-origin';
   } catch {
     return false;
