@@ -242,6 +242,7 @@ const CREATE_TOOL = {
       scope: { type: 'string' },
       intent: { type: 'string' },
       presentation: { type: 'object' },
+      stream: { type: 'boolean', description: '流式重放：元素可含 cameraUpdate/delete 伪元素，创建后按官方流式观感逐元素播放（自动生成演示步骤并自动播放）。' },
       open: { type: 'boolean', description: '是否在当前 AnchorRead 标签页打开，默认 true。' },
     },
     required: ['title'],
