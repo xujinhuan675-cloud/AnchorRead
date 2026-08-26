@@ -27,6 +27,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV ANCHORREAD_MCP_PAIRING_STORE_PATH=/data/diagram-mcp-pairings.json
+ENV ANCHORREAD_DIAGRAM_REMOTE_BRIDGE=true
 
 # 以非 root 用户运行（node 镜像自带 node 用户）
 RUN mkdir -p /data && chown node:node /data
