@@ -13,6 +13,8 @@ import {
 } from '@/lib/diagram-agent-session';
 
 export const DIAGRAM_AGENT_DRAWING_EVENT = 'anchor-read:diagram-agent-drawing';
+export const DIAGRAM_AGENT_PRESENTATION_EVENT = 'anchor-read:diagram-agent-presentation';
+export const DIAGRAM_AGENT_PENDING_PRESENTATION_KEY = 'anchor-read:pending-diagram-presentation';
 export const DIAGRAM_AGENT_CONNECTION_EVENT = 'anchor-read:diagram-agent-connection';
 
 export default function DiagramAgentBridge() {
@@ -94,6 +96,10 @@ export default function DiagramAgentBridge() {
       });
       if (open) router.push(buildDiagramPath(getDiagramRouteId(drawing)));
     };
+    const publishPresentation = (detail) => {
+      window.sessionStorage.setItem(DIAGRAM_AGENT_PENDING_PRESENTATION_KEY, JSON.stringify(detail));
+      window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_PRESENTATION_EVENT, { detail }));
+    };
     const poll = async () => {
       while (!cancelled) {
         if (!refreshSession()) {
@@ -138,6 +144,7 @@ export default function DiagramAgentBridge() {
               const result = await executeDiagramAgentCommand(request.payload, {
                 repository: workspaceRepository,
                 onOpen: publishDrawing,
+                onPresentation: publishPresentation,
               });
               await respond(request, result);
             } catch (error) {

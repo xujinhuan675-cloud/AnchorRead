@@ -1,15 +1,13 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Download, FileCode2, History, PanelRightOpen, Upload } from 'lucide-react';
+import { FileCode2, History, Pause, Play, PanelRightOpen, SkipBack, SkipForward, Square } from 'lucide-react';
 import CodeEditor from '@/components/CodeEditor';
 import MermaidCanvas from '@/components/MermaidCanvas';
 import { useLocale } from '@/components/LocaleProvider';
-import {
-  parseExcalidrawScene,
-  serializeExcalidrawScene,
-} from '@/lib/excalidraw-scene';
+import { DIAGRAM_AGENT_PENDING_PRESENTATION_KEY, DIAGRAM_AGENT_PRESENTATION_EVENT } from '@/components/DiagramAgentBridge';
+import { normalizePresentationSpec } from '@/lib/diagram-presentation';
 
 const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), { ssr: false });
 
@@ -20,7 +18,9 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
   const { t } = useLocale();
   const [codeOpen, setCodeOpen] = useState(false);
   const [selectedRevision, setSelectedRevision] = useState('');
-  const fileInputRef = useRef(null);
+  const [presentationActive, setPresentationActive] = useState(false);
+  const [presentationPlaying, setPresentationPlaying] = useState(false);
+  const [presentationStepIndex, setPresentationStepIndex] = useState(0);
   const isCodeVisible = typeof showCode === 'boolean' ? showCode : codeOpen;
   const {
     engine,
@@ -41,29 +41,56 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     clearCode,
     changeScene,
     restoreRevision,
+    presentation: rawPresentation,
   } = diagram;
+  const presentation = useMemo(() => {
+    try { return normalizePresentationSpec(rawPresentation); } catch { return null; }
+  }, [rawPresentation]);
+  const effectivePresentationActive = presentationActive && Boolean(presentation);
+  const effectivePresentationPlaying = presentationPlaying && effectivePresentationActive;
+  const effectivePresentationStepIndex = presentation
+    ? Math.min(presentationStepIndex, presentation.steps.length - 1)
+    : 0;
+  const presentationStep = presentation?.steps?.[effectivePresentationStepIndex] || null;
 
-  const exportExcalidraw = () => {
-    const scene = serializeExcalidrawScene({ elements, appState, files });
-    const blob = new Blob([scene], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${standalone ? 'anchor-read-freeform' : 'anchor-read-diagram'}.excalidraw`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importExcalidraw = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
+  useEffect(() => {
+    const handlePresentation = (event) => {
+      const detail = event.detail || {};
+      if (detail.drawingId && diagram?.drawingId && detail.drawingId !== diagram.drawingId) return;
+      if (!presentation) return;
+      window.sessionStorage.removeItem(DIAGRAM_AGENT_PENDING_PRESENTATION_KEY);
+      if (detail.action === 'play') {
+        setPresentationStepIndex(Number.isInteger(detail.stepIndex) ? Math.max(0, Math.min(presentation.steps.length - 1, detail.stepIndex)) : 0);
+        setPresentationActive(true);
+        setPresentationPlaying(true);
+      } else if (detail.action === 'pause') setPresentationPlaying(false);
+      else if (detail.action === 'stop') { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }
+      else if (detail.action === 'next') { setPresentationActive(true); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }
+      else if (detail.action === 'previous') { setPresentationActive(true); setPresentationStepIndex((index) => Math.max(0, index - 1)); }
+    };
+    window.addEventListener(DIAGRAM_AGENT_PRESENTATION_EVENT, handlePresentation);
     try {
-      changeScene(parseExcalidrawScene(await file.text()));
-    } catch (caughtError) {
-      setError(caughtError.message || t('diagram.importFailed'));
+      const pending = JSON.parse(window.sessionStorage.getItem(DIAGRAM_AGENT_PENDING_PRESENTATION_KEY) || 'null');
+      if (pending) handlePresentation({ detail: pending });
+    } catch {
+      window.sessionStorage.removeItem(DIAGRAM_AGENT_PENDING_PRESENTATION_KEY);
     }
-  };
+    return () => window.removeEventListener(DIAGRAM_AGENT_PRESENTATION_EVENT, handlePresentation);
+  }, [diagram?.drawingId, presentation]);
+
+  useEffect(() => {
+    if (!presentationPlaying || !presentationStep) return undefined;
+    const timer = window.setTimeout(() => {
+      setPresentationStepIndex((index) => {
+        if (index >= (presentation?.steps?.length || 1) - 1) {
+          setPresentationPlaying(false);
+          return index;
+        }
+        return index + 1;
+      });
+    }, presentationStep.durationMs);
+    return () => window.clearTimeout(timer);
+  }, [effectivePresentationPlaying, presentationPlaying, presentationStep, presentation]);
 
   // 源码开关：自管模式下才可切换，样式随宿主位置（头部图标位 / 悬浮文字钮）而变
   const canToggleCode = typeof showCode !== 'boolean';
@@ -116,27 +143,31 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             appState={appState}
             files={files}
             onSceneChange={changeScene}
+            presentationStep={presentationStep}
+            presentationActive={effectivePresentationActive}
           />}
         {engine === 'excalidraw' && (
           <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-md border border-stone-200 bg-white/95 p-0.5 shadow-sm backdrop-blur dark:border-stone-700 dark:bg-stone-900/95">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              aria-label={t('diagram.importExcalidraw')}
-              title={t('diagram.importExcalidraw')}
-              className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-300 dark:hover:bg-white/10 dark:hover:text-white"
-            >
-              <Upload size={15} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              onClick={exportExcalidraw}
-              aria-label={t('diagram.exportExcalidraw')}
-              title={t('diagram.exportExcalidraw')}
-              className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-300 dark:hover:bg-white/10 dark:hover:text-white"
-            >
-              <Download size={15} aria-hidden="true" />
-            </button>
+            {presentation && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPresentationActive(true);
+                    setPresentationPlaying((playing) => !playing);
+                  }}
+                  aria-label={effectivePresentationPlaying ? t('diagram.presentation.pause') : t('diagram.presentation.play')}
+                  title={effectivePresentationPlaying ? t('diagram.presentation.pause') : t('diagram.presentation.play')}
+                  className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-300 dark:hover:bg-white/10 dark:hover:text-white"
+                >
+                  {effectivePresentationPlaying ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
+                </button>
+                <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(true); setPresentationStepIndex((index) => Math.max(0, index - 1)); }} aria-label={t('diagram.presentation.previous')} title={t('diagram.presentation.previous')} className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-white/10"><SkipBack size={15} aria-hidden="true" /></button>
+                <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(true); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }} aria-label={t('diagram.presentation.next')} title={t('diagram.presentation.next')} className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-white/10"><SkipForward size={15} aria-hidden="true" /></button>
+                {effectivePresentationActive && <button type="button" onClick={() => { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }} aria-label={t('diagram.presentation.stop')} title={t('diagram.presentation.stop')} className="flex h-8 w-8 items-center justify-center rounded text-stone-600 outline-none hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-white/10"><Square size={14} aria-hidden="true" /></button>}
+                <span className="px-1 text-[10px] tabular-nums text-stone-500 dark:text-stone-400" aria-live="polite">{presentationStepIndex + 1}/{presentation.steps.length}</span>
+              </>
+            )}
             {revisionHistory?.length > 0 && (
               <>
                 <select
@@ -169,13 +200,6 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
                 </button>
               </>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".excalidraw,application/json"
-              className="hidden"
-              onChange={importExcalidraw}
-            />
           </div>
         )}
         {/* excalidraw 画布没有头部：源码开关仍悬浮在右下角，避开其自带的顶部按钮 */}

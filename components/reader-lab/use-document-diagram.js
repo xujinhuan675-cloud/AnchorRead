@@ -59,6 +59,7 @@ export function useDocumentDiagram({
   const [revisionHistory, setRevisionHistory] = useState(() => (
     Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []
   ));
+  const [presentation, setPresentation] = useState(() => activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
   const [error, setError] = useState('');
   const saveTimerRef = useRef(null);
   const draftDrawingRef = useRef(activeDrawing);
@@ -79,6 +80,7 @@ export function useDocumentDiagram({
     setAppState(nextScene.appState);
     setFiles(nextScene.files);
     setRevisionHistory(Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []);
+    setPresentation(activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
   }, [activeDrawing]);
 
   useEffect(() => () => {
@@ -386,6 +388,10 @@ export function useDocumentDiagram({
 
   const changeScene = (nextScene) => {
     const normalized = normalizeExcalidrawScene(nextScene);
+    const current = normalizeExcalidrawScene({ elements, appState, files });
+    if (JSON.stringify(normalized.elements) === JSON.stringify(current.elements)
+      && JSON.stringify(normalized.appState) === JSON.stringify(current.appState)
+      && JSON.stringify(normalized.files) === JSON.stringify(current.files)) return;
     const source = JSON.stringify(normalized.elements, null, 2);
     setElements(normalized.elements);
     setAppState(normalized.appState);
@@ -421,6 +427,7 @@ export function useDocumentDiagram({
   }, [activeDrawing, engine, onPersistDrawing]);
 
   return {
+    drawingId: (draftDrawingRef.current || activeDrawing)?.id || null,
     engine,
     chartType,
     setChartType: changeChartType,
@@ -430,6 +437,7 @@ export function useDocumentDiagram({
     files,
     revision: getDiagramRevision(draftDrawingRef.current || activeDrawing),
     revisionHistory,
+    presentation,
     error,
     setError,
     isGenerating,
