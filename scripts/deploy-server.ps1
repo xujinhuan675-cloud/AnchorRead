@@ -14,6 +14,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 原生命令（git/ssh/docker）的 stderr 进度输出不是错误：Stop 偏好会把它们
+# 升级为 NativeCommandError 中断部署，必须以退出码为准并放行 stderr
+$PSNativeCommandUseErrorActionPreference = $false
 
 function Invoke-CheckedCommand {
   param(
@@ -21,7 +24,8 @@ function Invoke-CheckedCommand {
     [Parameter(Mandatory)] [string[]]$Arguments
   )
 
-  & $FilePath @Arguments
+  $global:LASTEXITCODE = $null
+  & $FilePath @Arguments 2>&1 | ForEach-Object { "$_" }
   if ($LASTEXITCODE -ne 0) {
     throw "$FilePath failed with exit code $LASTEXITCODE."
   }
@@ -29,7 +33,8 @@ function Invoke-CheckedCommand {
 
 function Get-GitOutput {
   param([Parameter(Mandatory)] [string[]]$Arguments)
-  $output = & git @Arguments
+  $global:LASTEXITCODE = $null
+  $output = & git @Arguments 2>&1 | ForEach-Object { "$_" }
   if ($LASTEXITCODE -ne 0) {
     throw "git $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
   }
