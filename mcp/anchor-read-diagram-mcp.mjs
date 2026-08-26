@@ -46,6 +46,7 @@ import {
   restoreDiagramRevision,
 } from '../lib/diagram-scene-record.js';
 import { createWorkspaceFilePayload, parseWorkspaceFile } from '../lib/workspace-file.js';
+import { getPresentationSpec, normalizePresentationSpec } from '../lib/diagram-presentation.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'anchor-read-diagram-mcp', version: '1.0.0' };
@@ -214,6 +215,11 @@ const BASE_TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
   },
   {
+    name: 'get_presentation',
+    description: 'Read the persisted presentation steps for a diagram.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  },
+  {
     name: 'export_excalidraw',
     description: '导出完整标准 .excalidraw JSON 文本，供文件保存或外部 Excalidraw 工具继续编辑。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
@@ -235,6 +241,7 @@ const CREATE_TOOL = {
       prompt: { type: 'string' },
       scope: { type: 'string' },
       intent: { type: 'string' },
+      presentation: { type: 'object' },
       open: { type: 'boolean', description: '是否在当前 AnchorRead 标签页打开，默认 true。' },
     },
     required: ['title'],
@@ -243,6 +250,21 @@ const CREATE_TOOL = {
 };
 
 const WRITE_TOOLS = [
+  {
+    name: 'set_presentation',
+    description: 'Persist presentation steps without creating a scene revision.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, presentation: { type: 'object' } }, required: ['id', 'presentation'], additionalProperties: false },
+  },
+  {
+    name: 'clear_presentation',
+    description: 'Remove presentation steps without creating a scene revision.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  },
+  ...['play_presentation', 'pause_presentation', 'next_presentation_step', 'previous_presentation_step', 'stop_presentation'].map((name) => ({
+    name,
+    description: 'Control presentation playback in the connected AnchorRead browser.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, stepIndex: { type: 'integer', minimum: 0 } }, required: ['id'], additionalProperties: false },
+  })),
   {
     name: 'group_elements',
     description: '将多个元素加入同一个 Excalidraw 分组。',
@@ -398,8 +420,32 @@ async function callTool(name, args = {}) {
       return textResult(listDiagramRevisions(getDrawing(payload, args.id)));
     case 'list_diagram_snapshots':
       return textResult(snapshotSummary(getDrawing(payload, args.id)));
+    case 'get_presentation': {
+      const drawing = getDrawing(payload, args.id);
+      return textResult({ id: drawing.id, routeId: drawing.routeId, presentation: getPresentationSpec(drawing) });
+    }
     case 'export_excalidraw':
       return textResult(serializeExcalidrawScene(getDrawingScene(getDrawing(payload, args.id))));
+    case 'set_presentation': {
+      const drawing = getDrawing(payload, args.id);
+      const presentation = normalizePresentationSpec(args.presentation);
+      const nextDrawing = { ...drawing, presentation, updatedAt: Date.now() };
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision || 0, presentation });
+    }
+    case 'clear_presentation': {
+      const drawing = getDrawing(payload, args.id);
+      const { presentation: _presentation, presentationSpec: _presentationSpec, ...rest } = drawing;
+      const nextDrawing = { ...rest, updatedAt: Date.now() };
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision || 0, presentation: null });
+    }
+    case 'play_presentation':
+    case 'pause_presentation':
+    case 'next_presentation_step':
+    case 'previous_presentation_step':
+    case 'stop_presentation':
+      throw new Error('Presentation playback requires live browser mode.');
     case 'group_elements': {
       const drawing = getDrawing(payload, args.id);
       const result = groupScene(getDrawingScene(drawing), { ids: args.elementIds, groupId: args.groupId });
