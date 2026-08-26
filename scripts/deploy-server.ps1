@@ -14,9 +14,21 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# 原生命令（git/ssh/docker）的 stderr 进度输出不是错误：Stop 偏好会把它们
-# 升级为 NativeCommandError 中断部署，必须以退出码为准并放行 stderr
-$PSNativeCommandUseErrorActionPreference = $false
+
+# 原生命令（git/ssh/docker）的 stderr 进度输出不是错误：Stop 偏好会把 stderr
+# 错误记录升级为 NativeCommandError 并终止语句，必须以退出码为准。
+function Invoke-NativeCapture {
+  param([Parameter(Mandatory)] [scriptblock]$ScriptBlock)
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $global:LASTEXITCODE = $null
+    $output = & $ScriptBlock 2>&1 | ForEach-Object { "$_" }
+    return @{ Output = $output; ExitCode = $LASTEXITCODE }
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+}
 
 function Invoke-CheckedCommand {
   param(
@@ -24,21 +36,20 @@ function Invoke-CheckedCommand {
     [Parameter(Mandatory)] [string[]]$Arguments
   )
 
-  $global:LASTEXITCODE = $null
-  & $FilePath @Arguments 2>&1 | ForEach-Object { "$_" }
-  if ($LASTEXITCODE -ne 0) {
-    throw "$FilePath failed with exit code $LASTEXITCODE."
+  $result = Invoke-NativeCapture { & $FilePath @Arguments }
+  $result.Output | ForEach-Object { Write-Host $_ }
+  if ($result.ExitCode -ne 0) {
+    throw "$FilePath failed with exit code $($result.ExitCode)."
   }
 }
 
 function Get-GitOutput {
   param([Parameter(Mandatory)] [string[]]$Arguments)
-  $global:LASTEXITCODE = $null
-  $output = & git @Arguments 2>&1 | ForEach-Object { "$_" }
-  if ($LASTEXITCODE -ne 0) {
-    throw "git $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+  $result = Invoke-NativeCapture { & git @Arguments }
+  if ($result.ExitCode -ne 0) {
+    throw "git $($Arguments -join ' ') failed with exit code $($result.ExitCode)."
   }
-  return ($output | Out-String).Trim()
+  return ($result.Output | Out-String).Trim()
 }
 
 if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) {
@@ -165,12 +176,13 @@ $remoteScript = $remoteScript.Replace('__DATA_VOLUME__', $DataVolume)
 $remoteScript = $remoteScript.Replace('__HOST_PORT__', [string]$HostPort)
 $remoteScript = $remoteScript.Replace('__CANDIDATE_PORT__', [string]$CandidatePort)
 
-Invoke-CheckedCommand -FilePath 'ssh.exe' -Arguments @(
-  '-o', 'BatchMode=yes',
-  '-o', 'ConnectTimeout=15',
-  $SshTarget,
-  $remoteScript
-)
+$sshResult = Invoke-NativeCapture {
+  & ssh.exe -o BatchMode=yes -o ConnectTimeout=15 $SshTarget $remoteScript
+}
+$sshResult.Output | ForEach-Object { Write-Host $_ }
+if ($sshResult.ExitCode -ne 0) {
+  throw "Remote deployment failed with exit code $($sshResult.ExitCode)."
+}
 
 if (-not $SkipHealthCheck) {
   $separator = if ($HealthUrl.Contains('?')) { '&' } else { '?' }
