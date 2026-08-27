@@ -23,8 +23,19 @@ test('creates and reads a diagram in the browser workspace without a file round-
 
   assert.equal(created.documentId, STANDALONE_DIAGRAM_DOCUMENT_ID);
   assert.equal(created.revision, 1);
+  assert.match(created.url, new RegExp(`/diagrams/${created.routeId}$`));
+  assert.equal(created.openAction, 'navigate_current_tab');
+  assert.equal(created.openResource.kind, 'diagram');
   assert.equal(opened.id, created.id);
   assert.equal((await workspace.drawings.list()).length, 1);
+
+  const workspaceLink = await executeDiagramAgentCommand({
+    tool: 'open_diagram_workspace',
+    args: {},
+  }, { repository: workspace });
+  assert.equal(workspaceLink.openAction, 'open_url_if_supported');
+  assert.equal(workspaceLink.openResource.kind, 'workspace');
+  assert.match(workspaceLink.url, /\/diagrams$/);
 
   const result = await executeDiagramAgentCommand({
     tool: 'get_diagram',
