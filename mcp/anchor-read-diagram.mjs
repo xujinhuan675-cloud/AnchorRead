@@ -7,15 +7,15 @@
  * Offline file mode is retained for explicit import/export and migration work.
  *
  * Usage:
- *   node mcp/anchor-read-diagram-mcp.mjs --bridge http://127.0.0.1:3000
- *   node mcp/anchor-read-diagram-mcp.mjs <workspace-file.anchorread> --write
+ *   node mcp/anchor-read-diagram.mjs --bridge http://127.0.0.1:3000
+ *   node mcp/anchor-read-diagram.mjs <workspace-file.anchorread> --write
  *
  * Codex/Claude stdio configuration:
  * {
  *   "mcpServers": {
  *     "anchor-read-diagram": {
  *       "command": "node",
- *       "args": ["F:/AnchorOS/6-项目仓库/AnchorRead/mcp/anchor-read-diagram-mcp.mjs"]
+ *       "args": ["F:/AnchorOS/6-项目仓库/AnchorRead/mcp/anchor-read-diagram.mjs"]
  *     }
  *   }
  * }

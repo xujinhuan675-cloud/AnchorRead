@@ -10,7 +10,7 @@ import { createWorkspaceFilePayload } from '../lib/workspace-file.js';
 import { DIAGRAM_MCP_APP_RESOURCE_URI, DIAGRAM_MCP_APP_MIME_TYPE } from '../lib/diagram-mcp-app-resource.js';
 
 const rootDirectory = fileURLToPath(new URL('..', import.meta.url));
-const serverPath = join(rootDirectory, 'mcp', 'anchor-read-diagram-mcp.mjs');
+const serverPath = join(rootDirectory, 'mcp', 'anchor-read-diagram.mjs');
 
 function callServer(workspacePath, requests, write = false) {
   return new Promise((resolve, reject) => {
@@ -54,7 +54,7 @@ function callLiveServer(bridgeUrl, requests, environment = {}) {
 }
 
 test('diagram MCP lists, describes and commits with revision protection', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'anchor-read-diagram-mcp-'));
+  const directory = await mkdtemp(join(tmpdir(), 'anchor-read-diagram-'));
   const workspacePath = join(directory, 'workspace.anchorread');
   const payload = createWorkspaceFilePayload({
     drawings: [{

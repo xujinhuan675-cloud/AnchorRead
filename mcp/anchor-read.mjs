@@ -6,16 +6,16 @@
  * `.anchorread` 工作区文件（文档、解读、术语、闪卡）。
  *
  * 用法：
- *   node mcp/anchor-read-mcp.mjs <workspace-file.anchorread>
+ *   node mcp/anchor-read.mjs <workspace-file.anchorread>
  * 或通过环境变量：
- *   ANCHORREAD_WORKSPACE_FILE=<path> node mcp/anchor-read-mcp.mjs
+ *   ANCHORREAD_WORKSPACE_FILE=<path> node mcp/anchor-read.mjs
  *
  * MCP 客户端配置示例（Claude Desktop / claude_desktop_config.json）：
  * {
  *   "mcpServers": {
  *     "anchor-read": {
  *       "command": "node",
- *       "args": ["F:/AnchorOS/6-项目仓库/AnchorRead/mcp/anchor-read-mcp.mjs",
+ *       "args": ["F:/AnchorOS/6-项目仓库/AnchorRead/mcp/anchor-read.mjs",
  *                "F:/path/to/anchor-read-workspace.anchorread"]
  *     }
  *   }

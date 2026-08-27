@@ -14,10 +14,10 @@ AI 助手因此可以查询你的阅读文档、术语、闪卡，并做全文�
 
 ```bash
 # 方式一：命令行参数
-node mcp/anchor-read-mcp.mjs <workspace-file.anchorread>
+node mcp/anchor-read.mjs <workspace-file.anchorread>
 
 # 方式二：环境变量
-ANCHORREAD_WORKSPACE_FILE=<path> node mcp/anchor-read-mcp.mjs
+ANCHORREAD_WORKSPACE_FILE=<path> node mcp/anchor-read.mjs
 ```
 
 ## MCP 客户端配置
@@ -30,7 +30,7 @@ ANCHORREAD_WORKSPACE_FILE=<path> node mcp/anchor-read-mcp.mjs
     "anchor-read": {
       "command": "node",
       "args": [
-        "F:/path/to/AnchorRead/mcp/anchor-read-mcp.mjs",
+        "F:/path/to/AnchorRead/mcp/anchor-read.mjs",
         "F:/path/to/anchor-read-workspace.anchorread"
       ]
     }
@@ -73,5 +73,5 @@ ANCHORREAD_WORKSPACE_FILE=<path> node mcp/anchor-read-mcp.mjs
 
 ## 相关文件
 
-- 实现：`mcp/anchor-read-mcp.mjs`
+- 实现：`mcp/anchor-read.mjs`
 - 工作区文件解析与版本迁移：`lib/workspace-file.js`（测试见 `tests/workspace-file.test.js`）

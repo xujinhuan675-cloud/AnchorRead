@@ -9,7 +9,7 @@ AnchorRead 的图解 MCP 默认连接当前打开的本地浏览器页面。MCP 
   "mcpServers": {
     "anchor-read-diagram": {
       "command": "node",
-      "args": ["--experimental-default-type=module", "F:/AnchorOS/6-项目仓库/AnchorRead/mcp/anchor-read-diagram-mcp.mjs"]
+      "args": ["--experimental-default-type=module", "F:/AnchorOS/6-项目仓库/AnchorRead/mcp/anchor-read-diagram.mjs"]
     }
   }
 }
@@ -18,7 +18,7 @@ AnchorRead 的图解 MCP 默认连接当前打开的本地浏览器页面。MCP 
 也可以显式指定地址：
 
 ```text
-node mcp/anchor-read-diagram-mcp.mjs --bridge http://127.0.0.1:3000
+node mcp/anchor-read-diagram.mjs --bridge http://127.0.0.1:3000
 ```
 
 本地桥接可设置 `ANCHORREAD_DIAGRAM_BRIDGE_TOKEN`，并在 MCP 进程中使用同名环境变量。公网部署请使用下方的标准远程 `/mcp` 入口，不要把本地 bridge URL 直接暴露到互联网。
