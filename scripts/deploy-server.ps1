@@ -175,6 +175,8 @@ $remoteScript = $remoteScript.Replace('__CONTAINER__', $ContainerName)
 $remoteScript = $remoteScript.Replace('__DATA_VOLUME__', $DataVolume)
 $remoteScript = $remoteScript.Replace('__HOST_PORT__', [string]$HostPort)
 $remoteScript = $remoteScript.Replace('__CANDIDATE_PORT__', [string]$CandidatePort)
+# SSH executes this payload on Linux; normalize the repository's CRLF text first.
+$remoteScript = $remoteScript.Replace("`r`n", "`n")
 
 $sshResult = Invoke-NativeCapture {
   & ssh.exe -o BatchMode=yes -o ConnectTimeout=15 $SshTarget $remoteScript
