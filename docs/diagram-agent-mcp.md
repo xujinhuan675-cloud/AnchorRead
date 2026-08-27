@@ -23,6 +23,8 @@ node mcp/anchor-read-diagram-mcp.mjs --bridge http://127.0.0.1:3000
 
 本地桥接可设置 `ANCHORREAD_DIAGRAM_BRIDGE_TOKEN`，并在 MCP 进程中使用同名环境变量。公网部署请使用下方的标准远程 `/mcp` 入口，不要把本地 bridge URL 直接暴露到互联网。
 
+stdio 或离线文件模式生成链接时，可设置 `ANCHORREAD_PUBLIC_URL=https://<your-host>` 指定图解页面域名；浏览器内调用会优先使用当前页面域名。
+
 ## 远程 Streamable HTTP MCP
 
 部署到云端后，标准远程 MCP 入口是：
@@ -30,6 +32,18 @@ node mcp/anchor-read-diagram-mcp.mjs --bridge http://127.0.0.1:3000
 ```text
 https://<your-host>/mcp
 ```
+
+### 客户端授权引导
+
+远程客户端可以先访问 `https://<your-host>/api/mcp/authorization` 获取不含密钥的连接元数据，或打开
+`https://<your-host>/mcp/authorize` 进入 AnchorRead 的授权引导页。引导页会把用户带到图解工作区并打开
+「设置 -> MCP 连接」面板，用户仍需在浏览器中确认并生成配对 Token。客户端可以使用返回的
+`authorizationUrl` 作为“打开授权页面”按钮，并在完成后重新发起 MCP 连接。
+
+这不是 OAuth 授权服务器：当前版本没有 OAuth 所需的授权端点、`/token` 或动态客户端注册接口；这里的
+`/mcp/authorize` 只是浏览器配对引导页，也不会把 Token 放进 URL。`oauthSupported` 明确为 `false`，现有
+Bearer Token 配对流程保持不变。实现 OAuth 前，客户端不应把该引导页当作 RFC 8414/9728 元数据或自动换取
+访问令牌的接口。
 
 `/api/mcp` 也提供同一入口作为兼容路径。Codex、Claude Desktop、Cursor 等支持 Streamable HTTP 的客户端可以使用下面的配置：
 
@@ -67,11 +81,21 @@ ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
 
 当前仍只支持单实例部署。多实例负载均衡会把 MCP 与浏览器轮询分到不同进程；`getDiagramMcpPairingStore()` / `setDiagramMcpPairingStore()` 保留 Token/绑定存储适配入口，`getDiagramAgentTransport()` / `setDiagramAgentTransport()` 保留请求队列与推送适配入口。生产多实例需要接入共享 Redis/数据库、跨实例队列和 WebSocket 或等价的可靠推送层。
 
-远程端点实现 MCP 的 JSON-RPC `initialize`、`tools/list`、`tools/call`、`ping`、会话 `DELETE` 和 CORS `OPTIONS`。GET/SSE 未启用时返回 `405`，客户端应使用 Streamable HTTP 的 POST 请求/响应模式。
+远程端点实现 MCP 的 JSON-RPC `initialize`、`tools/list`、`tools/call`、`resources/list`、`resources/read`、`ping`、会话 `DELETE` 和 CORS `OPTIONS`。GET/SSE 未启用时返回 `405`，客户端应使用 Streamable HTTP 的 POST 请求/响应模式。
+
+## MCP Apps 客户端内嵌画布
+
+`create_diagram` 在工具元数据中声明了 `ui://anchorread/diagram/mcp-app.html` 资源。支持 MCP Apps 的 AI 客户端会读取该 HTML 资源，并在客户端消息中直接渲染可编辑的 Excalidraw 画布；画布中的“在 AnchorRead 中打开”按钮仍可跳转到正式工作区。客户端还可以主动调用 `resources/list` / `resources/read` 获取同一资源。
+
+不支持 MCP Apps 的客户端不会被阻塞：工具结果仍返回标准 MCP `resource_link`，客户端可以打开图解 URL，或把链接交给用户。当前内嵌资源使用固定版本的 `esm.sh` 依赖；如果客户端宿主禁止外部资源加载，它应自动退回这个链接工作流。
 
 ## 典型调用
 
+客户端需要让用户进入 AnchorRead 时，先调用 `open_diagram_workspace`。它会立即返回一个 MCP `resource_link`，支持浏览器或打开 URL 的 AI 客户端可以直接打开；它不依赖已配对的浏览器在线。
+
 `create_diagram` 接收 `title`、`engine`，以及 Mermaid 的 `source` 或 Excalidraw 的完整 `scene`。默认 `open: true`，成功后当前 AnchorRead 标签页会打开新图解并将它保存到本地工作区。
+
+如果调用时没有在线的 AnchorRead 浏览器，`create_diagram` 会返回 `nextAction: open_diagram_workspace_then_retry` 和工作区 `resource_link`。支持打开 URL 的客户端应先打开该链接再自动重试；CLI 或不支持打开网页的客户端只展示链接并提示用户手动打开。浏览器在线时不会增加这一步。
 
 其它实时工具包括 `list_diagrams`、`get_diagram`、`describe_diagram`、`query_diagram`、`list_diagram_revisions`、`apply_diagram_patch`、`commit_diagram_scene` 和 `restore_diagram_revision`。写操作使用 `expectedRevision` 做乐观锁，避免 AI 覆盖用户刚刚的画布编辑。
 
