@@ -89,6 +89,19 @@ test('OAuth loopback redirects may change only their ephemeral port', () => {
   assert.equal(redirectUriMatches('https://client.example:443/callback', 'https://client.example:444/callback'), false);
 });
 
+test('OAuth accepts an exactly registered IPv4 loopback redirect URI', () => {
+  const store = new DiagramMcpOAuthStore();
+  const client = store.registerClient({
+    clientName: 'IPv4 loopback test',
+    redirectUris: ['http://127.0.0.1:43123/callback/uKcZNpVb4c62'],
+  }, 1_000);
+
+  assert.equal(
+    store.validateRedirectUri(client, 'http://127.0.0.1:43123/callback/uKcZNpVb4c62'),
+    'http://127.0.0.1:43123/callback/uKcZNpVb4c62',
+  );
+});
+
 test('file OAuth store survives restarts without persisting raw codes or refresh tokens', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'anchorread-oauth-'));
   const filePath = join(directory, 'oauth.json');
