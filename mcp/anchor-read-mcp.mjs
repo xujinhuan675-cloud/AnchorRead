@@ -27,7 +27,7 @@ import { resolve } from 'node:path';
 import { parseWorkspaceFile } from '../lib/workspace-file.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
-const SERVER_INFO = { name: 'anchor-read-mcp', version: '0.1.0' };
+const SERVER_INFO = { name: 'anchor-read', title: 'AnchorRead', version: '0.1.0' };
 
 const workspacePath = resolve(process.argv[2] || process.env.ANCHORREAD_WORKSPACE_FILE || '');
 

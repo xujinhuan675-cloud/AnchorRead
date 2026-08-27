@@ -60,7 +60,7 @@ import {
 } from '../lib/diagram-mcp-app-resource.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
-const SERVER_INFO = { name: 'anchor-read-diagram-mcp', version: '1.2.0' };
+const SERVER_INFO = { name: 'anchor-read-diagram', title: 'AnchorRead Diagram', version: '1.2.0' };
 const SERVER_INSTRUCTIONS = 'Use create_diagram when a visual would materially clarify a concept, process, relationship, or architecture. Set open=true unless the user asks for a link only. If create_diagram returns nextAction=open_diagram_workspace_then_retry, an AI client with browser or open-URL capability should open the returned workspace resource_link and retry the same request; clients without that capability should show the link and ask the user to open it. After a successful diagram or workspace tool returns a resource_link, an AI client with browser or open-URL capability should open that URI; clients without that capability should show the link and say that the user can open it. Live browser mode is the default: keep local AnchorRead open and treat its IndexedDB workspace as the source of truth. Create or edit diagrams directly through these tools; do not introduce .anchorread export/import into the live workflow. Use expectedRevision for edits so concurrent user changes fail instead of being overwritten.';
 const rawArgs = process.argv.slice(2);
 const writeEnabled = rawArgs.includes('--write') || process.env.ANCHORREAD_DIAGRAM_MCP_WRITE === 'true';

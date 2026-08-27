@@ -79,7 +79,8 @@ test('diagram MCP lists, describes and commits with revision protection', async 
       { jsonrpc: '2.0', id: 10, method: 'resources/list', params: {} },
       { jsonrpc: '2.0', id: 11, method: 'resources/read', params: { uri: DIAGRAM_MCP_APP_RESOURCE_URI } },
     ], false);
-    assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram-mcp');
+    assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram');
+    assert.equal(responses[0].result.serverInfo.title, 'AnchorRead Diagram');
     assert.deepEqual(responses[0].result.capabilities.resources, {});
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'query_diagram'));
     assert.match(responses[2].result.content[0].text, /Architecture/);

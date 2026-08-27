@@ -56,7 +56,7 @@ refresh token 可以继续使用。
 `/api/mcp` 也提供同一入口作为兼容路径。Codex、Claude Desktop、Cursor 等支持 Streamable HTTP 的客户端可以使用下面的配置：
 
 ```toml
-[mcp_servers.anchor_read_diagram]
+[mcp_servers.anchor-read-diagram]
 url = "https://<your-host>/mcp"
 auth = "oauth"
 scopes = ["diagrams:read", "diagrams:write"]
