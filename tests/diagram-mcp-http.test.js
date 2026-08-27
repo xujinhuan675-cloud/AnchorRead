@@ -156,7 +156,7 @@ test('remote MCP requires a paired token, binds the session, and enforces CORS o
       jsonrpc: '2.0', id: 1, method: 'initialize', params: {},
     }, { Origin: 'https://client.example' }));
     assert.equal(denied.status, 401);
-    assert.equal(denied.headers.get('www-authenticate'), 'Bearer resource_metadata="https://anchor.example/api/mcp/authorization"');
+    assert.equal(denied.headers.get('www-authenticate'), 'Bearer resource_metadata="https://anchor.example/.well-known/oauth-protected-resource/mcp"');
 
     const accepted = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
       jsonrpc: '2.0', id: 2, method: 'initialize', params: {},
