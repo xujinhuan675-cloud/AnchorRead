@@ -47,10 +47,21 @@ import {
 } from '../lib/diagram-scene-record.js';
 import { createWorkspaceFilePayload, parseWorkspaceFile } from '../lib/workspace-file.js';
 import { getPresentationSpec, normalizePresentationSpec } from '../lib/diagram-presentation.js';
+import {
+  buildDiagramUrl,
+  buildDiagramWorkspaceUrl,
+  createMcpBrowserRecoveryResult,
+  createMcpToolResult,
+} from '../lib/diagram-mcp-links.js';
+import {
+  DIAGRAM_MCP_APP_RESOURCE_URI,
+  diagramMcpAppResourceListing,
+  readDiagramMcpAppResource,
+} from '../lib/diagram-mcp-app-resource.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
-const SERVER_INFO = { name: 'anchor-read-diagram-mcp', version: '1.0.0' };
-const SERVER_INSTRUCTIONS = 'Use create_diagram when a visual would materially clarify a concept, process, relationship, or architecture. Live browser mode is the default: keep local AnchorRead open and treat its IndexedDB workspace as the source of truth. Create or edit diagrams directly through these tools; do not introduce .anchorread export/import into the live workflow. Use expectedRevision for edits so concurrent user changes fail instead of being overwritten.';
+const SERVER_INFO = { name: 'anchor-read-diagram-mcp', version: '1.2.0' };
+const SERVER_INSTRUCTIONS = 'Use create_diagram when a visual would materially clarify a concept, process, relationship, or architecture. Set open=true unless the user asks for a link only. If create_diagram returns nextAction=open_diagram_workspace_then_retry, an AI client with browser or open-URL capability should open the returned workspace resource_link and retry the same request; clients without that capability should show the link and ask the user to open it. After a successful diagram or workspace tool returns a resource_link, an AI client with browser or open-URL capability should open that URI; clients without that capability should show the link and say that the user can open it. Live browser mode is the default: keep local AnchorRead open and treat its IndexedDB workspace as the source of truth. Create or edit diagrams directly through these tools; do not introduce .anchorread export/import into the live workflow. Use expectedRevision for edits so concurrent user changes fail instead of being overwritten.';
 const rawArgs = process.argv.slice(2);
 const writeEnabled = rawArgs.includes('--write') || process.env.ANCHORREAD_DIAGRAM_MCP_WRITE === 'true';
 const bridgeIndex = rawArgs.findIndex((argument) => argument === '--bridge');
@@ -79,9 +90,7 @@ function normalizeBridgeUrl(value) {
 }
 
 function textResult(value) {
-  return {
-    content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }],
-  };
+  return createMcpToolResult(value);
 }
 
 function requireWorkspacePath() {
@@ -175,6 +184,11 @@ function applyRequestedScenePatch(scene, patch = {}) {
 
 const BASE_TOOLS = [
   {
+    name: 'open_diagram_workspace',
+    description: '返回 AnchorRead 图解工作区的可打开链接。具备浏览器或打开 URL 能力的 AI 客户端应立即打开该链接；不具备该能力的客户端应把链接展示给用户。该工具不要求已有配对浏览器在线。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'list_diagrams',
     description: '列出 AnchorRead 工作区中的图解。可按 documentId 筛选。',
     inputSchema: { type: 'object', properties: { documentId: { type: 'string' } }, additionalProperties: false },
@@ -228,7 +242,11 @@ const BASE_TOOLS = [
 
 const CREATE_TOOL = {
   name: 'create_diagram',
-  description: '在已打开的 AnchorRead 浏览器中创建并保存一个新图解，然后切换到该图解。优先传入完整 Excalidraw scene；也可传 Mermaid source。',
+  _meta: {
+    ui: { resourceUri: DIAGRAM_MCP_APP_RESOURCE_URI },
+    'ui/resourceUri': DIAGRAM_MCP_APP_RESOURCE_URI,
+  },
+  description: '创建并保存一个新图解。默认要求已配对的 AnchorRead 浏览器在线，并在创建后切换到该图解；结果同时包含可打开的 resource_link。具备浏览器或打开 URL 能力的 AI 客户端应打开该链接。优先传入完整 Excalidraw scene；也可传 Mermaid source。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -392,6 +410,14 @@ function enqueueWrite(task) {
 }
 
 async function callTool(name, args = {}) {
+  if (name === 'open_diagram_workspace') {
+    return textResult({
+      url: buildDiagramWorkspaceUrl(),
+      opened: false,
+      openAction: 'open_url_if_supported',
+      openResource: { kind: 'workspace' },
+    });
+  }
   if (bridgeUrl) return callBridgeTool(name, args);
   const payload = await readWorkspace();
   switch (name) {
@@ -498,7 +524,14 @@ async function callTool(name, args = {}) {
     }
     case 'share_diagram': {
       const drawing = getDrawing(payload, args.id);
-      return textResult({ routeId: drawing.routeId, url: `/diagrams/${encodeURIComponent(drawing.routeId)}`, local: true });
+      const url = buildDiagramUrl(drawing.routeId);
+      return textResult({
+        routeId: drawing.routeId,
+        url,
+        local: true,
+        openAction: 'open_url_if_supported',
+        openResource: { kind: 'diagram', routeId: drawing.routeId, title: drawing.title, url },
+      });
     }
     case 'get_canvas_screenshot':
       throw new Error('get_canvas_screenshot requires live browser mode.');
@@ -550,7 +583,11 @@ async function callBridgeTool(name, args = {}) {
   } catch {
     throw new Error(`AnchorRead live bridge returned non-JSON (${response.status}).`);
   }
-  if (!response.ok || !body?.ok) throw new Error(body?.error || `AnchorRead live bridge failed (${response.status}).`);
+  if (!response.ok || !body?.ok) {
+    const error = new Error(body?.error || `AnchorRead live bridge failed (${response.status}).`);
+    error.code = String(body?.code || '').trim() || `BRIDGE_HTTP_${response.status}`;
+    throw error;
+  }
   const result = body.result;
   return result && Array.isArray(result.content) ? result : textResult(result);
 }
@@ -569,13 +606,22 @@ async function handleRequest(request) {
           id,
           result: {
             protocolVersion: PROTOCOL_VERSION,
-            capabilities: { tools: {} },
+            capabilities: { tools: {}, resources: {} },
             serverInfo: SERVER_INFO,
             instructions: SERVER_INSTRUCTIONS,
           },
         });
       case 'tools/list':
         return send({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
+      case 'resources/list':
+        return send({ jsonrpc: '2.0', id, result: { resources: [diagramMcpAppResourceListing()] } });
+      case 'resources/read': {
+        const uri = String(params?.uri || '').trim();
+        if (uri !== DIAGRAM_MCP_APP_RESOURCE_URI) {
+          return send({ jsonrpc: '2.0', id, error: { code: -32602, message: `未知 MCP App 资源：${uri}` } });
+        }
+        return send({ jsonrpc: '2.0', id, result: { contents: [readDiagramMcpAppResource()] } });
+      }
       case 'tools/call': {
         const result = await (WRITE_TOOL_NAMES.has(params?.name)
           ? enqueueWrite(() => callTool(params?.name, params?.arguments))
@@ -589,10 +635,14 @@ async function handleRequest(request) {
     }
   } catch (error) {
     if (method === 'tools/call') {
+      const recovery = createMcpBrowserRecoveryResult(error);
       return send({
         jsonrpc: '2.0',
         id,
-        result: { content: [{ type: 'text', text: String(error?.message || error) }], isError: true },
+        result: recovery ? { ...recovery, isError: true } : {
+          content: [{ type: 'text', text: String(error?.message || error) }],
+          isError: true,
+        },
       });
     }
     return send({ jsonrpc: '2.0', id, error: { code: -32000, message: String(error?.message || error) } });

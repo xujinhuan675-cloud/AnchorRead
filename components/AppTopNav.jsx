@@ -1,7 +1,7 @@
 'use client';
 
 import { BookMarked, BookOpenText, Library, Menu, Network, PlugZap, Settings2, WandSparkles, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import ThemeToggler from './ThemeToggler';
 import McpConnectionPanel from './McpConnectionPanel';
@@ -29,6 +29,19 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
   // 语言状态集中在 LocaleProvider，切换后全站组件随上下文重渲染
   const { locale, t, setLocale } = useLocale();
   const { theme, setTheme } = useAppTheme();
+
+  // The remote MCP authorization handoff opens this page with a one-shot
+  // query flag so the user lands directly in the existing connection panel.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mcp') !== 'authorize') return;
+    const openTimer = window.setTimeout(() => setMcpOpen(true), 0);
+    params.delete('mcp');
+    const query = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    return () => window.clearTimeout(openTimer);
+  }, []);
 
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
   const languageLabel = t('topNav.switchLanguage', { language: t(nextLocale === 'zh-CN' ? 'locale.zhCN' : 'locale.en') });

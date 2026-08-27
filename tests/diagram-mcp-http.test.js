@@ -8,6 +8,7 @@ import {
   getDiagramMcpPairingStore,
   resetDiagramMcpPairingStoreForTests,
 } from '../lib/diagram-mcp-pairing-store.js';
+import { DIAGRAM_MCP_APP_RESOURCE_URI, DIAGRAM_MCP_APP_MIME_TYPE } from '../lib/diagram-mcp-app-resource.js';
 
 function request(url, body, headers = {}, method = 'POST') {
   return new Request(url, {
@@ -30,14 +31,33 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     assert.equal(initialize.status, 200);
     const sessionId = initialize.headers.get('mcp-session-id');
     assert.match(sessionId, /^anchorread-/);
-    assert.equal((await initialize.json()).result.protocolVersion, '2025-06-18');
+    const initializeResult = (await initialize.json()).result;
+    assert.equal(initializeResult.protocolVersion, '2025-06-18');
+    assert.deepEqual(initializeResult.capabilities.resources, {});
 
     const listed = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 2, method: 'tools/list', params: {},
     }, { 'MCP-Session-Id': sessionId }));
     const tools = (await listed.json()).result.tools;
-    assert.ok(tools.some((tool) => tool.name === 'create_diagram'));
+    const createTool = tools.find((tool) => tool.name === 'create_diagram');
+    assert.ok(createTool);
+    assert.equal(createTool._meta.ui.resourceUri, DIAGRAM_MCP_APP_RESOURCE_URI);
     assert.equal(tools.some((tool) => tool.name === 'export_excalidraw'), false);
+
+    const resources = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 20, method: 'resources/list', params: {},
+    }, { 'MCP-Session-Id': sessionId }));
+    const resourceListing = (await resources.json()).result.resources[0];
+    assert.equal(resourceListing.uri, DIAGRAM_MCP_APP_RESOURCE_URI);
+    assert.equal(resourceListing.mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
+
+    const resourceRead = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 21, method: 'resources/read', params: { uri: DIAGRAM_MCP_APP_RESOURCE_URI },
+    }, { 'MCP-Session-Id': sessionId }));
+    const resource = (await resourceRead.json()).result.contents[0];
+    assert.equal(resource.mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
+    assert.match(resource.text, /@modelcontextprotocol\/ext-apps@1\.7\.5/);
+    assert.match(resource.text, /app\.connect\(\)/);
 
     let submitted;
     const called = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
@@ -47,16 +67,55 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     }, { 'MCP-Session-Id': sessionId }), {
       submitTool: async (name, args) => {
         submitted = { name, args };
-        return { id: 'dg-test1234', title: args.title };
+        return {
+          id: 'dg-test1234',
+          routeId: 'dg-test1234',
+          title: args.title,
+          url: 'https://anchorread.flowguide.cc/diagrams/dg-test1234',
+          openResource: {
+            kind: 'diagram',
+            routeId: 'dg-test1234',
+            title: args.title,
+            url: 'https://anchorread.flowguide.cc/diagrams/dg-test1234',
+          },
+        };
       },
     });
     const result = await called.json();
     assert.equal(result.result.isError, undefined);
     assert.match(result.result.content[0].text, /dg-test1234/);
+    assert.equal(result.result.content[1].type, 'resource_link');
+    assert.equal(result.result.content[1].uri, 'https://anchorread.flowguide.cc/diagrams/dg-test1234');
     assert.deepEqual(submitted, {
       name: 'create_diagram',
       args: { title: 'Remote concept', engine: 'mermaid' },
     });
+
+    const workspace = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 4, method: 'tools/call', params: {
+        name: 'open_diagram_workspace', arguments: {},
+      },
+    }, { 'MCP-Session-Id': sessionId }), {
+      submitTool: async () => { throw new Error('workspace link must not wait for the browser bridge'); },
+    });
+    const workspaceResult = await workspace.json();
+    assert.equal(workspaceResult.result.content[1].type, 'resource_link');
+    assert.match(workspaceResult.result.content[1].uri, /\/diagrams$/);
+
+    const offline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 5, method: 'tools/call', params: {
+        name: 'create_diagram', arguments: { title: 'Needs browser' },
+      },
+    }, { 'MCP-Session-Id': sessionId }), {
+      submitTool: async () => {
+        throw Object.assign(new Error('No AnchorRead browser is connected.'), { code: 'BRIDGE_TIMEOUT' });
+      },
+    });
+    const offlineResult = await offline.json();
+    assert.equal(offlineResult.result.isError, true);
+    assert.match(offlineResult.result.content[0].text, /open_diagram_workspace_then_retry/);
+    assert.equal(offlineResult.result.content[1].type, 'resource_link');
+    assert.match(offlineResult.result.content[1].uri, /\/diagrams$/);
 
     const closed = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', undefined, {
       'MCP-Session-Id': sessionId,
@@ -97,7 +156,7 @@ test('remote MCP requires a paired token, binds the session, and enforces CORS o
       jsonrpc: '2.0', id: 1, method: 'initialize', params: {},
     }, { Origin: 'https://client.example' }));
     assert.equal(denied.status, 401);
-    assert.equal(denied.headers.get('www-authenticate'), 'Bearer');
+    assert.equal(denied.headers.get('www-authenticate'), 'Bearer resource_metadata="https://anchor.example/api/mcp/authorization"');
 
     const accepted = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
       jsonrpc: '2.0', id: 2, method: 'initialize', params: {},

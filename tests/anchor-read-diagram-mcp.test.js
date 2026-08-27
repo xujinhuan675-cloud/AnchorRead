@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createWorkspaceFilePayload } from '../lib/workspace-file.js';
+import { DIAGRAM_MCP_APP_RESOURCE_URI, DIAGRAM_MCP_APP_MIME_TYPE } from '../lib/diagram-mcp-app-resource.js';
 
 const rootDirectory = fileURLToPath(new URL('..', import.meta.url));
 const serverPath = join(rootDirectory, 'mcp', 'anchor-read-diagram-mcp.mjs');
@@ -74,12 +75,20 @@ test('diagram MCP lists, describes and commits with revision protection', async 
       { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_diagrams', arguments: {} } },
       { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'describe_diagram', arguments: { id: 'drawing-1' } } },
       { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'get_presentation', arguments: { id: 'drawing-1' } } },
+      { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'open_diagram_workspace', arguments: {} } },
+      { jsonrpc: '2.0', id: 10, method: 'resources/list', params: {} },
+      { jsonrpc: '2.0', id: 11, method: 'resources/read', params: { uri: DIAGRAM_MCP_APP_RESOURCE_URI } },
     ], false);
     assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram-mcp');
+    assert.deepEqual(responses[0].result.capabilities.resources, {});
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'query_diagram'));
     assert.match(responses[2].result.content[0].text, /Architecture/);
     assert.match(responses[3].result.content[0].text, /Total elements: 1/);
     assert.match(responses[4].result.content[0].text, /"presentation": null/);
+    assert.equal(responses[5].result.content[1].type, 'resource_link');
+    assert.match(responses[5].result.content[1].uri, /\/diagrams$/);
+    assert.equal(responses.find((response) => response.id === 10).result.resources[0].mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
+    assert.match(responses.find((response) => response.id === 11).result.contents[0].text, /Excalidraw/);
 
     const writes = await callServer(workspacePath, [
       { jsonrpc: '2.0', id: 5, method: 'tools/call', params: {
@@ -137,12 +146,36 @@ test('live mode exposes create_diagram and forwards it to the browser bridge', a
         arguments: { title: 'Live concept', engine: 'mermaid', source: 'flowchart TD\nA-->B' },
       } },
     ], { ANCHORREAD_DIAGRAM_BRIDGE_TOKEN: 'test-token' });
-    assert.ok(responses[0].result.tools.some((tool) => tool.name === 'create_diagram'));
+    const createTool = responses[0].result.tools.find((tool) => tool.name === 'create_diagram');
+    assert.ok(createTool);
+    assert.equal(createTool._meta.ui.resourceUri, DIAGRAM_MCP_APP_RESOURCE_URI);
     assert.match(responses[1].result.content[0].text, /live-1/);
     assert.equal(received.action, 'submit');
     assert.equal(received.request.tool, 'create_diagram');
     assert.equal(received.request.args.title, 'Live concept');
     assert.equal(receivedToken, 'test-token');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('live mode returns a workspace recovery link when no browser claims a request', async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(504, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ ok: false, code: 'BRIDGE_TIMEOUT', error: 'No open AnchorRead browser claimed the request.' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    const responses = await callLiveServer(`http://127.0.0.1:${port}`, [
+      { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        name: 'create_diagram', arguments: { title: 'Needs browser', engine: 'excalidraw' },
+      } },
+    ]);
+    assert.equal(responses[0].result.isError, true);
+    assert.match(responses[0].result.content[0].text, /open_diagram_workspace_then_retry/);
+    assert.equal(responses[0].result.content[1].type, 'resource_link');
+    assert.match(responses[0].result.content[1].uri, /\/diagrams$/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
