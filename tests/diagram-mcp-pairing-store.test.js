@@ -131,3 +131,27 @@ test('file pairing store persists OAuth access-token hashes and browser ownershi
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('file pairing store refreshes persistent state shared by separate route contexts', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anchorread-pairing-shared-'));
+  const filePath = join(directory, 'pairings.json');
+  try {
+    const browserRoute = new FileDiagramMcpPairingStore({ filePath });
+    const tokenRoute = new FileDiagramMcpPairingStore({ filePath });
+    const mcpRoute = new FileDiagramMcpPairingStore({ filePath });
+
+    await browserRoute.registerConnection(context(), { now: 60_000 });
+    const created = await tokenRoute.createTokenForWorkspace(context(), {
+      name: 'Codex shared route test',
+      expiresInMs: 20_000,
+      now: 60_001,
+    });
+    const authenticated = await mcpRoute.authenticateToken(created.token, { now: 60_002 });
+
+    assert.equal(authenticated.token.id, created.record.id);
+    assert.equal(authenticated.binding.workspaceId, 'workspace-test');
+    assert.equal(authenticated.binding.connected, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

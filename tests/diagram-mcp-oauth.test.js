@@ -134,6 +134,46 @@ test('file OAuth store survives restarts without persisting raw codes or refresh
   }
 });
 
+test('file OAuth store refreshes state shared by separate route contexts', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anchorread-oauth-shared-'));
+  const filePath = join(directory, 'oauth.json');
+  const verifier = 'anchorread-shared-verifier-abcdefghijklmnopqrstuvwxyz0123456789';
+  try {
+    const registrationRoute = new FileDiagramMcpOAuthStore({ filePath });
+    const authorizationRoute = new FileDiagramMcpOAuthStore({ filePath });
+    const client = registrationRoute.registerClient({
+      clientName: 'Codex shared store test',
+      redirectUris: ['http://127.0.0.1:43123/callback/uKcZNpVb4c62'],
+    }, 1_000);
+
+    assert.equal(authorizationRoute.getClient(client.clientId, 1_001).clientId, client.clientId);
+    const transaction = authorizationRoute.createTransaction({
+      clientId: client.clientId,
+      redirectUri: 'http://127.0.0.1:11791/callback/uKcZNpVb4c62',
+      codeChallenge: challenge(verifier),
+      codeChallengeMethod: 'S256',
+      scopes: 'diagrams:read diagrams:write',
+    }, 2_000);
+
+    const approvalRoute = new FileDiagramMcpOAuthStore({ filePath });
+    const approved = approvalRoute.approveTransaction(transaction.id, {
+      workspaceId: 'browser-shared',
+    }, 3_000);
+    const code = new URL(approved.redirectUrl).searchParams.get('code');
+
+    const tokenRoute = new FileDiagramMcpOAuthStore({ filePath });
+    const record = tokenRoute.consumeCode({
+      code,
+      clientId: client.clientId,
+      redirectUri: 'http://127.0.0.1:11791/callback/uKcZNpVb4c62',
+      codeVerifier: verifier,
+    }, 4_000);
+    assert.equal(record.browserContext.workspaceId, 'browser-shared');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('OAuth-issued access tokens expire', async () => {
   const pairing = new InMemoryDiagramMcpPairingStore();
   const context = {
