@@ -127,7 +127,7 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
   }
 });
 
-test('remote MCP requires a paired token, binds the session, and enforces CORS origins', async () => {
+test('remote MCP requires an OAuth access token, binds the session, and enforces CORS origins', async () => {
   const previousOrigins = process.env.ANCHORREAD_MCP_ALLOWED_ORIGINS;
   const previousStore = process.env.ANCHORREAD_MCP_PAIRING_STORE;
   process.env.ANCHORREAD_MCP_ALLOWED_ORIGINS = 'https://client.example';
@@ -143,7 +143,7 @@ test('remote MCP requires a paired token, binds the session, and enforces CORS o
   };
   try {
     await store.registerConnection(browser);
-    const created = await store.createToken(browser, { name: 'HTTP test' });
+    const created = await store.createTokenForWorkspace(browser, { name: 'OAuth HTTP test', expiresInMs: 60_000 });
     const reopenedBrowser = {
       ...browser,
       browserSessionId: 'session-http-reopened',
@@ -185,11 +185,10 @@ test('remote MCP requires a paired token, binds the session, and enforces CORS o
     }, { Origin: 'https://evil.example', Authorization: authorization }));
     assert.equal(blockedOrigin.status, 403);
 
-    await store.revokeToken(reopenedBrowser, created.record.id);
-    const revoked = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
+    const apiKeyAlias = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
       jsonrpc: '2.0', id: 5, method: 'ping', params: {},
-    }, { Origin: 'https://client.example', Authorization: authorization, 'MCP-Session-Id': sessionId }));
-    assert.equal(revoked.status, 401);
+    }, { Origin: 'https://client.example', 'X-API-Key': created.token, 'MCP-Session-Id': sessionId }));
+    assert.equal(apiKeyAlias.status, 401);
   } finally {
     if (previousOrigins === undefined) delete process.env.ANCHORREAD_MCP_ALLOWED_ORIGINS;
     else process.env.ANCHORREAD_MCP_ALLOWED_ORIGINS = previousOrigins;

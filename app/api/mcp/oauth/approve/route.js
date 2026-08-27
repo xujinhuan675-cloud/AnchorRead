@@ -32,8 +32,8 @@ export async function POST(request) {
     const body = await request.json();
     const context = contextFrom(request, body);
     const pairingStore = getDiagramMcpPairingStore();
-    // Register the current browser before issuing the code. This both proves
-    // the management secret and gives the later MCP token a workspace target.
+    // Register this browser before issuing the code so later MCP requests are
+    // routed back to the page the user explicitly approved.
     const connection = await pairingStore.registerConnection(context, { replace: true });
     const approved = getDiagramMcpOAuthStore().approveTransaction(body?.transaction, context);
     return NextResponse.json({ ok: true, ...approved, connection }, {

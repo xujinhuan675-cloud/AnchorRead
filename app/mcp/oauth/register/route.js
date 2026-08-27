@@ -16,6 +16,7 @@ export async function POST(request) {
       client_name: client.clientName,
       redirect_uris: client.redirectUris,
       client_id_issued_at: Math.floor(client.createdAt / 1000),
+      client_id_expires_at: Math.floor(client.expiresAt / 1000),
       token_endpoint_auth_method: 'none',
     }, { status: 201 });
   } catch (error) {

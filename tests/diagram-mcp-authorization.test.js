@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   getDiagramMcpAuthorizationInfo,
@@ -17,23 +18,28 @@ test('authorization metadata stays same-origin and contains no secret material',
   const info = getDiagramMcpAuthorizationInfo('https://anchor.example/mcp', {
     pairingStore: 'file',
     persistentTokens: true,
+    oauthStore: 'file',
+    persistentOAuth: true,
     multiInstance: false,
   });
 
-  assert.equal(info.type, 'anchorread-browser-pairing');
+  assert.equal(info.type, 'anchorread-oauth');
   assert.equal(info.oauthSupported, true);
   assert.equal(info.resource, 'https://anchor.example/mcp');
   assert.equal(info.authorizationUrl, 'https://anchor.example/mcp/authorize');
   assert.equal(info.diagramsUrl, 'https://anchor.example/diagrams?mcp=authorize');
   assert.equal(info.statusUrl, 'https://anchor.example/api/mcp/authorization');
-  assert.equal(info.tokenEnvironmentVariable, 'ANCHORREAD_MCP_BEARER_TOKEN');
   assert.equal(info.oauth.authorizationEndpoint, 'https://anchor.example/mcp/oauth/authorize');
   assert.equal(info.oauth.tokenEndpoint, 'https://anchor.example/mcp/oauth/token');
   assert.equal(info.oauth.registrationEndpoint, 'https://anchor.example/mcp/oauth/register');
   assert.equal(info.oauth.protectedResourceMetadata, 'https://anchor.example/.well-known/oauth-protected-resource/mcp');
-  assert.equal(info.runtime.persistentTokens, true);
+  assert.equal(info.runtime.persistentAccessTokens, true);
+  assert.equal(info.runtime.persistentOAuth, true);
+  assert.equal(info.runtime.oauthStore, 'file');
   assert.equal(JSON.stringify(info).includes('armcp_'), false);
   assert.equal(JSON.stringify(info).includes('managementSecret'), false);
+  assert.equal(JSON.stringify(info).includes('tokenEnvironmentVariable'), false);
+  assert.equal(JSON.stringify(info).includes('bearer_token_env_var'), false);
 });
 
 test('authorization URL helpers discard caller paths and query strings', () => {
@@ -51,4 +57,12 @@ test('authorization URL helpers discard caller paths and query strings', () => {
 
 test('authorization metadata rejects invalid URL input', () => {
   assert.throws(() => getDiagramMcpResourceUrl('not a URL'), TypeError);
+});
+
+test('browser connection surface exposes OAuth only', () => {
+  const pairingRoute = readFileSync(new URL('../app/api/mcp/pairing/route.js', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../components/McpConnectionPanel.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(pairingRoute, /create-token|rotate-token|revoke-token/u);
+  assert.doesNotMatch(panel, /ANCHORREAD_MCP_BEARER_TOKEN|bearer_token_env_var|create-token|rotate-token|revoke-token/u);
+  assert.match(panel, /OAuth authorization|OAuth 授权/u);
 });

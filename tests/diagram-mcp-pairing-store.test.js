@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -20,13 +21,18 @@ function context(overrides = {}) {
   };
 }
 
-test('paired tokens are workspace-scoped, hashed, long-lived, revocable, and rotatable', async () => {
+test('OAuth access tokens are browser-scoped, hashed, expiring, and follow a reopened page', async () => {
   const store = new InMemoryDiagramMcpPairingStore();
+  assert.equal(typeof store.createToken, 'undefined');
   await store.registerConnection(context(), { now: 1_000 });
-  const created = await store.createToken(context(), { name: 'Codex laptop', now: 1_001 });
+  const created = await store.createTokenForWorkspace(context(), {
+    name: 'Codex laptop',
+    expiresInMs: 20_000_000,
+    now: 1_001,
+  });
   assert.match(created.token, /^armcp_/u);
   assert.equal(store.tokens.get(created.record.id).tokenHash.includes(created.token), false);
-  assert.equal(created.record.expiresAt, null);
+  assert.equal(created.record.expiresAt, 20_001_001);
 
   const reopened = context({
     browserSessionId: 'session-reopened',
@@ -39,13 +45,39 @@ test('paired tokens are workspace-scoped, hashed, long-lived, revocable, and rot
   assert.equal(authenticated.binding.workspaceId, 'workspace-test');
   assert.equal(authenticated.binding.browserSessionId, 'session-reopened');
   assert.equal(authenticated.binding.connected, true);
+  await assert.rejects(store.authenticateToken(created.token, { now: 20_001_002 }), { code: 'TOKEN_EXPIRED' });
+});
 
-  const rotated = await store.rotateToken(reopened, created.record.id, { now: 10_000_003 });
-  await assert.rejects(store.authenticateToken(created.token, { now: 10_000_004 }), { code: 'TOKEN_REVOKED' });
-  assert.equal((await store.authenticateToken(rotated.token, { now: 10_000_004 })).token.id, rotated.record.id);
-
-  await store.revokeToken(reopened, rotated.record.id, { now: 10_000_005 });
-  await assert.rejects(store.authenticateToken(rotated.token, { now: 10_000_006 }), { code: 'TOKEN_REVOKED' });
+test('file pairing store ignores deprecated non-expiring static tokens', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anchorread-static-token-'));
+  const filePath = join(directory, 'pairings.json');
+  const secret = 'armcp_deprecated-static-token';
+  try {
+    await writeFile(filePath, JSON.stringify({
+      version: 1,
+      workspaces: [{
+        workspaceId: 'workspace-test',
+        managementHash: createHash('sha256').update('manage-test-secret', 'utf8').digest('hex'),
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      }],
+      tokens: [{
+        id: 'token-deprecated',
+        tokenHash: createHash('sha256').update(secret, 'utf8').digest('hex'),
+        prefix: 'armcp_depre...oken',
+        name: 'Deprecated static token',
+        workspaceId: 'workspace-test',
+        createdAt: 1_000,
+        revokedAt: null,
+        lastUsedAt: null,
+        expiresAt: null,
+      }],
+    }), 'utf8');
+    const store = new FileDiagramMcpPairingStore({ filePath });
+    await assert.rejects(store.authenticateToken(secret, { now: 2_000 }), { code: 'TOKEN_UNKNOWN' });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('a duplicate browser instance cannot reclaim an active session without explicit replacement', async () => {
@@ -70,13 +102,13 @@ test('management secrets cannot inspect or mutate another workspace session', as
   );
 });
 
-test('file pairing store persists token hashes and workspace ownership across restarts', async () => {
+test('file pairing store persists OAuth access-token hashes and browser ownership across restarts', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'anchorread-pairing-'));
   const filePath = join(directory, 'pairings.json');
   try {
     const first = new FileDiagramMcpPairingStore({ filePath });
     await first.registerConnection(context(), { now: 30_000 });
-    const created = await first.createToken(context(), { now: 30_001 });
+    const created = await first.createTokenForWorkspace(context(), { expiresInMs: 20_000, now: 30_001 });
 
     const persisted = await readFile(filePath, 'utf8');
     assert.equal(persisted.includes(created.token), false);
@@ -92,9 +124,9 @@ test('file pairing store persists token hashes and workspace ownership across re
     const authenticated = await second.authenticateToken(created.token, { now: 40_001 });
     assert.equal(authenticated.binding.browserSessionId, 'session-after-restart');
 
-    await second.revokeToken(reopened, created.record.id, { now: 40_002 });
     const third = new FileDiagramMcpPairingStore({ filePath });
-    await assert.rejects(third.authenticateToken(created.token, { now: 40_003 }), { code: 'TOKEN_REVOKED' });
+    assert.equal((await third.authenticateToken(created.token, { now: 40_003 })).token.id, created.record.id);
+    await assert.rejects(third.authenticateToken(created.token, { now: 50_002 }), { code: 'TOKEN_EXPIRED' });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

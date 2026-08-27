@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   getDiagramMcpAuthorizationInfo,
 } from '@/lib/diagram-mcp-authorization';
+import { getDiagramMcpOAuthRuntimeInfo } from '@/lib/diagram-mcp-oauth';
 import { getDiagramMcpRuntimeInfo } from '@/lib/diagram-mcp-pairing-store';
 import { requestOrigin } from '@/lib/diagram-mcp-oauth-http';
 
@@ -18,7 +19,10 @@ function responseHeaders() {
 }
 
 export async function GET(request) {
-  const info = getDiagramMcpAuthorizationInfo(request, getDiagramMcpRuntimeInfo());
+  const info = getDiagramMcpAuthorizationInfo(request, {
+    ...getDiagramMcpRuntimeInfo(),
+    ...getDiagramMcpOAuthRuntimeInfo(),
+  });
   return NextResponse.json({
     ok: true,
     ...info,

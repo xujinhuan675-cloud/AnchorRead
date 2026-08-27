@@ -42,9 +42,7 @@ function contextFrom(request, body) {
 function errorStatus(code) {
   if (['PAIRING_FORBIDDEN', 'SESSION_CONFLICT'].includes(code)) return 403;
   if (code === 'CONNECTION_REPLACED') return 409;
-  if (code === 'TOKEN_NOT_FOUND') return 404;
   if (['BROWSER_SESSION_OFFLINE', 'PAIRING_STORE_UNAVAILABLE'].includes(code)) return 503;
-  if (code === 'TOKEN_LIMIT_REACHED') return 429;
   return 400;
 }
 
@@ -127,24 +125,6 @@ export async function POST(request) {
         ...snapshot,
         runtime: { ...snapshot.runtime, ...getDiagramAgentTransport().runtimeInfo },
       });
-    }
-    if (action === 'create-token') {
-      const created = await store.createToken(context, {
-        name: body?.name,
-      });
-      return NextResponse.json({ ok: true, ...created, tokens: await store.listTokens(context) });
-    }
-    if (action === 'revoke-token') {
-      const token = await store.revokeToken(context, body?.tokenId);
-      await getDiagramAgentTransport().cancelRequestsForToken(token.id);
-      return NextResponse.json({ ok: true, token, tokens: await store.listTokens(context) });
-    }
-    if (action === 'rotate-token') {
-      const rotated = await store.rotateToken(context, body?.tokenId, {
-        name: body?.name,
-      });
-      await getDiagramAgentTransport().cancelRequestsForToken(rotated.previous.id);
-      return NextResponse.json({ ok: true, ...rotated, tokens: await store.listTokens(context) });
     }
     if (action === 'test') {
       const tested = await testBrowserRoute(store, context);

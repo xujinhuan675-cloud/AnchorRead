@@ -60,7 +60,7 @@ function renderConsent(request, oauthRequest, client) {
     <style>
       :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
       body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f7f7f5; color: #292524; }
-      main { width: min(92vw, 36rem); padding: 2rem; border: 1px solid #e7e5e4; border-radius: .75rem; background: white; box-shadow: 0 12px 30px #00000012; }
+      main { width: min(92vw, 36rem); padding: 2rem; border: 1px solid #e7e5e4; border-radius: .5rem; background: white; box-shadow: 0 12px 30px #00000012; }
       h1 { margin: 0 0 .75rem; font-size: 1.35rem; }
       p, li { line-height: 1.6; font-size: .92rem; }
       ul { padding-left: 1.2rem; }
@@ -72,8 +72,8 @@ function renderConsent(request, oauthRequest, client) {
   <body>
     <main>
       <h1>授权连接 AnchorRead</h1>
-      <p><strong>${clientName}</strong> 请求访问 AnchorRead 图解工作区。</p>
-      <ul><li>客户端可以创建、读取和修改图解。</li><li>当前浏览器将作为图解工作区接收后续操作。</li></ul>
+      <p><strong>${clientName}</strong> 请求连接 AnchorRead。</p>
+      <ul><li>客户端可以创建、读取和修改图解。</li><li>后续操作会发送到当前浏览器中的图解页面。</li></ul>
       <form method="post" action="${action}">${fields}<input type="hidden" name="approval" value="approve"><button type="submit">授权并绑定此浏览器</button></form>
       <p class="note">授权完成后会返回原 MCP 客户端；若客户端不支持自动打开浏览器，请复制授权地址到浏览器中继续。</p>
     </main>
@@ -85,8 +85,9 @@ export async function GET(request) {
   try {
     const oauthRequest = queryRequest(new URL(request.url));
     validateResource(request, oauthRequest);
-    const client = getDiagramMcpOAuthStore().getClient(oauthRequest.clientId);
-    if (!client.redirectUris.includes(new URL(oauthRequest.redirectUri).toString())) throw oauthError('invalid_request', 'The redirect URI is not registered.');
+    const store = getDiagramMcpOAuthStore();
+    const client = store.getClient(oauthRequest.clientId);
+    store.validateRedirectUri(client, oauthRequest.redirectUri);
     return renderConsent(request, oauthRequest, client);
   } catch (error) {
     return oauthErrorResponse(error);
@@ -109,7 +110,7 @@ export async function POST(request) {
     validateResource(request, oauthRequest);
     const store = getDiagramMcpOAuthStore();
     const client = store.getClient(oauthRequest.clientId);
-    if (!client.redirectUris.includes(new URL(oauthRequest.redirectUri).toString())) throw oauthError('invalid_request', 'The redirect URI is not registered.');
+    store.validateRedirectUri(client, oauthRequest.redirectUri);
     if (form.get('approval') !== 'approve') throw oauthError('access_denied', 'The user denied access.');
     const transaction = store.createTransaction({
       ...oauthRequest,
