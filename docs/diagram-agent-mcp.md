@@ -33,17 +33,23 @@ stdio 或离线文件模式生成链接时，可设置 `ANCHORREAD_PUBLIC_URL=ht
 https://<your-host>/mcp
 ```
 
-### 客户端授权引导
+### 客户端授权与浏览器绑定
 
-远程客户端可以先访问 `https://<your-host>/api/mcp/authorization` 获取不含密钥的连接元数据，或打开
-`https://<your-host>/mcp/authorize` 进入 AnchorRead 的授权引导页。引导页会把用户带到图解工作区并打开
-「设置 -> MCP 连接」面板，用户仍需在浏览器中确认并生成配对 Token。客户端可以使用返回的
-`authorizationUrl` 作为“打开授权页面”按钮，并在完成后重新发起 MCP 连接。
+远程 `/mcp` 使用 MCP 标准的 OAuth 2.1 authorization-code + PKCE 流程。客户端收到 `401` 后，可以通过
+`/.well-known/oauth-protected-resource/mcp` 发现资源和授权服务器，再从
+`/.well-known/oauth-authorization-server` 获取授权、令牌和动态注册端点。客户端注册一个带精确回调地址的
+public client，打开授权页并让用户点击“授权并绑定此浏览器”。
 
-这不是 OAuth 授权服务器：当前版本没有 OAuth 所需的授权端点、`/token` 或动态客户端注册接口；这里的
-`/mcp/authorize` 只是浏览器配对引导页，也不会把 Token 放进 URL。`oauthSupported` 明确为 `false`，现有
-Bearer Token 配对流程保持不变。实现 OAuth 前，客户端不应把该引导页当作 RFC 8414/9728 元数据或自动换取
-访问令牌的接口。
+授权页会把用户带到 `/diagrams?mcp=oauth_approve&transaction=...`，图解工作区用本地浏览器身份完成配对，随后
+回调客户端。客户端用 `code_verifier` 换取短期 access token 和轮换 refresh token；access token 仍使用
+`Authorization: Bearer` 访问 `/mcp`。访问令牌最终绑定到用户确认的 AnchorRead 浏览器工作区，浏览器关闭或离线时，
+MCP 会返回工作区链接，支持打开 URL 的客户端应自动打开，不支持的客户端提示用户手动打开。
+
+`/mcp/authorize` 仍保留为旧客户端的手动引导页。旧客户端也可以继续使用静态 Bearer Token 配置；浏览器面板中的
+Token 生成、撤销和轮换接口不受 OAuth 改动影响。
+
+OAuth 客户端注册、授权事务和 refresh token 当前保存在单个 Node 进程内存中；部署重启会让未完成的授权码和
+refresh token 失效，客户端需要重新走一次授权。已有的静态配对 Token 仍按 pairing store 的持久化策略保存。
 
 `/api/mcp` 也提供同一入口作为兼容路径。Codex、Claude Desktop、Cursor 等支持 Streamable HTTP 的客户端可以使用下面的配置：
 
@@ -53,7 +59,7 @@ url = "https://<your-host>/mcp"
 bearer_token_env_var = "ANCHORREAD_MCP_BEARER_TOKEN"
 ```
 
-先在 AnchorRead 的图解库或具体图解页面打开「设置 -> MCP 连接」。首次使用只需点击「生成连接信息」，再按面板中的两步设置 Token 环境变量并复制 Codex 配置片段。Token 默认长期有效，直到用户主动撤销或重新生成；明文只在创建或轮换时显示一次，服务端只保存 SHA-256 哈希。
+支持 OAuth 的客户端不需要复制 Token；首次连接时按照授权页完成一次浏览器绑定即可。旧客户端首次使用仍可在 AnchorRead 的图解库或具体图解页面打开「设置 -> MCP 连接」，点击「生成连接信息」，再按面板中的两步设置 Token 环境变量并复制 Codex 配置片段。静态 Token 默认长期有效，直到用户主动撤销或重新生成；明文只在创建或轮换时显示一次，服务端只保存 SHA-256 哈希。
 
 把 Token 放入启动 Codex 的本地环境：
 
