@@ -51,7 +51,9 @@ export default function RootLayout({ children }) {
           <DiagramAgentBridge />
           {children}
         </LocaleProvider>
-        <Analytics />
+        {/* Vercel Web Analytics 仅在其托管平台有效；自托管部署时跳过，
+            避免 /_vercel/insights/script.js 返回 404 */}
+        {process.env.VERCEL ? <Analytics /> : null}
       </body>
     </html>
   );
