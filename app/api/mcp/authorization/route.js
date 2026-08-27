@@ -3,6 +3,7 @@ import {
   getDiagramMcpAuthorizationInfo,
 } from '@/lib/diagram-mcp-authorization';
 import { getDiagramMcpRuntimeInfo } from '@/lib/diagram-mcp-pairing-store';
+import { requestOrigin } from '@/lib/diagram-mcp-oauth-http';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,13 +18,17 @@ function responseHeaders() {
 }
 
 export async function GET(request) {
+  const info = getDiagramMcpAuthorizationInfo(request, getDiagramMcpRuntimeInfo());
   return NextResponse.json({
     ok: true,
-    ...getDiagramMcpAuthorizationInfo(request, getDiagramMcpRuntimeInfo()),
+    ...info,
+    // This endpoint is retained as a compatibility alias for older clients;
+    // standards-based clients should use /.well-known/oauth-protected-resource/mcp.
+    resource: info.resource,
+    authorization_servers: [requestOrigin(request)],
   }, { headers: responseHeaders() });
 }
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: responseHeaders() });
 }
-

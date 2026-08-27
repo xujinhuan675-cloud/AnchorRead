@@ -26,18 +26,25 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [oauthTransaction, setOauthTransaction] = useState('');
   // 语言状态集中在 LocaleProvider，切换后全站组件随上下文重渲染
   const { locale, t, setLocale } = useLocale();
   const { theme, setTheme } = useAppTheme();
 
-  // The remote MCP authorization handoff opens this page with a one-shot
-  // query flag so the user lands directly in the existing connection panel.
+  // Remote MCP authorization lands in the browser workspace. The panel uses
+  // the one-shot transaction to bind this browser and return to the client.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get('mcp') !== 'authorize') return;
-    const openTimer = window.setTimeout(() => setMcpOpen(true), 0);
+    const mode = params.get('mcp');
+    if (!['authorize', 'oauth_approve'].includes(mode)) return;
+    const transaction = mode === 'oauth_approve' ? String(params.get('transaction') || '').trim() : '';
+    const openTimer = window.setTimeout(() => {
+      setOauthTransaction(transaction);
+      setMcpOpen(true);
+    }, 0);
     params.delete('mcp');
+    params.delete('transaction');
     const query = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
     return () => window.clearTimeout(openTimer);
@@ -224,7 +231,8 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
       ) : null}
       <McpConnectionPanel
         isOpen={mcpOpen}
-        onClose={() => setMcpOpen(false)}
+        oauthTransaction={oauthTransaction}
+        onClose={() => { setMcpOpen(false); setOauthTransaction(''); }}
         onOpenDiagrams={() => onNavigate('diagram')}
       />
     </>

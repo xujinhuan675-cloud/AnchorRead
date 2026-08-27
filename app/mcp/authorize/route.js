@@ -42,7 +42,7 @@ export async function GET(request) {
   <body>
     <main>
       <h1>连接 AnchorRead MCP</h1>
-      <p>此服务器使用浏览器配对 Token。请打开图解工作区，在“设置 → MCP 连接”中生成或管理连接信息。</p>
+      <p>支持 OAuth 2.1 的 MCP 客户端会自动打开授权页；旧客户端可以打开图解工作区，在“设置 → MCP 连接”中生成或管理 Bearer Token。</p>
       <a class="button" href="${diagramsUrl}">打开图解工作区</a>
       <p class="note">MCP 地址：<code>${endpoint}</code><br>状态接口：<code>${statusUrl}</code></p>
     </main>
@@ -58,4 +58,3 @@ export async function GET(request) {
     },
   });
 }
-

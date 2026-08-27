@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   CircleAlert,
@@ -65,7 +65,7 @@ function Step({ number, title, description, children }) {
   );
 }
 
-export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams }) {
+export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oauthTransaction = '' }) {
   const { locale } = useLocale();
   const zh = locale === 'zh-CN';
   const [snapshot, setSnapshot] = useState(null);
@@ -75,6 +75,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams }) 
   const [copied, setCopied] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [diagramPage, setDiagramPage] = useState(false);
+  const oauthApprovalStartedRef = useRef(false);
 
   const configSnippet = useMemo(() => (
     `[mcp_servers.anchor_read_diagram]\nurl = "${endpoint || 'https://<your-host>/mcp'}"\nbearer_token_env_var = "${TOKEN_ENV_NAME}"\n`
@@ -149,7 +150,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams }) 
     };
   }, [isOpen, refresh]);
 
-  const perform = async (name, action) => {
+  const perform = useCallback(async (name, action) => {
     setBusy(name);
     setMessage(null);
     try {
@@ -159,7 +160,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams }) 
     } finally {
       setBusy('');
     }
-  };
+  }, []);
 
   const createToken = () => perform('create', async () => {
     const payload = await request('create-token', { name: 'Codex' });
@@ -190,6 +191,49 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams }) 
     });
     await refresh({ quiet: true });
   });
+
+  const approveOAuth = useCallback(() => perform('oauth-approve', async () => {
+    if (!oauthTransaction) throw new Error(zh ? '授权请求已过期，请从 MCP 客户端重新连接。' : 'The authorization request expired. Reconnect from the MCP client.');
+    const identity = createDiagramAgentIdentity();
+    const response = await fetch('/api/mcp/oauth/approve', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AnchorRead-Session-Secret': identity.managementSecret,
+      },
+      cache: 'no-store',
+      body: JSON.stringify({
+        transaction: oauthTransaction,
+        workspaceId: identity.workspaceId,
+        browserSessionId: identity.browserSessionId,
+        tabId: identity.tabId,
+        clientId: identity.clientId,
+        href: window.location.href,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.ok || !payload.redirectUrl) {
+      const error = new Error(payload.error || `OAuth approval failed (${response.status}).`);
+      error.code = payload.code;
+      throw error;
+    }
+    window.location.assign(payload.redirectUrl);
+  }), [oauthTransaction, zh, perform]);
+
+  useEffect(() => {
+    if (!isOpen) oauthApprovalStartedRef.current = false;
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !diagramPage || !oauthTransaction || oauthApprovalStartedRef.current) return undefined;
+    oauthApprovalStartedRef.current = true;
+    const timer = window.setTimeout(() => {
+      approveOAuth().catch(() => {
+        oauthApprovalStartedRef.current = false;
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, diagramPage, oauthTransaction, approveOAuth]);
 
   const copy = async (key, value) => {
     try {
@@ -231,6 +275,18 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams }) 
           </div>
         ) : (
           <>
+            {oauthTransaction ? (
+              <section className="border-b border-stone-200 pb-5 dark:border-stone-800">
+                <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '完成 MCP 授权' : 'Complete MCP authorization'}</div>
+                <p className="mt-1 text-xs leading-5 text-stone-500">
+                  {zh ? '授权后，客户端会自动保存访问令牌；当前浏览器将作为图解工作区。' : 'After approval, the client saves the access token and this browser becomes the diagram workspace.'}
+                </p>
+                <button type="button" disabled={!connected || Boolean(busy)} onClick={approveOAuth} className="mt-4 inline-flex h-9 items-center justify-center gap-2 rounded-md bg-stone-900 px-4 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900">
+                  {busy === 'oauth-approve' ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+                  {zh ? '授权并绑定此浏览器' : 'Authorize and bind this browser'}
+                </button>
+              </section>
+            ) : null}
             <section className="flex items-start gap-3 pb-5">
               <span className={`inline-flex size-9 shrink-0 items-center justify-center rounded-md ${connected ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'}`}>
                 {connected ? <Check className="size-4" /> : <CircleAlert className="size-4" />}
