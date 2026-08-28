@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -10,6 +11,9 @@ import {
   redirectUriMatches,
 } from '../lib/diagram-mcp-oauth.js';
 import { InMemoryDiagramMcpPairingStore } from '../lib/diagram-mcp-pairing-store.js';
+
+const require = createRequire(import.meta.url);
+const { NextURL } = require('next/dist/server/web/next-url');
 
 function challenge(verifier) {
   return createHash('sha256').update(verifier, 'utf8').digest('base64url');
@@ -100,6 +104,18 @@ test('OAuth accepts an exactly registered IPv4 loopback redirect URI', () => {
     store.validateRedirectUri(client, 'http://127.0.0.1:43123/callback/uKcZNpVb4c62'),
     'http://127.0.0.1:43123/callback/uKcZNpVb4c62',
   );
+});
+
+test('NextURL preserves loopback redirect URIs embedded in OAuth query parameters', () => {
+  const callback = 'http://127.0.0.1:43123/callback/uKcZNpVb4c62';
+  const requestUrl = new NextURL(
+    `/mcp/oauth/authorize?redirect_uri=${encodeURIComponent(callback)}`,
+    'https://anchorread.flowguide.cc',
+  );
+
+  assert.equal(requestUrl.searchParams.get('redirect_uri'), callback);
+  assert.equal(requestUrl.hostname, 'anchorread.flowguide.cc');
+  assert.equal(new NextURL('http://127.0.0.1:3000/mcp').hostname, 'localhost');
 });
 
 test('file OAuth store survives restarts without persisting raw codes or refresh tokens', async () => {

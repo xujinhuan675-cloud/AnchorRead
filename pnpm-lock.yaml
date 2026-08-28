@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  next@16.0.1:
+    hash: 55sbgdhysoumexe27dm6tzqbli
+    path: patches/next@16.0.1.patch
+
 importers:
 
   .:
@@ -52,7 +57,7 @@ importers:
         version: 3.30.0
       '@vercel/analytics':
         specifier: ^1.5.0
-        version: 1.5.0(next@16.0.1(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0))(react@19.2.0)
+        version: 1.5.0(next@16.0.1(patch_hash=55sbgdhysoumexe27dm6tzqbli)(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0))(react@19.2.0)
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -67,7 +72,7 @@ importers:
         version: 11.16.1
       next:
         specifier: 16.0.1
-        version: 16.0.1(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0)
+        version: 16.0.1(patch_hash=55sbgdhysoumexe27dm6tzqbli)(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0)
       react:
         specifier: 19.2.0
         version: 19.2.0
@@ -5662,9 +5667,9 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@vercel/analytics@1.5.0(next@16.0.1(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0))(react@19.2.0)':
+  '@vercel/analytics@1.5.0(next@16.0.1(patch_hash=55sbgdhysoumexe27dm6tzqbli)(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0))(react@19.2.0)':
     optionalDependencies:
-      next: 16.0.1(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0)
+      next: 16.0.1(patch_hash=55sbgdhysoumexe27dm6tzqbli)(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0)
       react: 19.2.0
 
   acorn-jsx@5.3.2(acorn@8.15.0):
@@ -7659,7 +7664,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@16.0.1(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0):
+  next@16.0.1(patch_hash=55sbgdhysoumexe27dm6tzqbli)(@babel/core@7.28.5)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(sass@1.51.0):
     dependencies:
       '@next/env': 16.0.1
       '@swc/helpers': 0.5.15
