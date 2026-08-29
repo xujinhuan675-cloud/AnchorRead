@@ -73,6 +73,40 @@ test('accepts fenced JSON pasted from an AI response', () => {
   assert.deepEqual(parseExcalidrawScene(pasted).elements, elements);
 });
 
+test('normalizes external MCP point and arrow binding shorthand without dropping fields', () => {
+  const input = [{
+    id: 'flow',
+    type: 'arrow',
+    x: 10,
+    y: 20,
+    width: 120,
+    startElementId: 'source',
+    endElementId: 'target',
+    points: [{ x: 0, y: 0 }, { x: 120, y: 0 }],
+    custom: { keep: true },
+  }];
+  const normalized = normalizeExcalidrawScene(input).elements[0];
+
+  assert.deepEqual(normalized.points, [[0, 0], [120, 0]]);
+  assert.deepEqual(normalized.start, { id: 'source' });
+  assert.deepEqual(normalized.end, { id: 'target' });
+  assert.deepEqual(normalized.custom, { keep: true });
+});
+
+test('adds a visible default segment to an externally bound arrow without points', () => {
+  const normalized = parseExcalidrawScene([{
+    id: 'flow',
+    type: 'arrow',
+    x: 10,
+    y: 20,
+    width: 80,
+    height: 30,
+    startElementId: 'source',
+  }]).elements[0];
+
+  assert.deepEqual(normalized.points, [[0, 0], [80, 30]]);
+});
+
 test('rejects malformed scene shapes with actionable errors', () => {
   assert.throws(
     () => parseExcalidrawScene({ elements: 'nope' }),
@@ -87,4 +121,3 @@ test('rejects malformed scene shapes with actionable errors', () => {
     /files must be an object map/iu
   );
 });
-

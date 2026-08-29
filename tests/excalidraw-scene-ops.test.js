@@ -115,6 +115,67 @@ test('groups, ungroups, locks, and duplicates elements without mutating source',
   assert.equal(current.elements.length, 5);
 });
 
+test('duplicate remaps bound element, frame, and shorthand binding references', () => {
+  const current = {
+    elements: [
+      {
+        id: 'shape',
+        type: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 50,
+        frameId: 'frame',
+        boundElements: [{ type: 'text', id: 'label' }, { type: 'arrow', id: 'flow' }],
+      },
+      { id: 'label', type: 'text', x: 20, y: 10, width: 40, height: 20, containerId: 'shape' },
+      {
+        id: 'flow',
+        type: 'arrow',
+        x: 100,
+        y: 25,
+        points: [[0, 0], [80, 0]],
+        start: { id: 'shape' },
+        startBinding: { elementId: 'shape' },
+      },
+      { id: 'frame', type: 'frame', x: -10, y: -10, width: 140, height: 80 },
+    ],
+  };
+
+  const duplicated = duplicateScene(current, {
+    ids: ['shape', 'label', 'flow', 'frame'],
+    offsetX: 10,
+    offsetY: 5,
+  });
+  const shapeId = duplicated.idMap.shape;
+  const labelId = duplicated.idMap.label;
+  const flowId = duplicated.idMap.flow;
+  const frameId = duplicated.idMap.frame;
+  const copyShape = duplicated.scene.elements.find((element) => element.id === shapeId);
+  const copyLabel = duplicated.scene.elements.find((element) => element.id === labelId);
+  const copyFlow = duplicated.scene.elements.find((element) => element.id === flowId);
+
+  assert.deepEqual(copyShape.boundElements, [
+    { type: 'text', id: labelId },
+    { type: 'arrow', id: flowId },
+  ]);
+  assert.equal(copyLabel.containerId, shapeId);
+  assert.equal(copyFlow.start.id, shapeId);
+  assert.equal(copyFlow.startBinding.elementId, shapeId);
+  assert.equal(copyShape.frameId, frameId);
+  assert.equal(duplicated.scene.elements.find((element) => element.id === frameId).id, frameId);
+});
+
+test('bounds accept object points from external MCP payloads', () => {
+  assert.deepEqual(getElementBounds({
+    id: 'line',
+    type: 'line',
+    x: 5,
+    y: 10,
+    points: [{ x: 0, y: 0 }, { x: 40, y: -20 }],
+  }), { x: 5, y: -10, width: 40, height: 20, maxX: 45, maxY: 10 });
+});
+
 test('viewport operation persists camera fields in appState', () => {
   const next = setSceneViewport(scene(), { zoom: 1.5, scrollX: -100, scrollY: 24, viewBackgroundColor: '#eee' });
   assert.equal(next.appState.zoom.value, 1.5);
