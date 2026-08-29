@@ -206,20 +206,24 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
                   <button type="button" onClick={() => onOpenDrawing?.(drawing, buildDiagramEditorHref(drawing))} className="block w-full text-left" aria-label={`${t('home.quick.openDiagram')}: ${title}`}>
                     <div className="relative aspect-[4/3] overflow-hidden bg-stone-50 bg-[radial-gradient(#d6d3d1_1px,transparent_1px)] [background-size:12px_12px] dark:bg-stone-950 dark:bg-[radial-gradient(rgba(245,245,244,.12)_1px,transparent_1px)]">
                       <DiagramThumbnail drawing={drawing} title={title} />
+                      {/* 左上角：引擎类型标签 */}
                       <span className="absolute left-2.5 top-2.5 rounded bg-white/90 px-2 py-1 text-[10px] font-medium uppercase text-stone-600 shadow-sm backdrop-blur dark:bg-stone-900/90 dark:text-stone-300">
                         {getDrawingRenderer(drawing)}
                       </span>
                     </div>
                     <div className="border-t border-stone-100 px-3 pb-3 pt-3 dark:border-stone-800">
                       <h2 className="line-clamp-1 pr-7 text-sm font-medium leading-5">{title}</h2>
-                      <p className="mt-1.5 flex min-w-0 items-center gap-1.5 truncate text-xs text-stone-400">
-                        {!standalone ? <FileText size={12} className="shrink-0" aria-hidden="true" /> : null}
-                        <span className="truncate">{standalone ? t('diagramLibrary.freeform') : (sourceDocument?.title || t('diagramLibrary.sourceMissing'))}</span>
+                      {/* 引擎来源 + 日期，左右两端对齐 */}
+                      <p className="mt-1.5 flex min-w-0 items-center justify-between truncate gap-2 text-xs text-stone-400">
+                        <span className="truncate flex items-center gap-1.5">
+                          {!standalone ? <FileText size={12} className="shrink-0" aria-hidden="true" /> : null}
+                          <span className="truncate">{standalone ? t('diagramLibrary.freeform') : (sourceDocument?.title || t('diagramLibrary.sourceMissing'))}</span>
+                        </span>
+                        <span className="shrink-0 whitespace-nowrap">{formatUpdatedAt(drawing.updatedAt || drawing.createdAt, locale, t('library.justNow'))}</span>
                       </p>
-                      <p className="mt-1 text-[11px] text-stone-400">{formatUpdatedAt(drawing.updatedAt || drawing.createdAt, locale, t('library.justNow'))}</p>
                     </div>
                   </button>
-                  <button type="button" onClick={() => setMenuId((current) => current === drawing.id ? '' : drawing.id)} className="absolute bottom-9 right-2 flex size-7 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-white/10 dark:hover:text-stone-100" aria-label={t('diagramLibrary.actionsAria', { title })}>
+                  <button type="button" onClick={() => setMenuId((current) => current === drawing.id ? '' : drawing.id)} className="flex size-7 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-white/10 dark:hover:text-stone-100 absolute top-3 right-3" aria-label={t('diagramLibrary.actionsAria', { title })}>
                     <MoreHorizontal size={16} aria-hidden="true" />
                   </button>
                   {menuId === drawing.id ? (

@@ -62,6 +62,7 @@ export default function DocumentLibrary({
   onSelect,
   onImportFile,
   onCreateDocument,
+  sheetMode = false,
 }) {
   const { locale, t } = useLocale();
   const fileInputRef = useRef(null);
@@ -79,6 +80,8 @@ export default function DocumentLibrary({
       (sessions[left.id]?.updatedAt || left.updatedAt)
     )
     .slice(0, 2);
+
+  const iconButtonClass = 'flex size-9 shrink-0 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-500 outline-none transition-colors hover:border-stone-300 hover:bg-stone-50 dark:border-stone-800 dark:bg-stone-800 dark:text-stone-300 dark:hover:border-stone-700 dark:hover:bg-stone-700 focus-visible:ring-2 focus-visible:ring-stone-400';
 
   const importFile = async (event) => {
     const file = event.target.files?.[0];
@@ -98,8 +101,8 @@ export default function DocumentLibrary({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f5f7f6]">
-      <header className="shrink-0 border-b border-stone-200 dark:border-stone-800 px-4 pb-3 pt-4">
-        <div className="flex items-center justify-between gap-3 pr-8 lg:pr-0">
+      <header className={`shrink-0 border-b border-stone-200 dark:border-stone-800 px-4 pb-3 pt-4 ${sheetMode ? 'pr-16' : 'pr-4 lg:pr-0'}`}>
+        <div className={`flex items-center justify-between gap-3 ${sheetMode ? '' : 'pr-4 lg:pr-0'}`}>
           {/* 全局顶栏已承担品牌与回首页职责：库头部只留面板标题 */}
           <div className="min-w-0">
             <p className="text-sm font-semibold text-stone-950 dark:text-stone-100">{t('library.title')}</p>
@@ -111,9 +114,9 @@ export default function DocumentLibrary({
                 type="button"
                 onClick={() => setAddOpen((open) => !open)}
                 aria-label={t('library.addDoc')}
-                className="flex h-8 w-8 items-center justify-center rounded border border-stone-200 dark:border-stone-800 bg-white text-stone-500 outline-none hover:text-stone-900 dark:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
+                className={iconButtonClass}
               >
-                {importBusy ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
+                {importBusy ? <LoaderCircle size={16} className="animate-spin" aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}
               </button>
             </Tooltip>
             {addOpen && !importBusy && (
@@ -126,7 +129,7 @@ export default function DocumentLibrary({
                     disabled={!onImportFile}
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <FileUp size={14} className="shrink-0" />
+                    <FileUp size={16} className="shrink-0" />
                     {t('library.importFile')}
                   </button>
                   <button
@@ -135,7 +138,7 @@ export default function DocumentLibrary({
                     disabled={!onCreateDocument}
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <ClipboardPaste size={14} className="shrink-0" />
+                    <ClipboardPaste size={16} className="shrink-0" />
                     {t('library.pasteText')}
                   </button>
                 </div>
@@ -156,7 +159,7 @@ export default function DocumentLibrary({
         <div className="mt-3 flex items-center gap-2">
           <label className="relative flex-1">
             <span className="sr-only">{t('library.searchAria')}</span>
-            <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-stone-400" />
+            <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-stone-400" />
             <input
               type="search"
               value={query}
@@ -173,9 +176,9 @@ export default function DocumentLibrary({
                 onClick={onToggleOutline}
                 aria-pressed={outlineOpen}
                 aria-label={outlineOpen ? t('library.collapseOutline') : t('library.openOutline')}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border outline-none focus-visible:ring-2 focus-visible:ring-stone-400 ${outlineOpen ? 'border-stone-300 dark:border-stone-700 bg-white text-stone-900 dark:text-stone-100 shadow-sm' : 'border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-50 dark:bg-white/5'}`}
+                className={`${iconButtonClass} ${outlineOpen ? 'text-stone-900 dark:text-stone-100' : 'text-stone-600 dark:text-stone-400'}`}
               >
-                <List size={15} aria-hidden="true" />
+                <List size={16} aria-hidden="true" />
               </button>
             </Tooltip>
           )}
@@ -186,7 +189,7 @@ export default function DocumentLibrary({
         <div className="py-3">
           <section aria-labelledby="reader-recent-title">
             <h2 id="reader-recent-title" className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-semibold text-stone-500">
-              <Clock3 size={13} aria-hidden="true" />
+              <Clock3 size={14} aria-hidden="true" />
               {t('library.recent')}
             </h2>
             {recent.map((document) => (

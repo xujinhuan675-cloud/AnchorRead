@@ -8,20 +8,17 @@ import {
   ChevronDown,
   Highlighter,
   Library,
+  LayoutGrid,
+  List,
   LoaderCircle,
   MessageSquareText,
-  MoreHorizontal,
   Network,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Sparkles,
   TriangleAlert,
   WandSparkles,
-  Waypoints,
 } from 'lucide-react';
-import DocumentLibrary from '@/components/reader-lab/DocumentLibrary';
 import DocumentDiagramPanel from '@/components/reader-lab/DocumentDiagramPanel';
 import DocumentDiagramCanvas from '@/components/reader-lab/DocumentDiagramCanvas';
 import { useDocumentDiagram } from '@/components/reader-lab/use-document-diagram';
@@ -122,6 +119,13 @@ const AID_OPTIONS = Object.freeze([
   { id: 'precision' },
 ]);
 
+const AID_ICONS = Object.freeze({
+  // LayoutGrid reads as the card-like plain-language overlay; the other entries mirror their tab semantics.
+  explanations: MessageSquareText,
+  diagrams: Network,
+  precision: LayoutGrid,
+});
+
 // 层级化重点可见性：可全部展示，也可只展示某一层（如只看文章层中心论点）
 const LAYER_OPTIONS = Object.freeze([
   { id: 'article' },
@@ -156,6 +160,9 @@ const CLOZE_PRESENTATION_OPTIONS = Object.freeze([
   { id: 'plain' },
   { id: 'original' },
 ]);
+
+const HEADER_ICON_BUTTON_CLASS = 'flex size-9 shrink-0 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-600 outline-none transition-colors hover:border-stone-300 hover:bg-stone-50 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-300 dark:hover:border-stone-700 dark:hover:bg-stone-800 focus-visible:ring-2 focus-visible:ring-stone-400';
+const HEADER_ICON_ONLY_BUTTON_CLASS = 'flex size-9 shrink-0 items-center justify-center rounded-md text-stone-600 outline-none transition-colors hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400';
 
 function readStoredClozePresentation() {
   if (typeof window === 'undefined') return 'plain';
@@ -406,14 +413,7 @@ export default function ReaderLabWorkspace({
   const [explanations, setExplanations] = useState([]);
   const [terms, setTerms] = useState([]);
   const [reviewStates, setReviewStates] = useState([]);
-  const [query, setQuery] = useState('');
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  // 桌面端左侧文档库折叠状态，持久化到本地，刷新后保持用户偏好
-  const [libraryCollapsed, setLibraryCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem('anchor-read-library-collapsed') === '1';
-  });
-  // 目录抽屉开关，持久化到本地；目录是当前文档内导航，抽屉覆盖在阅读区左侧，不挤占布局
+  // 目录抽屉开关，持久化到本地；目录是当前文档内导航，覆盖在阅读区左侧，不挤占布局
   const [outlineOpen, setOutlineOpen] = useState(() => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('anchor-read-outline-open') === '1';
@@ -423,13 +423,7 @@ export default function ReaderLabWorkspace({
     setOutlineOpen(next);
     localStorage.setItem('anchor-read-outline-open', next ? '1' : '0');
   };
-  const updateLibraryCollapsed = (collapsed) => {
-    setLibraryCollapsed(collapsed);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('anchor-read-library-collapsed', collapsed ? '1' : '0');
-    }
-  };
-  // 桌面右侧面板折叠状态，持久化到本地，与左侧文档库成左右对称的开关
+  // 桌面右侧面板折叠状态，持久化到本地
   const [rightCollapsed, setRightCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('anchor-read-right-collapsed') === '1';
@@ -772,7 +766,6 @@ export default function ReaderLabWorkspace({
     if (selectedDocument) onDocumentResolved(selectedDocument);
     setCurrentDocumentId(documentId);
     setAidVisibility(sessionAids(sessions[documentId]));
-    setLibraryOpen(false);
     setNotice(null);
     const nextDrawing = drawings.find((drawing) => drawing.documentId === documentId);
     setActiveDrawingId(sessions[documentId]?.activeDrawingId || nextDrawing?.id || '');
@@ -973,7 +966,6 @@ export default function ReaderLabWorkspace({
     setCurrentDocumentId(nextDocument.id);
     onDocumentResolved(nextDocument);
     setAidVisibility({ ...DEFAULT_AIDS });
-    setLibraryOpen(false);
     setHomeStarted(true);
     await saveSession(nextDocument.id, { aids: DEFAULT_AIDS, progress: 0, scrollTop: 0 });
     setNotice({ type: 'success', messageKey: 'workspace.notice.imported', params: { title: nextDocument.title } });
@@ -2340,23 +2332,6 @@ export default function ReaderLabWorkspace({
     else setKnowledgeOpen(false);
   };
 
-  const library = (
-    <DocumentLibrary
-      documents={documents}
-      homeHref={isHomeLayout ? null : '/'}
-      onHome={isHomeLayout ? () => setHomeStarted(false) : null}
-      outlineOpen={outlineOpen}
-      onToggleOutline={toggleOutline}
-      outlineHidden={diagramMode}
-      currentDocumentId={currentDocument.id}
-      sessions={sessions}
-      query={query}
-      onQueryChange={setQuery}
-      onSelect={selectDocument}
-      onImportFile={importDocumentFile}
-      onCreateDocument={createPastedDocument}
-    />
-  );
   // 知识面板是派生内容的管理入口，始终可见；辅助开关只控制原文上的叠加显示
   // 桌面与 Sheet 共用同一面板：Sheet 形态额外注入内联关闭按钮槽位
   const renderKnowledge = (closeSlot = null) => (
@@ -2385,9 +2360,9 @@ export default function ReaderLabWorkspace({
   const sheetInlineClose = (
     <SheetClose
       aria-label={t('workspace.closePanel')}
-      className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center self-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
+      className={`${HEADER_ICON_BUTTON_CLASS} mr-1 self-center`}
     >
-      <PanelRightClose size={18} aria-hidden="true" />
+      <PanelRightClose size={16} aria-hidden="true" />
     </SheetClose>
   );
   // 任一重点层级勾选时重点入口呈点亮态；全部取消勾选即隐藏原文重点
@@ -2469,22 +2444,18 @@ export default function ReaderLabWorkspace({
             整行移除让下方画布与面板直接提上来；文档绑定形态照常保留 header */}
         {!standaloneDiagram && (
         <header className="z-20 flex min-h-[62px] shrink-0 items-center gap-3 border-b border-stone-200 dark:border-stone-800 bg-white px-3 sm:px-4 lg:px-6 dark:bg-stone-900">
-          {/* 文档库入口只在文档绑定形态有意义 */}
-          {!standaloneDiagram && (
-          <Tooltip content={isDesktop && !isHomeLayout ? (libraryCollapsed ? t('workspace.libraryExpand') : t('workspace.libraryCollapse')) : t('workspace.libraryOpen')}>
-            <button
-              type="button"
-              onClick={() => {
-                if (isDesktop && !isHomeLayout) updateLibraryCollapsed(!libraryCollapsed);
-                else setLibraryOpen(true);
-              }}
-              aria-label={isDesktop && !isHomeLayout ? (libraryCollapsed ? t('workspace.libraryExpand') : t('workspace.libraryCollapse')) : t('workspace.libraryOpen')}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400"
-            >
-              {/* 侧边栏样式图标：展开态点按收起，收起/窄屏态点按展开 */}
-              {isDesktop && !isHomeLayout && !libraryCollapsed ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
-            </button>
-          </Tooltip>
+          {!standaloneDiagram && !diagramMode && (
+            <Tooltip content={outlineOpen ? t('library.collapseOutline') : t('library.openOutline')}>
+              <button
+                type="button"
+                onClick={toggleOutline}
+                aria-pressed={outlineOpen}
+                aria-label={outlineOpen ? t('library.collapseOutline') : t('library.openOutline')}
+                className={`${HEADER_ICON_ONLY_BUTTON_CLASS} ${outlineOpen ? 'text-stone-950 dark:text-stone-100' : ''}`}
+              >
+                <List size={16} aria-hidden="true" />
+              </button>
+            </Tooltip>
           )}
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold text-stone-950 dark:text-stone-100 sm:text-base">{currentDocument.title}</h1>
@@ -2504,6 +2475,7 @@ export default function ReaderLabWorkspace({
                 const active = Boolean(aidVisibility[option.id]);
                 const label = t(`workspace.aid.${option.id}`);
                 const tooltip = t(active ? 'workspace.aidHide' : 'workspace.aidShow', { label });
+                const AidIcon = AID_ICONS[option.id];
                 return (
                   <Tooltip key={option.id} content={tooltip}>
                     <button
@@ -2513,9 +2485,7 @@ export default function ReaderLabWorkspace({
                       aria-label={t(active ? 'workspace.aidTurnOff' : 'workspace.aidTurnOn', { label })}
                       className={`flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 ${active ? 'bg-white text-stone-900 shadow-sm dark:bg-white/10 dark:text-stone-100' : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100'}`}
                     >
-                      {option.id === 'explanations'
-                        ? <MessageSquareText size={14} />
-                        : <Network size={14} />}
+                      <AidIcon size={14} aria-hidden="true" />
                       {label}
                     </button>
                   </Tooltip>
@@ -2537,7 +2507,7 @@ export default function ReaderLabWorkspace({
                   aria-expanded={precisionMenuOpen}
                   className={`flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 ${aidVisibility.precision ? 'bg-white text-stone-900 shadow-sm dark:bg-white/10 dark:text-stone-100' : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100'}`}
                 >
-                  <WandSparkles size={14} />
+                  <LayoutGrid size={14} aria-hidden="true" />
                   {t('workspace.aid.precision')}
                   <ChevronDown size={12} aria-hidden="true" />
                 </button>
@@ -2680,7 +2650,7 @@ export default function ReaderLabWorkspace({
                 aria-label={t('workspace.more')}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400"
               >
-                {busyAction || diagramState.isGenerating ? <LoaderCircle size={17} className="animate-spin" /> : <MoreHorizontal size={17} />}
+                {busyAction || diagramState.isGenerating ? <LoaderCircle size={16} className="animate-spin" aria-hidden="true" /> : <WandSparkles size={16} aria-hidden="true" />}
               </button>
             </Tooltip>
             {moreMenuOpen && (
@@ -2695,9 +2665,12 @@ export default function ReaderLabWorkspace({
                     title={t('workspace.oneClickTitle')}
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:text-stone-300 dark:text-stone-600"
                   >
-                    <WandSparkles size={14} className="shrink-0" />
+                    {busyAction ? (
+                      <LoaderCircle size={14} className="shrink-0 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <WandSparkles size={14} className="shrink-0" aria-hidden="true" />
+                    )}
                     <span className="min-w-0 flex-1">{t('workspace.oneClick')}</span>
-                    {busyAction && <LoaderCircle size={13} className="animate-spin text-stone-400" aria-hidden="true" />}
                   </button>
                   <div className="mx-2 my-1.5 border-t border-stone-100 dark:border-stone-800" aria-hidden="true" />
                   <button
@@ -2707,7 +2680,7 @@ export default function ReaderLabWorkspace({
                     title={t('workspace.genOverviewTitle')}
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:text-stone-300 dark:text-stone-600"
                   >
-                    <Waypoints size={14} className="shrink-0" />
+                    <Network size={14} className="shrink-0" aria-hidden="true" />
                     <span className="min-w-0 flex-1">{t('workspace.genOverview')}</span>
                     <span className="text-[10px] text-stone-400">Mermaid</span>
                     {diagramState.isGenerating && <LoaderCircle size={13} className="animate-spin text-stone-400" aria-hidden="true" />}
@@ -2745,7 +2718,7 @@ export default function ReaderLabWorkspace({
                     title={t('workspace.genExplainTitle')}
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:text-stone-300 dark:text-stone-600"
                   >
-                    <Sparkles size={14} className="shrink-0" />
+                    <MessageSquareText size={14} className="shrink-0" aria-hidden="true" />
                     <span className="min-w-0 flex-1">{t('workspace.genExplain')}</span>
                   </button>
                   <button
@@ -2799,9 +2772,9 @@ export default function ReaderLabWorkspace({
               type="button"
               onClick={() => { if (isDesktop) updateRightCollapsed(!rightCollapsed); else setKnowledgeOpen(!knowledgeOpen); }}
               aria-label={rightPanelExpanded ? t('workspace.collapseRightPanel') : t('workspace.expandRightPanel')}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400"
+              className={HEADER_ICON_ONLY_BUTTON_CLASS}
             >
-              {rightPanelExpanded ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+              {rightPanelExpanded ? <PanelRightClose size={16} aria-hidden="true" /> : <PanelRightOpen size={16} aria-hidden="true" />}
             </button>
           </Tooltip>
         </header>
@@ -2819,15 +2792,7 @@ export default function ReaderLabWorkspace({
         <div className="min-h-0 flex-1">
           {isDesktop ? (
             <ResizablePanelGroup orientation="horizontal" id="reader-lab-layout">
-              {!isHomeLayout && !libraryCollapsed && (
-                <>
-                  <ResizablePanel id="reader-library" defaultSize="20%" minSize="220px" maxSize="320px">
-                    {library}
-                  </ResizablePanel>
-                  <ResizableHandle />
-                </>
-              )}
-              <ResizablePanel id="reader-content" defaultSize={isHomeLayout ? '72%' : '57%'} minSize="420px">
+              <ResizablePanel id="reader-content" defaultSize={isHomeLayout ? '72%' : '77%'} minSize="420px">
                 <div className="relative h-full min-h-0">
                   {diagramSplit ? (
                     <ResizablePanelGroup orientation="horizontal" id="reader-diagram-split">
@@ -2880,9 +2845,6 @@ export default function ReaderLabWorkspace({
           </button>
         </footer>
 
-        <Sheet open={libraryOpen} onOpenChange={setLibraryOpen}>
-          <SheetContent title={t('workspace.librarySheet')} side="left">{library}</SheetContent>
-        </Sheet>
         <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
           <SheetContent
             title={rightPanelView === 'diagram' ? (standaloneDiagram ? t('workspace.freeDiagram') : t('workspace.docRelationDiagram')) : t('workspace.knowledgePanel')}

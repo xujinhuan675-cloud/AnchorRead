@@ -127,6 +127,16 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
     () => filterAndSortDocuments({ documents, sessions, query, scope, sort }),
     [documents, query, scope, sessions, sort]
   );
+  const recentDocuments = useMemo(
+    () => filterAndSortDocuments({
+      documents,
+      sessions,
+      query: '',
+      scope: DOCUMENT_LIBRARY_SCOPES.active,
+      sort: DOCUMENT_LIBRARY_SORTS.activity,
+    }).slice(0, 4),
+    [documents, sessions]
+  );
   const drawingCounts = useMemo(() => {
     const counts = new Map();
     for (const drawing of drawings) {
@@ -292,34 +302,79 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
 
         {!ready ? (
           <div className="py-24 text-center text-sm text-stone-400">{t('common.loading')}</div>
-        ) : visibleDocuments.length === 0 ? (
+        ) : documents.length === 0 ? (
           <section className="border-y border-stone-200 py-24 text-center dark:border-stone-800">
-            <h2 className="text-lg font-semibold">{documents.length === 0 ? t('documentLibrary.emptyTitle') : t('documentLibrary.noMatchTitle')}</h2>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-500 dark:text-stone-400">{documents.length === 0 ? t('documentLibrary.emptyBody') : t('documentLibrary.noMatchBody')}</p>
-            {documents.length === 0 ? <button type="button" onClick={() => setImportOpen(true)} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white dark:bg-stone-100 dark:text-stone-950"><FilePlus2 size={15} />{t('documentLibrary.import')}</button> : null}
+            <h2 className="text-lg font-semibold">{t('documentLibrary.emptyTitle')}</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-500 dark:text-stone-400">{t('documentLibrary.emptyBody')}</p>
+            <button type="button" onClick={() => setImportOpen(true)} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white dark:bg-stone-100 dark:text-stone-950"><FilePlus2 size={15} />{t('documentLibrary.import')}</button>
           </section>
         ) : (
-          <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-label={t('documentLibrary.gridAria')}>
+          <>
+            {!query.trim() && scope !== DOCUMENT_LIBRARY_SCOPES.archived && recentDocuments.length > 0 ? (
+              <section aria-labelledby="document-library-recent-title">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 id="document-library-recent-title" className="flex items-center gap-2 text-sm font-semibold">
+                    <Clock3 size={16} className="text-stone-500" aria-hidden="true" />
+                    {t('library.recent')}
+                  </h2>
+                  <span className="text-xs text-stone-400">{t('documentLibrary.sort.activity')}</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {recentDocuments.map((document) => {
+                    const session = sessions[document.id];
+                    const progress = Math.min(100, Math.max(0, Math.round(session?.progress || 0)));
+                    return (
+                      <button
+                        key={`recent-${document.id}`}
+                        type="button"
+                        onClick={() => openDocument(document)}
+                        className="min-w-0 rounded-md border border-stone-200 bg-white p-4 text-left transition hover:border-stone-400 hover:shadow-sm dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
+                        aria-label={`${t('documentLibrary.open')}: ${document.title}`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <FileText size={16} className="mt-0.5 shrink-0 text-stone-500" aria-hidden="true" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold">{document.title}</span>
+                            <span className="mt-1 block truncate text-xs text-stone-400">{formatDate(getDocumentActivityTime(document, sessions), locale, t('library.justNow'))}</span>
+                          </span>
+                        </div>
+                        <div className="mt-3 h-1 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-800" aria-hidden="true">
+                          <div className="h-full rounded-full bg-stone-700 dark:bg-stone-300" style={{ width: `${progress}%` }} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+
+            <section className="mt-10" aria-labelledby="document-library-all-title">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 id="document-library-all-title" className="text-sm font-semibold">{t('library.allDocs')}</h2>
+                <span className="text-xs tabular-nums text-stone-400">{visibleDocuments.length}</span>
+              </div>
+              {visibleDocuments.length === 0 ? (
+                <div className="border-y border-stone-200 py-20 text-center dark:border-stone-800">
+                  <h3 className="text-base font-semibold">{t('documentLibrary.noMatchTitle')}</h3>
+                  <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-500 dark:text-stone-400">{t('documentLibrary.noMatchBody')}</p>
+                </div>
+              ) : (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-label={t('documentLibrary.gridAria')}>
             {visibleDocuments.map((document) => {
               const session = sessions[document.id];
               const archived = document.status === 'archived';
               const progress = Math.min(100, Math.max(0, Math.round(session?.progress || 0)));
               return (
-                <article key={document.id} className={`group relative overflow-hidden rounded-md border bg-white transition hover:border-stone-400 dark:bg-stone-900 dark:hover:border-stone-600 ${archived ? 'border-stone-200 opacity-75 dark:border-stone-800' : 'border-stone-200 dark:border-stone-800'}`}>
-                  <button type="button" onClick={() => openDocument(document)} className="block min-h-56 w-full p-4 text-left" aria-label={`${t('documentLibrary.open')}: ${document.title}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-stone-100 text-stone-600 dark:bg-white/10 dark:text-stone-300"><FileText size={18} aria-hidden="true" /></span>
-                    </div>
-                    <h2 className="mt-4 line-clamp-2 min-h-12 text-base font-semibold leading-6">{document.title}</h2>
-                    <p className="mt-2 line-clamp-2 min-h-10 text-xs leading-5 text-stone-500 dark:text-stone-400">{document.category || sourceLabel(document, t)}</p>
+                <article key={document.id} className={`group relative overflow-visible rounded-md border bg-white transition hover:border-stone-400 dark:bg-stone-900 dark:hover:border-stone-600 ${archived ? 'border-stone-200 opacity-75 dark:border-stone-800' : 'border-stone-200 dark:border-stone-800'}`}>
+                  <button type="button" onClick={() => openDocument(document)} className="block w-full p-4 text-left" aria-label={`${t('documentLibrary.open')}: ${document.title}`}>
+                    <h2 className="text-base font-semibold leading-6 truncate">{document.title}</h2>
+                    <p className="mt-1 flex min-w-0 items-center gap-1.5 truncate text-xs text-stone-400">
+                      <span className="truncate">{document.category || sourceLabel(document, t)}</span>
+                    </p>
                     <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-stone-400">
                       <span className="inline-flex items-center gap-1"><Clock3 size={12} />{formatDate(getDocumentActivityTime(document, sessions), locale, t('library.justNow'))}</span>
                       <span className="inline-flex items-center gap-1"><BookOpen size={12} />{t('documentLibrary.readMinutes', { count: document.readMinutes || 0 })}</span>
                       {drawingCounts.get(document.id) ? <span>{t('documentLibrary.diagramCount', { count: drawingCounts.get(document.id) })}</span> : null}
-                    </div>
-                    <div className="mt-4">
-                      <div className="mb-1.5 flex items-center justify-between text-[11px] text-stone-400"><span>{archived ? t('documentLibrary.archived') : sourceLabel(document, t)}</span><span>{progress}%</span></div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-stone-100 dark:bg-white/10"><span className="block h-full rounded-full bg-emerald-500" style={{ width: `${progress}%` }} /></div>
                     </div>
                   </button>
                   <button type="button" onClick={() => setMenuId((current) => current === document.id ? '' : document.id)} className="absolute right-3 top-3 flex size-8 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-white/10 dark:hover:text-stone-100" aria-label={t('documentLibrary.actionsAria', { title: document.title })}><MoreHorizontal size={16} /></button>
@@ -336,7 +391,10 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
                 </article>
               );
             })}
-          </section>
+              </div>
+              )}
+            </section>
+          </>
         )}
       </div>
 

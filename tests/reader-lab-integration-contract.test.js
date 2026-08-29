@@ -66,6 +66,11 @@ test('document library manages local records and hands one selected document to 
   assert.match(documentLibraryHub, /createReaderDocumentFromPaste/);
   assert.match(documentLibraryHub, /createReaderDocumentFromUrl/);
   assert.match(documentLibraryHub, /filterAndSortDocuments/);
+  assert.match(documentLibraryHub, /const recentDocuments = useMemo/);
+  assert.match(documentLibraryHub, /id="document-library-recent-title"/);
+  assert.match(documentLibraryHub, /id="document-library-all-title"/);
+  assert.match(documentLibraryHub, /t\('library\.recent'\)/);
+  assert.match(documentLibraryHub, /t\('library\.allDocs'\)/);
   assert.match(documentLibraryHub, /setDocumentArchived/);
   assert.match(documentLibraryHub, /deleteDocumentAssets/);
   assert.match(documentLibraryLib, /DOCUMENT_OWNED_COLLECTIONS\.map/);
@@ -121,13 +126,15 @@ test('diagram thumbnails treat empty or invalid local source as a recoverable pl
 
 test('route layout controls document navigation while the workspace owns one reading surface', () => {
   assert.match(readerLabWorkspace, /function ReaderLabWorkspace\(\{[\s\S]*?layout = ['"]reader-lab['"]/);
-  // 桌面版文档库支持折叠：折叠时左侧面板移出布局，顶栏菜单按钮作为折叠/展开切换入口
-  assert.match(readerLabWorkspace, /\{!isHomeLayout && !libraryCollapsed && \([\s\S]*?id="reader-library"/);
-  assert.match(readerLabWorkspace, /updateLibraryCollapsed\(!libraryCollapsed\)/);
-  // 右栏与文档库对称：桌面开关按钮直接收起/展开整列，状态持久化；文档库按钮换侧边栏样式图标
+  // 文档管理统一由目录页承载，阅读工作区不再保留文档库入口或左侧面板。
+  assert.doesNotMatch(readerLabWorkspace, /onClick=\{\(\) => onOpenDocumentLibrary\?\.\(\)\}/);
+  assert.doesNotMatch(readerLabWorkspace, /id="reader-library"/);
+  assert.doesNotMatch(readerLabWorkspace, /const \[library(?:Collapsed|Open)\]|<DocumentLibrary\b/);
+  assert.doesNotMatch(readerLabWorkspace, /aria-label=\{t\('workspace\.libraryOpen'\)\}/);
+  // 右栏开关直接收起/展开整列，状态持久化。
   assert.match(readerLabWorkspace, /anchor-read-right-collapsed/);
-  // 窄屏展开的 Sheet 关闭按钮与画布悬浮控件同规格：h-8 w-8 + 16px 图标 + 同色系
-  assert.match(sheetUi, /right-2\.5 top-2\.5 flex h-8 w-8 items-center justify-center rounded text-stone-600 dark:text-stone-400/);
+  // Sheet 关闭按钮与文档库操作按钮同规格：36px 方形 + 16px 图标 + 边框
+  assert.match(sheetUi, /right-3 top-3 z-10 flex size-9 items-center justify-center rounded-md border/);
   assert.match(sheetUi, /<CloseIcon size=\{16\} aria-hidden="true" \/>/);
   // 知识面板 Sheet 隐藏绝对定位关闭（改走页签行内联槽位），图解/文档库 Sheet 保留
   assert.match(sheetUi, /hideClose = false/);
@@ -136,14 +143,31 @@ test('route layout controls document navigation while the workspace owns one rea
   // 独立图解工作区右栏是主界面，不受折叠开关影响；注意正则中 JSX 的字面括号需转义
   assert.match(readerLabWorkspace, /\{!rightCollapsed && \([\s\S]*?id="reader-knowledge"/);
   // 右栏开关图标全断点统一为带箭头族：展开态 PanelRightClose、收起态 PanelRightOpen，窄屏不再用无箭头 PanelRight
-  assert.match(readerLabWorkspace, /rightPanelExpanded \? <PanelRightClose size=\{18\} \/> : <PanelRightOpen size=\{18\} \/>/);
+  assert.match(readerLabWorkspace, /rightPanelExpanded \? <PanelRightClose size=\{16\} aria-hidden="true" \/> : <PanelRightOpen size=\{16\} aria-hidden="true" \/>/);
   assert.doesNotMatch(readerLabWorkspace, /<PanelRight size=/);
-  assert.match(readerLabWorkspace, /<PanelLeftClose size=\{18\} \/> : <PanelLeftOpen size=\{18\} \/>/);
+  assert.match(readerLabWorkspace, /const HEADER_ICON_ONLY_BUTTON_CLASS = 'flex size-9 shrink-0 items-center justify-center rounded-md text-stone-600/);
+  assert.match(readerLabWorkspace, /className=\{`\$\{HEADER_ICON_ONLY_BUTTON_CLASS\}/);
   assert.doesNotMatch(readerLabWorkspace, /<Menu size=\{18\} \/>/);
   assert.match(readerLabWorkspace, /id="reader-content"/);
   assert.equal((readerLabWorkspace.match(/<ReaderSurface\b/g) || []).length, 1);
   assert.doesNotMatch(readerLabWorkspace, /<DerivedDraft\b/);
   assert.match(readerLabWorkspace, /aria-label=\{t\('workspace\.readingArea'\)\}/);
+});
+
+test('document controls keep icon sizing and tab-aligned semantics', () => {
+  // 侧栏操作按钮共享方形、边框和圆角规格，主图标保持 16px。
+  assert.match(readerLabWorkspace, /const HEADER_ICON_BUTTON_CLASS = 'flex size-9 shrink-0 items-center justify-center rounded-md border/);
+  assert.match(readerLabWorkspace, /className=\{`\$\{HEADER_ICON_BUTTON_CLASS\}/);
+  assert.match(readerLabWorkspace, /const HEADER_ICON_ONLY_BUTTON_CLASS = 'flex size-9 shrink-0 items-center justify-center rounded-md text-stone-600/);
+  assert.match(readerLabWorkspace, /className=\{`\$\{HEADER_ICON_ONLY_BUTTON_CLASS\}/);
+  assert.match(readerLabWorkspace, /<List size=\{16\} aria-hidden="true" \/>/);
+
+  // 白话用卡片语义的四宫格，更多用生成语义；下拉里的解读/图解复用顶部 tab 图标。
+  assert.match(readerLabWorkspace, /precision: LayoutGrid/);
+  assert.match(readerLabWorkspace, /: <WandSparkles size=\{16\} aria-hidden="true" \/>/);
+  assert.match(readerLabWorkspace, /<Network size=\{14\} className="shrink-0" aria-hidden="true" \/>[\s\S]*?t\('workspace\.genOverview'\)/);
+  assert.match(readerLabWorkspace, /<MessageSquareText size=\{14\} className="shrink-0" aria-hidden="true" \/>[\s\S]*?t\('workspace\.genExplain'\)/);
+  assert.doesNotMatch(readerLabWorkspace, /<MoreHorizontal size=/);
 });
 
 test('home keeps app navigation while diagrams live inside the shared document workspace', () => {
@@ -170,7 +194,6 @@ test('home keeps app navigation while diagrams live inside the shared document w
     assert.match(readerLabWorkspace, /<DocumentDiagramCanvas diagram=\{diagramState\} standalone=\{standaloneDiagram\} onOpenChat=[\s\S]*?onCloseChat=/);
     assert.doesNotMatch(readerLabWorkspace, /fixed bottom-12 right-4/);
     assert.match(documentDiagramCanvas, /aria-label=\{t\('diagram\.openChat'\)\}/);
-    assert.match(documentDiagramCanvas, /lg:hidden/);
   assert.match(readerLabWorkspace, /rightPanelView === ['"]diagram['"][\s\S]*?diagramCanvas/);
   assert.match(documentDiagramPanel, /<Chat\b/);
   assert.doesNotMatch(documentDiagramPanel, /<CodeEditor\b|<MermaidCanvas\b|<ExcalidrawCanvas\b/);
@@ -182,7 +205,7 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(mermaidCanvas, /\{headerActions\}/);
   // 空态副标题替代「等待源码」：自由图解下传达创建入口语义
   assert.match(mermaidCanvas, /subtitle = null/);
-  assert.match(mermaidCanvas, /\(subtitle \|\| t\('diagram\.statusWaiting'\)\)/);
+  assert.match(mermaidCanvas, /resolvedEmptyMessage = emptyMessage \?\? t\('diagram\.mermaidDefaultEmpty'\)/);
   assert.match(documentDiagramCanvas, /title=\{standalone \? t\('diagram\.freeTitle'\) : t\('diagram\.docTitle'\)\}/);
   assert.match(documentDiagramCanvas, /t\('diagram\.freeSubtitle'\)/);
   assert.match(documentDiagramCanvas, /headerActions=\{\(canToggleCode \|\| onOpenChat \|\| onCloseChat\) \? \(/);
@@ -297,8 +320,8 @@ test('Reader Lab restores imported documents and wires one shared import and ana
   assert.match(readerLabWorkspace, /createReaderDocumentFromFile/);
   assert.match(readerLabWorkspace, /createReaderDocumentFromPaste/);
   assert.match(readerLabWorkspace, /document\.readerLab/);
-  assert.match(readerLabWorkspace, /<DocumentLibrary[\s\S]*?onImportFile=\{importDocumentFile\}/);
-  assert.match(readerLabWorkspace, /onCreateDocument=\{createPastedDocument\}/);
+  assert.doesNotMatch(readerLabWorkspace, /<DocumentLibrary\b/);
+  assert.doesNotMatch(readerLabWorkspace, /onClick=\{\(\) => onOpenDocumentLibrary\?\.\(\)\}/);
   assert.match(readerLabWorkspace, /onAnalyzeDocument=\{analyzeDocument\}/);
   // 一键生成入口从文档库收进顶栏「更多」下拉置顶，文档库不再承载大黑按钮
   assert.match(readerLabWorkspace, /setMoreMenuOpen\(false\); analyzeDocument\(\);/);
@@ -553,9 +576,8 @@ test('the outline drawer is a reading-scene navigation overlay owned by the read
   assert.match(readerLabLib, /export function extractMarkdownOutline/);
   // 开关收进文档库：与搜索并列，顶栏不再留按钮；持久化开合状态，图解画布下隐藏
   assert.match(readerLabWorkspace, /anchor-read-outline-open/);
-  assert.match(readerLabWorkspace, /onToggleOutline=\{toggleOutline\}/);
-  assert.match(readerLabWorkspace, /outlineHidden=\{diagramMode\}/);
-  assert.match(documentLibrary, /aria-label=\{outlineOpen \? t\('library\.collapseOutline'\) : t\('library\.openOutline'\)\}/);
+  assert.match(readerLabWorkspace, /onClick=\{toggleOutline\}/);
+  assert.match(readerLabWorkspace, /aria-label=\{outlineOpen \? t\('library\.collapseOutline'\) : t\('library\.openOutline'\)\}/);
   assert.match(zhLocale, /'library\.collapseOutline': '收起目录'/);
   assert.match(zhLocale, /'library\.openOutline': '打开目录'/);
   // 抽屉覆盖在阅读区左侧不挤占布局，点击按 heading 顺序定位；aria-label 走 i18n 键

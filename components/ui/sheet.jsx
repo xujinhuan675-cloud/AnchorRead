@@ -33,7 +33,7 @@ export function SheetContent({
         {!hideClose && (
           <DialogPrimitive.Close
             aria-label={t('common.closePanel')}
-            className="absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded text-stone-600 dark:text-stone-400 outline-none hover:bg-stone-100 dark:hover:bg-white/10 hover:text-stone-900 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
+            className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-600 outline-none transition-colors hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 dark:border-stone-800 dark:bg-stone-800 dark:text-stone-400 dark:hover:border-stone-700 dark:hover:bg-stone-700 dark:hover:text-stone-100 focus-visible:ring-2 focus-visible:ring-stone-400"
           >
             <CloseIcon size={16} aria-hidden="true" />
           </DialogPrimitive.Close>

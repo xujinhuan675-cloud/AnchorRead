@@ -9,7 +9,7 @@ import { TableKit } from '@tiptap/extension-table';
 import { UniqueID } from '@tiptap/extension-unique-id';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
-import { LoaderCircle, MessageCircleQuestion, PenTool, ScanText, Sparkles, TriangleAlert, WandSparkles } from 'lucide-react';
+import { LoaderCircle, MessageCircleQuestion, PenTool, ScanText, Sparkles, TriangleAlert, LayoutGrid } from 'lucide-react';
 import { markdownToSafeHtml } from '@/lib/document-content';
 import { isDefaultToolbarBuiltinTemplate } from '@/lib/toolbar-builtins';
 import { extractMarkdownOutline, precisionReplacementStats, clozeMappingKey } from '@/lib/reader-lab';
@@ -860,7 +860,7 @@ export default function ReaderSurface({
                   className="flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium text-stone-800 dark:text-stone-200 outline-none hover:bg-stone-100 dark:bg-white/10 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:opacity-50"
                   title={item.description || item.name}
                 >
-                  {busyAction === busyKey ? <LoaderCircle size={14} className="animate-spin" /> : <WandSparkles size={14} />}
+                  {busyAction === busyKey ? <LoaderCircle size={14} className="animate-spin" /> : <LayoutGrid size={14} />}
                   {item.name}
                 </button>
               </Fragment>
