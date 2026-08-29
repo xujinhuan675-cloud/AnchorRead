@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   MERMAID_MAX_SOURCE_LENGTH,
   MERMAID_ZOOM,
@@ -14,6 +17,15 @@ import {
   stepMermaidZoom,
   validateMermaidSource,
 } from '../lib/mermaid-render.js';
+
+const componentSource = fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'components', 'MermaidCanvas.jsx'),
+  'utf8',
+);
+const zoomHookSource = fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'components', 'useCanvasZoom.js'),
+  'utf8',
+);
 
 test('locks Mermaid into strict, non-interactive rendering', () => {
   const config = createStrictMermaidConfig();
@@ -51,10 +63,31 @@ test('allows only local SVG fragment references and safe CSS URLs', () => {
 });
 
 test('clamps and steps canvas zoom predictably', () => {
+  assert.equal(MERMAID_ZOOM.min, 0.1);
   assert.equal(clampMermaidZoom(0), MERMAID_ZOOM.min);
   assert.equal(clampMermaidZoom(9), MERMAID_ZOOM.max);
   assert.equal(stepMermaidZoom(1, 1), 1.25);
   assert.equal(stepMermaidZoom(MERMAID_ZOOM.min, -1), MERMAID_ZOOM.min);
+});
+
+test('keeps Mermaid zoom controls fixed to the canvas viewport', () => {
+  assert.match(componentSource, /<section\s+className=\{`relative flex h-full/u);
+  assert.match(componentSource, /缩放条挂在画布外层/u);
+  assert.match(componentSource, /<CanvasZoomControls/u);
+  assert.match(componentSource, /className="absolute bottom-3 left-3 z-50"/u);
+  assert.match(componentSource, /顶部操作同样挂在视口层/u);
+  assert.match(componentSource, /overflow-auto bg-white dark:bg-stone-900/u);
+});
+
+test('shares Excalidraw-style Ctrl/Cmd wheel zoom behavior', () => {
+  assert.match(componentSource, /containerRef: zoomContainerRef/u);
+  assert.doesNotMatch(componentSource, /onWheel=\{handleWheel\}/u);
+  assert.match(zoomHookSource, /event\.ctrlKey \|\| event\.metaKey/u);
+  assert.match(zoomHookSource, /event\.preventDefault\(\)/u);
+  assert.match(zoomHookSource, /addEventListener\('wheel', handleWheel, options\)/u);
+  assert.match(zoomHookSource, /passive: false/u);
+  assert.match(zoomHookSource, /capture: true/u);
+  assert.match(zoomHookSource, /boundedDelta/u);
 });
 
 test('render failures preserve the last successful diagram contract', () => {

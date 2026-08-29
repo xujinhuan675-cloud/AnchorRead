@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildStreamTimeline,
+  createDefaultMermaidPresentation,
+  createDefaultPresentation,
   excludeIncompleteLastItem,
   parsePartialElements,
   parseStreamSnapshot,
@@ -94,6 +96,20 @@ test('timelineToPresentation output survives presentation normalization with cam
   assert.equal(spec.steps[0].durationMs, 500);
   assert.deepEqual(spec.steps[0].visibleElementIds, ['b1']);
   assert.deepEqual(spec.steps[0].camera, { region: { x: 10, y: 20, width: 800, height: 600 } });
+});
+
+test('default presentations cover both Excalidraw elements and Mermaid source', () => {
+  const excalidraw = createDefaultPresentation([
+    { type: 'rectangle', id: 'start' },
+    { type: 'arrow', id: 'next' },
+  ]);
+  assert.equal(excalidraw.steps.length, 2);
+  assert.deepEqual(excalidraw.steps[1].visibleElementIds, ['start', 'next']);
+
+  const mermaid = createDefaultMermaidPresentation('flowchart TD\nA[开始] --> B[结束]');
+  assert.equal(mermaid.steps.length, 2);
+  assert.deepEqual(mermaid.steps[1].visibleElementIds, ['mermaid-1', 'mermaid-2']);
+  assert.equal(createDefaultMermaidPresentation('%% only comment'), null);
 });
 
 test('reconcilePresentationSpec appends added elements as highlighted steps after the original flow', () => {

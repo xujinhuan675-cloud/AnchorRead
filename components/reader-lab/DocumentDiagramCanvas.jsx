@@ -8,9 +8,10 @@ import MermaidCanvas from '@/components/MermaidCanvas';
 import { useLocale } from '@/components/LocaleProvider';
 import { DIAGRAM_AGENT_PENDING_PRESENTATION_KEY, DIAGRAM_AGENT_PRESENTATION_EVENT } from '@/components/DiagramAgentBridge';
 import { normalizePresentationSpec } from '@/lib/diagram-presentation';
-import { reconcilePresentationSpec } from '@/lib/diagram-stream';
+import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation, reconcilePresentationSpec } from '@/lib/diagram-stream';
 import { useAppTheme } from '@/lib/theme';
 import './diagram-overlay.css';
+import CanvasToolbarButton from '@/components/CanvasToolbarButton';
 
 const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), { ssr: false });
 
@@ -46,13 +47,25 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     clearCode,
     changeScene,
     presentation: rawPresentation,
+    presentationDisabled,
     streamElements,
   } = diagram;
   const presentation = useMemo(() => {
     // 生成后再增删改元素时，播放脚本与当前画布对账后再归一：
     // 新增元素进收尾步、整体替换则重建流式重放，避免播放空白/漏显
-    try { return normalizePresentationSpec(reconcilePresentationSpec(rawPresentation, elements)); } catch { return null; }
-  }, [rawPresentation, elements]);
+    try {
+      const reconciled = normalizePresentationSpec(reconcilePresentationSpec(rawPresentation, elements));
+      if (!presentationDisabled && engine === 'mermaid' && (!reconciled || isDefaultMermaidPresentation(reconciled))) {
+        return normalizePresentationSpec(createDefaultMermaidPresentation(code));
+      }
+      if (reconciled || presentationDisabled) {
+        return reconciled;
+      }
+      return normalizePresentationSpec(engine === 'excalidraw'
+        ? createDefaultPresentation(elements)
+        : createDefaultMermaidPresentation(code));
+    } catch { return null; }
+  }, [code, engine, presentationDisabled, rawPresentation, elements]);
   const effectivePresentationActive = presentationActive && Boolean(presentation);
   const effectivePresentationPlaying = presentationPlaying && effectivePresentationActive;
   const effectivePresentationStepIndex = presentation
@@ -102,16 +115,14 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
   // 源码开关：自管模式下才可切换；mermaid 挂在画布头部，excalidraw 收进主菜单
   const canToggleCode = typeof showCode !== 'boolean';
   const sourceCodeButton = (
-    <button
-      type="button"
+    <CanvasToolbarButton
       onClick={() => setCodeOpen((open) => !open)}
       aria-label={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
-      aria-pressed={codeOpen}
       title={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded transition-colors outline-none focus-visible:ring-2 focus-visible:ring-stone-400 ${codeOpen ? 'text-stone-900 dark:text-stone-100' : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 hover:text-stone-900 dark:hover:bg-white/10 dark:hover:text-stone-100'}`}
+      active={codeOpen}
     >
       <FileCode2 size={15} aria-hidden="true" />
-    </button>
+    </CanvasToolbarButton>
   );
 
   return (
@@ -124,32 +135,33 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
               title={standalone ? t('diagram.freeTitle') : t('diagram.docTitle')}
               subtitle={standalone ? t('diagram.freeSubtitle') : null}
               emptyMessage={standalone ? t('diagram.freeEmpty') : undefined}
+              presentationStep={presentationStep}
+              presentationActive={effectivePresentationActive}
+              presentationStepIndex={effectivePresentationStepIndex}
+              presentationStepCount={presentation?.steps.length || 0}
+              // 独立图解和文档绑定形态都有展开源码和切换面板的按钮
               headerActions={(canToggleCode || onOpenChat || onCloseChat) ? (
                 <>
-                  {canToggleCode ? sourceCodeButton : null}
+                  {canToggleCode && sourceCodeButton}
                   {onOpenChat && (
-                    // 窄屏抽屉形态的对话入口：放到源码按钮右侧，图标与文档库展开按钮同族
-                    <button
-                      type="button"
+                    // 收起面板/打开抽屉入口：与右侧 PanelRightClose 对称
+                    <CanvasToolbarButton
                       onClick={onOpenChat}
                       aria-label={t('diagram.openChat')}
                       title={t('diagram.openChat')}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 lg:hidden dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-stone-100"
                     >
                       <PanelRightOpen size={16} aria-hidden="true" />
-                    </button>
+                    </CanvasToolbarButton>
                   )}
                   {onCloseChat && (
-                    // 与展开入口同槽位对称：窄屏打开 Sheet 后由此收起
-                    <button
-                      type="button"
+                    // 展开面板/关闭抽屉入口：与 PanelRightOpen 对称
+                    <CanvasToolbarButton
                       onClick={onCloseChat}
                       aria-label={t('workspace.collapseRightPanel')}
                       title={t('workspace.collapseRightPanel')}
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-600 outline-none transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 lg:hidden dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-stone-100"
                     >
                       <PanelRightClose size={16} aria-hidden="true" />
-                    </button>
+                    </CanvasToolbarButton>
                   )}
                 </>
               ) : null}
@@ -172,7 +184,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             sourceExpandLabel={t('diagram.expandSource')}
             sourceCollapseLabel={t('diagram.collapseSource')}
           />}
-        {engine === 'excalidraw' && presentation && (
+        {presentation && (
           /* 播放条靠右下角：左下角是 Excalidraw 原生缩放控件的位置，避免与其重叠；
              源码开关已收进主菜单，右下角只剩播放条 */
           <div className={`ar-overlay-island${excalidrawThemeClass} absolute bottom-3 right-3 z-10 flex items-center gap-1 p-0.5`}>

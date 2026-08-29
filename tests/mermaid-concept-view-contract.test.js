@@ -25,5 +25,10 @@ test('concept view uses the shared strict config and SVG sanitizer', () => {
 
   assert.match(component, /createStrictMermaidConfig/);
   assert.match(component, /sanitizeMermaidSvg/);
+  assert.match(component, /const MIN_ZOOM = 0\.1;/);
+  assert.match(component, /<CanvasZoomControls/);
+  assert.match(component, /containerRef: zoomContainerRef/);
+  assert.doesNotMatch(component, /onWheel=\{handleWheel\}/);
+  assert.match(component, /className="absolute bottom-3 left-3 z-50"/);
   assert.doesNotMatch(component, /function sanitizeSvg/);
 });

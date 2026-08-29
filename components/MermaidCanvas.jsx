@@ -1,35 +1,20 @@
 'use client';
 
-import { useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
-import { AlertTriangle, LoaderCircle, Minus, Plus, RotateCcw } from 'lucide-react';
+import { useEffect, useId, useMemo, useReducer, useRef } from 'react';
+import { AlertTriangle, LoaderCircle } from 'lucide-react';
 import mermaid from 'mermaid';
 import { useLocale } from '@/components/LocaleProvider';
 import { useAppTheme } from '@/lib/theme';
 import {
   MERMAID_ZOOM,
-  clampMermaidZoom,
   createMermaidRenderState,
   createStrictMermaidConfig,
   mermaidRenderReducer,
   sanitizeMermaidSvg,
-  stepMermaidZoom,
   validateMermaidSource,
 } from '@/lib/mermaid-render';
-
-function IconButton({ label, children, disabled = false, onClick }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:cursor-not-allowed disabled:opacity-35 dark:text-stone-400 dark:hover:bg-white/10 dark:hover:text-stone-100"
-    >
-      {children}
-    </button>
-  );
-}
+import CanvasZoomControls from './CanvasZoomControls';
+import useCanvasZoom from './useCanvasZoom';
 
 export default function MermaidCanvas({
   source,
@@ -44,6 +29,10 @@ export default function MermaidCanvas({
   emptyMessage = null,
   className = '',
   initialZoom = MERMAID_ZOOM.initial,
+  presentationStep = null,
+  presentationActive = false,
+  presentationStepIndex = 0,
+  presentationStepCount = 0,
   onRender,
   onError,
 }) {
@@ -53,9 +42,22 @@ export default function MermaidCanvas({
   const resolvedTitle = title ?? t('diagram.mermaidDefaultTitle');
   const resolvedEmptyMessage = emptyMessage ?? t('diagram.mermaidDefaultEmpty');
   const hostRef = useRef(null);
+  const zoomContainerRef = useRef(null);
   const renderSequenceRef = useRef(0);
   const reactId = useId();
-  const [zoom, setZoom] = useState(() => clampMermaidZoom(initialZoom));
+  const {
+    zoom,
+    handleWheel,
+    resetZoom,
+    zoomIn,
+    zoomOut,
+  } = useCanvasZoom({
+    initialZoom,
+    min: MERMAID_ZOOM.min,
+    max: MERMAID_ZOOM.max,
+    step: MERMAID_ZOOM.step,
+    containerRef: zoomContainerRef,
+  });
   const zoomRef = useRef(zoom);
   const onRenderRef = useRef(onRender);
   const onErrorRef = useRef(onError);
@@ -142,12 +144,23 @@ export default function MermaidCanvas({
 
   useEffect(() => {
     const svg = hostRef.current?.querySelector('svg');
+    if (!svg) return;
+    const visualItems = [...svg.querySelectorAll('.node, .edgePath, .edgeLabel, .cluster, .actor, .messageText, .loopText')];
+    const stepCount = Math.max(1, Number(presentationStepCount) || 1);
+    const stepNumber = Math.max(1, Math.min(stepCount, Number(presentationStepIndex) + 1));
+    const visibleCount = presentationActive && presentationStep
+      ? Math.max(1, Math.ceil(visualItems.length * stepNumber / stepCount))
+      : visualItems.length;
+    visualItems.forEach((item, index) => {
+      item.style.opacity = index < visibleCount ? '' : '0';
+      item.style.pointerEvents = index < visibleCount ? '' : 'none';
+    });
+  }, [presentationActive, presentationStep, presentationStepCount, presentationStepIndex, renderState.renderedSource]);
+
+  useEffect(() => {
+    const svg = hostRef.current?.querySelector('svg');
     if (svg) svg.style.width = `${zoom * 100}%`;
   }, [zoom]);
-
-  const changeZoom = (direction) => {
-    setZoom((current) => stepMermaidZoom(current, direction));
-  };
 
   const hasSource = Boolean(validation.source);
   const isRendering = renderState.status === 'rendering';
@@ -155,58 +168,21 @@ export default function MermaidCanvas({
 
   return (
     <section
-      className={`flex h-full min-h-[360px] flex-col bg-white dark:bg-stone-900 ${className}`.trim()}
+      className={`relative flex h-full min-h-[360px] flex-col bg-white dark:bg-stone-900 ${className}`.trim()}
       aria-label={resolvedTitle}
+      ref={zoomContainerRef}
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-stone-200 px-4 py-2.5 dark:border-stone-800">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-stone-800 dark:text-stone-100">{resolvedTitle}</h2>
-          <p className="mt-0.5 text-xs text-stone-400 dark:text-stone-400" aria-live="polite">
-            {isRendering
-              ? t('diagram.statusRendering')
-              : hasError
-                ? renderState.hasValidSvg
-                  ? t('diagram.statusLastSuccess')
-                  : t('diagram.statusFailed')
-                : renderState.hasValidSvg
-                  ? t('diagram.statusRendered')
-                  : (subtitle || t('diagram.statusWaiting'))}
-          </p>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1">
+      {/* 顶部操作同样挂在视口层，避免滚动画布内容把它带走。 */}
+      {headerActions && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1 bg-[#ececf4] dark:bg-hsl(240,8%,15%) rounded">
           {headerActions}
         </div>
-      </header>
+      )}
 
       {/* 画布区铺满：去掉外边距与卡片描边/阴影，绘图区直接贴边；暗色下铺深色底衬托 SVG */}
-      <div className="relative min-h-0 flex-1 overflow-auto bg-white dark:bg-stone-900">
-        <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1 rounded-md border border-stone-200 bg-white/95 p-0.5 shadow-sm backdrop-blur dark:border-stone-700 dark:bg-stone-900/95" aria-label={t('diagram.zoomAria')}>
-          <IconButton
-            label={t('diagram.zoomOut')}
-            disabled={zoom <= MERMAID_ZOOM.min}
-            onClick={() => changeZoom(-1)}
-          >
-            <Minus aria-hidden="true" className="h-4 w-4" />
-          </IconButton>
-          <span className="w-12 text-center text-xs tabular-nums text-stone-600 dark:text-stone-300">
-            {Math.round(zoom * 100)}%
-          </span>
-          <IconButton
-            label={t('diagram.zoomReset')}
-            disabled={zoom === MERMAID_ZOOM.initial}
-            onClick={() => setZoom(MERMAID_ZOOM.initial)}
-          >
-            <RotateCcw aria-hidden="true" className="h-4 w-4" />
-          </IconButton>
-          <IconButton
-            label={t('diagram.zoomIn')}
-            disabled={zoom >= MERMAID_ZOOM.max}
-            onClick={() => changeZoom(1)}
-          >
-            <Plus aria-hidden="true" className="h-4 w-4" />
-          </IconButton>
-        </div>
+      <div
+        className="relative min-h-0 flex-1 overflow-auto bg-white dark:bg-stone-900"
+      >
         <div
           ref={hostRef}
           className="min-h-full w-full bg-white p-4 dark:bg-stone-900"
@@ -245,7 +221,24 @@ export default function MermaidCanvas({
             </div>
           </div>
         )}
+
       </div>
+
+      {/* 缩放条挂在画布外层，避免内容滚动/放大后跟着 SVG 的坐标移动。 */}
+      <CanvasZoomControls
+        zoom={zoom}
+        min={MERMAID_ZOOM.min}
+        max={MERMAID_ZOOM.max}
+        initial={MERMAID_ZOOM.initial}
+        ariaLabel={t('diagram.zoomAria')}
+        zoomOutLabel={t('diagram.zoomOut')}
+        zoomResetLabel={t('diagram.zoomReset')}
+        zoomInLabel={t('diagram.zoomIn')}
+        onZoomOut={zoomOut}
+        onReset={resetZoom}
+        onZoomIn={zoomIn}
+        className="absolute bottom-3 left-3 z-50"
+      />
     </section>
   );
 }
