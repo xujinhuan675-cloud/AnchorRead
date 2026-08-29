@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import '@excalidraw/excalidraw/index.css';
 import { FileCode2, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useAppTheme } from '@/lib/theme';
+import CanvasToolbarButton from './CanvasToolbarButton';
 
 // Dynamically import Excalidraw with no SSR
 const Excalidraw = dynamic(
@@ -63,6 +64,163 @@ function withLinearPoints(element) {
     };
   }
   return element;
+}
+
+const SHAPE_CONTAINER_TYPES = new Set(['rectangle', 'ellipse', 'diamond']);
+
+function normalizeFontFamilyValue(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string') return value;
+  const names = {
+    virgil: 1,
+    hand: 1,
+    handwritten: 1,
+    helvetica: 2,
+    sans: 2,
+    'sans-serif': 2,
+    cascadia: 3,
+    mono: 3,
+    monospace: 3,
+    excalifont: 5,
+    nunito: 6,
+    lilita: 7,
+    'lilita one': 7,
+    'comic shanns': 8,
+    comic: 8,
+  };
+  return names[value.trim().toLowerCase()] ?? value;
+}
+
+function validateAndFixBindings(elements) {
+  const elementMap = new Map(elements.filter((element) => element?.id).map((element) => [element.id, element]));
+  return elements.map((element) => {
+    const fixed = { ...element };
+    if (Array.isArray(fixed.boundElements)) {
+      const valid = fixed.boundElements.filter((binding) => (
+        binding && typeof binding === 'object'
+        && typeof binding.id === 'string'
+        && (binding.type === 'text' || binding.type === 'arrow')
+        && elementMap.has(binding.id)
+      ));
+      fixed.boundElements = valid.length > 0 ? valid : null;
+    } else if (fixed.boundElements !== undefined && fixed.boundElements !== null) {
+      fixed.boundElements = null;
+    }
+    if (fixed.containerId && !elementMap.has(fixed.containerId)) fixed.containerId = null;
+    return fixed;
+  });
+}
+
+function normalizeImageElement(element) {
+  return {
+    ...element,
+    angle: element.angle ?? 0,
+    strokeColor: element.strokeColor ?? 'transparent',
+    backgroundColor: element.backgroundColor ?? 'transparent',
+    fillStyle: element.fillStyle ?? 'solid',
+    strokeWidth: element.strokeWidth ?? 1,
+    strokeStyle: element.strokeStyle ?? 'solid',
+    roughness: element.roughness ?? 0,
+    opacity: element.opacity ?? 100,
+    groupIds: element.groupIds ?? [],
+    roundness: null,
+    seed: element.seed ?? 1,
+    version: element.version ?? 1,
+    versionNonce: element.versionNonce ?? 1,
+    isDeleted: element.isDeleted ?? false,
+    boundElements: element.boundElements ?? null,
+    link: element.link ?? null,
+    locked: element.locked ?? false,
+    status: element.status ?? 'saved',
+    scale: element.scale ?? [1, 1],
+  };
+}
+
+function normalizeFreedrawElement(element) {
+  return {
+    ...element,
+    angle: element.angle ?? 0,
+    backgroundColor: element.backgroundColor ?? 'transparent',
+    fillStyle: element.fillStyle ?? 'solid',
+    strokeWidth: element.strokeWidth ?? 1,
+    strokeStyle: element.strokeStyle ?? 'solid',
+    roughness: element.roughness ?? 1,
+    opacity: element.opacity ?? 100,
+    groupIds: element.groupIds ?? [],
+    roundness: null,
+    seed: element.seed ?? 1,
+    version: element.version ?? 1,
+    versionNonce: element.versionNonce ?? 1,
+    isDeleted: element.isDeleted ?? false,
+    boundElements: element.boundElements ?? null,
+    link: element.link ?? null,
+    locked: element.locked ?? false,
+    points: Array.isArray(element.points) ? element.points : [[0, 0]],
+    pressures: Array.isArray(element.pressures) ? element.pressures : [],
+    simulatePressure: element.simulatePressure ?? true,
+    lastCommittedPoint: element.lastCommittedPoint ?? null,
+  };
+}
+
+function restoreElementBindings(convertedElements, originalElements) {
+  const originalMap = new Map(originalElements.filter((element) => element?.id).map((element) => [element.id, element]));
+  return convertedElements.map((element) => {
+    const original = originalMap.get(element.id);
+    if (!original) return element;
+    const restored = { ...original, ...element };
+    const startId = original.startBinding?.elementId || original.start?.id;
+    const endId = original.endBinding?.elementId || original.end?.id;
+    if (startId && !restored.startBinding) restored.startBinding = { elementId: startId, focus: 0, gap: 4, fixedPoint: null };
+    if (endId && !restored.endBinding) restored.endBinding = { elementId: endId, focus: 0, gap: 4, fixedPoint: null };
+    if (original.startBinding && !element.startBinding) restored.startBinding = original.startBinding;
+    if (original.endBinding && !element.endBinding) restored.endBinding = original.endBinding;
+    if (original.boundElements && (!element.boundElements || element.boundElements.length === 0)) {
+      restored.boundElements = original.boundElements;
+    }
+    if (original.containerId && !element.containerId) restored.containerId = original.containerId;
+    if (original.elbowed !== undefined && element.elbowed === undefined) restored.elbowed = original.elbowed;
+    if (restored.fontFamily !== undefined) restored.fontFamily = normalizeFontFamilyValue(restored.fontFamily);
+    return restored;
+  });
+}
+
+function recenterBoundShapeTextElements(elements) {
+  const elementMap = new Map(elements.filter((element) => element?.id).map((element) => [element.id, element]));
+  return elements.map((element) => {
+    if (element?.type !== 'text' || !element.containerId || element.autoResize === false) return element;
+    const container = elementMap.get(element.containerId);
+    if (!container || !SHAPE_CONTAINER_TYPES.has(container.type)) return element;
+    if (![container.x, container.y, container.width, container.height, element.width, element.height]
+      .every((value) => typeof value === 'number')) return element;
+    return {
+      ...element,
+      x: container.x + (container.width - element.width) / 2,
+      y: container.y + (container.height - element.height) / 2,
+    };
+  });
+}
+
+// Excalidraw's converter expands labels but can drop server/agent metadata and
+// binding fields. Keep those fields while still using the official converter
+// for shape/text defaults and generated bound-text elements.
+function convertElementsForCanvas(elements, converter) {
+  if (!Array.isArray(elements) || elements.length === 0) return [];
+  if (elements.every((element) => Number.isFinite(element?.version))) return elements;
+  const validated = validateAndFixBindings(elements)
+    .map((element) => element?.fontFamily === undefined
+      ? element
+      : { ...element, fontFamily: normalizeFontFamilyValue(element.fontFamily) });
+  const imageElements = validated.filter((element) => element.type === 'image').map(normalizeImageElement);
+  const freedrawElements = validated.filter((element) => element.type === 'freedraw').map(normalizeFreedrawElement);
+  const convertible = validated
+    .filter((element) => element.type !== 'image' && element.type !== 'freedraw')
+    .map(withLinearPoints);
+  const converted = converter(convertible, { regenerateIds: false });
+  return recenterBoundShapeTextElements([
+    ...restoreElementBindings(converted, convertible),
+    ...imageElements,
+    ...freedrawElements,
+  ]);
 }
 
 // Excalidraw 运行时的画布容器尺寸字段由 Excalidraw 自己管理。
@@ -199,7 +357,7 @@ export default function ExcalidrawCanvas({
       if (!convertToExcalidrawElements) return [];
       // 保留原始元素 id：演示步骤的 visibleElementIds/highlightElementIds 按创建时的
       // 简化元素 id 引用，重新生成随机 id 会让过滤、高亮与持久化后的场景全部失配。
-      return convertToExcalidrawElements(presentationElements.map(withLinearPoints), { regenerateIds: false });
+      return convertElementsForCanvas(presentationElements, convertToExcalidrawElements);
     } catch (error) {
       console.error('Failed to convert elements:', error);
       return [];
@@ -219,7 +377,7 @@ export default function ExcalidrawCanvas({
         });
       }, 100);
     }
-  }, [excalidrawAPI, convertedElements, hasPersistedAppState]);
+  }, [excalidrawAPI, convertedElements, hasPersistedAppState, presentationActive]);
 
   useEffect(() => {
     if (!presentationActive) return undefined;
@@ -292,7 +450,7 @@ export default function ExcalidrawCanvas({
     if (!excalidrawAPI || !convertToExcalidrawElements || streamElements.length === 0) return undefined;
     let converted = [];
     try {
-      converted = convertToExcalidrawElements(streamElements.map(withLinearPoints), { regenerateIds: false });
+      converted = convertElementsForCanvas(streamElements, convertToExcalidrawElements);
     } catch {
       return undefined;
     }
@@ -368,7 +526,7 @@ export default function ExcalidrawCanvas({
   useEffect(() => {
     initialElementCountRef.current = convertedElements.length;
     canvasKeyChangedAtRef.current = Date.now();
-  }, [canvasKey]);
+  }, [canvasKey, convertedElements.length]);
 
   return (
     <div className="anchor-read-excalidraw relative h-full w-full">
@@ -385,15 +543,15 @@ export default function ExcalidrawCanvas({
           const togglePanel = onExpandPanel || onCollapsePanel;
           const toggleTitle = onExpandPanel ? expandPanelTitle : collapsePanelTitle;
           return (
-            <button
-              type="button"
-              onClick={togglePanel}
-              title={toggleTitle}
-              aria-label={toggleTitle}
-              className="ar-overlay-tool ar-expand-panel-trigger outline-none"
-            >
-              {onExpandPanel ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}
-            </button>
+            <div className="ar-toolbar-container flex items-center gap-1 rounded bg-[#ececf4] dark:bg-hsl(240,8%,15%) p-0.5" style={{ order: 99 }}>
+              <CanvasToolbarButton
+                onClick={togglePanel}
+                title={toggleTitle}
+                aria-label={toggleTitle}
+              >
+                {onExpandPanel ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}
+              </CanvasToolbarButton>
+            </div>
           );
         }}
         initialData={{
@@ -452,6 +610,7 @@ export default function ExcalidrawCanvas({
           </MainMenu>
         ) : null}
       </Excalidraw>
+      {/* 关闭外层的 div */}
     </div>
   );
 }

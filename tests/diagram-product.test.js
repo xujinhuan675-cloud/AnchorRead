@@ -68,6 +68,21 @@ test('renderer switching preserves the current source and restores an existing t
   assert.equal(next.variants.mermaid.updatedAt, 42);
 });
 
+test('renderer switching keeps a target scene available for Excalidraw restoration', () => {
+  const scene = { elements: [{ id: 'saved', type: 'rectangle' }] };
+  const next = switchDiagramVariant({
+    drawing: {
+      variants: { excalidraw: { source: '', scene, chartType: 'swimlane' } },
+    },
+    currentRenderer: 'mermaid',
+    currentSource: 'flowchart TD\nA-->B',
+    currentChartType: 'flowchart',
+    nextRenderer: 'excalidraw',
+  });
+  assert.deepEqual(next.scene, scene);
+  assert.deepEqual(next.variants.excalidraw.scene, scene);
+});
+
 test('image generation instructions follow the selected renderer', () => {
   assert.match(generateImagePrompt('flowchart', 'mermaid'), /Mermaid图表/);
   assert.doesNotMatch(generateImagePrompt('flowchart', 'mermaid'), /Excalidraw图表/);

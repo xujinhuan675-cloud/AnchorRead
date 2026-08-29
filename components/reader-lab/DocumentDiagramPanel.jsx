@@ -6,6 +6,7 @@ import Chat from '@/components/Chat';
 import { useLocale } from '@/components/LocaleProvider';
 import { createDocumentDrawingId } from '@/lib/diagram-generation';
 import { CHART_TYPES } from '@/lib/constants';
+import CanvasToolbarButton from '@/components/CanvasToolbarButton';
 
 // 右侧对话区：只保留图表对话与图表管理，画布与代码区在左侧主区域渲染
 export default function DocumentDiagramPanel({
@@ -22,10 +23,19 @@ export default function DocumentDiagramPanel({
   onClearAnchor,
   diagram,
 }) {
-  const { engine, chartType, setChartType, isGenerating, generate, handleEngineChange } = diagram;
+  const {
+    engine,
+    chartType,
+    setChartType,
+    isGenerating,
+    isConvertingMermaid,
+    generate,
+    handleEngineChange,
+  } = diagram;
   const { t } = useLocale();
   // 输入模式由面板持有：tabs 提到头部控制子栏，Chat 走受控模式
   const [inputTab, setInputTab] = useState('text');
+  // 折叠状态：通过 onToggleSidebar 是否传入来确定
   // 图解切换改为自定义下拉（外框表明可点）；双击名称进入重命名输入态
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -108,10 +118,22 @@ export default function DocumentDiagramPanel({
             )}
           </div>
         )}
-        {isGenerating ? <LoaderCircle size={13} className="shrink-0 animate-spin text-stone-400" aria-hidden="true" /> : null}
-        <button type="button" onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: t('diagram.untitled'), engine: 'mermaid', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.create')} aria-label={t('diagram.create')}><Plus size={15} /></button>
-        <button type="button" onClick={onOpenHistory} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('diagram.openHistory')} aria-label={t('diagram.openHistory')}><History size={15} /></button>
-        {onToggleSidebar ? <button type="button" onClick={onToggleSidebar} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-stone-500 outline-none hover:text-stone-900 focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-400 dark:hover:text-stone-100" title={t('workspace.collapseRightPanel')} aria-label={t('workspace.collapseRightPanel')}><PanelRightClose size={15} /></button> : null}
+        {isGenerating || isConvertingMermaid ? <LoaderCircle size={13} className="shrink-0 animate-spin text-stone-400" aria-hidden="true" /> : null}
+        <CanvasToolbarButton onClick={() => onCreateDrawing({ id: createDocumentDrawingId(document.id), documentId: document.id, title: t('diagram.untitled'), engine: 'mermaid', chartType: 'auto', source: '', createdAt: Date.now(), updatedAt: Date.now() })} title={t('diagram.create')} aria-label={t('diagram.create')}>
+          <Plus size={15} />
+        </CanvasToolbarButton>
+        <CanvasToolbarButton onClick={onOpenHistory} title={t('diagram.openHistory')} aria-label={t('diagram.openHistory')}>
+          <History size={15} />
+        </CanvasToolbarButton>
+        {onToggleSidebar && (
+          <CanvasToolbarButton
+            onClick={onToggleSidebar}
+            title={t('workspace.collapseRightPanel')}
+            aria-label={t('workspace.collapseRightPanel')}
+          >
+            <PanelRightClose size={15} />
+          </CanvasToolbarButton>
+        )}
       </header>
       {/* 控制子栏：输入模式、引擎与图类型集中收纳在头部，Chat 内容区只留输入本身 */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-1.5 dark:border-stone-800 dark:bg-white/5">
@@ -140,7 +162,7 @@ export default function DocumentDiagramPanel({
               key={value}
               type="button"
               onClick={() => handleEngineChange(value)}
-              disabled={isGenerating}
+              disabled={isGenerating || isConvertingMermaid}
               title={t('diagram.rendererVersionHint', { renderer: label })}
               className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${engine === value ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900' : 'text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100'}`}
             >
@@ -151,7 +173,7 @@ export default function DocumentDiagramPanel({
         <select
           value={chartType}
           onChange={(event) => setChartType(event.target.value)}
-          disabled={isGenerating}
+          disabled={isGenerating || isConvertingMermaid}
           aria-label={t('diagram.chartTypeAria')}
           className="min-w-[120px] flex-1 rounded border border-stone-200 bg-white px-2 py-1 text-[11px] text-stone-700 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-800 dark:bg-white/5 dark:text-stone-300"
         >

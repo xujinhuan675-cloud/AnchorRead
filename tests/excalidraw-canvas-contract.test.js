@@ -73,7 +73,7 @@ test('chat generation streams partial elements onto one stable canvas instance',
   assert.match(diagramHookSource, /setStreamElements\(\(previous\) =>/u);
   assert.match(diagramHookSource, /setStreamElements\(null\)/u);
   assert.match(componentSource, /streamElements = null/u);
-  assert.match(componentSource, /convertToExcalidrawElements\(streamElements\.map\(withLinearPoints\), \{ regenerateIds: false \}\)/u);
+  assert.match(componentSource, /convertElementsForCanvas\(streamElements, convertToExcalidrawElements\)/u);
   assert.match(componentSource, /excalidrawAPI\.updateScene\(\{ elements: converted \}\)/u);
   assert.match(componentSource, /streamPreviewFittedRef\.current = false/u);
 });
@@ -83,7 +83,16 @@ test('linear elements get explicit points before official conversion', () => {
   // 转换前显式补 points（覆盖默认 points），演示与流式预览两条转换路径都要走
   assert.match(componentSource, /function withLinearPoints\(element\)/u);
   assert.match(componentSource, /points: \[\[0, 0\], \[Number\(element\.width\) \|\| 0, Number\(element\.height\) \|\| 0\]\]/u);
-  assert.match(componentSource, /convertToExcalidrawElements\(presentationElements\.map\(withLinearPoints\), \{ regenerateIds: false \}\)/u);
+  assert.match(componentSource, /convertElementsForCanvas\(presentationElements, convertToExcalidrawElements\)/u);
+});
+
+test('browser conversion preserves bindings and media element fields', () => {
+  assert.match(componentSource, /function validateAndFixBindings\(elements\)/u);
+  assert.match(componentSource, /function normalizeImageElement\(element\)/u);
+  assert.match(componentSource, /function normalizeFreedrawElement\(element\)/u);
+  assert.match(componentSource, /function restoreElementBindings\(convertedElements, originalElements\)/u);
+  assert.match(componentSource, /function recenterBoundShapeTextElements\(elements\)/u);
+  assert.match(componentSource, /convertElementsForCanvas\(streamElements, convertToExcalidrawElements\)/u);
 });
 
 test('auto zoom yields to the presentation camera', () => {

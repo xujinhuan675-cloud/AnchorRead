@@ -23,6 +23,7 @@ import {
 import { createDiagramMetadata, DIAGRAM_SCOPES, switchDiagramVariant } from '@/lib/diagram-product';
 import { parseStreamSnapshot } from '@/lib/diagram-stream';
 import { stripMermaidFence } from '@/lib/mermaid-prompts';
+import { convertMermaidToExcalidrawScene } from '@/lib/mermaid-excalidraw';
 
 // 文档关系图的共享状态：左侧画布区与右侧对话区共用同一份状态，
 // 由 ReaderLabWorkspace 实例化一次后分别注入两个区域。
@@ -46,6 +47,7 @@ export function useDocumentDiagram({
     }
   })();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isConvertingMermaid, setIsConvertingMermaid] = useState(false);
   const [isApplyingCode, setIsApplyingCode] = useState(false);
   const [isOptimizingCode, setIsOptimizingCode] = useState(false);
   // 默认引擎为 Mermaid：存量图解按自身 engine 恢复，无记录时兜底 mermaid
@@ -61,13 +63,17 @@ export function useDocumentDiagram({
     Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []
   ));
   const [presentation, setPresentation] = useState(() => activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
+  const [presentationDisabled, setPresentationDisabled] = useState(() => activeDrawing?.presentationDisabled === true);
   // 流式生成预览：SSE 增量解析出的可绘制元素，画布侧逐个显现且不回写持久化
   const [streamElements, setStreamElements] = useState(null);
   const [error, setError] = useState('');
   const saveTimerRef = useRef(null);
   const draftDrawingRef = useRef(activeDrawing);
+  const mermaidConversionSeqRef = useRef(0);
 
   useEffect(() => {
+    mermaidConversionSeqRef.current += 1;
+    setIsConvertingMermaid(false);
     draftDrawingRef.current = activeDrawing;
     setEngine(activeDrawing?.engine || 'mermaid');
     setChartType(activeDrawing?.chartType || 'auto');
@@ -84,6 +90,7 @@ export function useDocumentDiagram({
     setFiles(nextScene.files);
     setRevisionHistory(Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []);
     setPresentation(activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
+    setPresentationDisabled(activeDrawing?.presentationDisabled === true);
   }, [activeDrawing]);
 
   useEffect(() => () => {
@@ -331,8 +338,11 @@ export function useDocumentDiagram({
     }
   };
 
-  const handleEngineChange = (nextEngine) => {
+  const handleEngineChange = async (nextEngine) => {
     if (nextEngine === engine) return;
+    const conversionSequence = mermaidConversionSeqRef.current + 1;
+    mermaidConversionSeqRef.current = conversionSequence;
+    setIsConvertingMermaid(false);
     const nextVariant = switchDiagramVariant({
       drawing: draftDrawingRef.current || activeDrawing,
       currentRenderer: engine,
@@ -346,7 +356,8 @@ export function useDocumentDiagram({
     let nextElements = [];
     let nextAppState = normalizeExcalidrawScene([]).appState;
     let nextFiles = {};
-    if (nextVariant.engine === 'excalidraw' && nextVariant.source) {
+    let nextSource = nextVariant.source;
+    if (nextVariant.engine === 'excalidraw' && (nextVariant.scene || nextVariant.source)) {
       try {
         const nextScene = parseExcalidrawScene(nextVariant.scene || nextVariant.source);
         nextElements = nextScene.elements;
@@ -356,12 +367,41 @@ export function useDocumentDiagram({
         nextElements = [];
       }
     }
+    // A Mermaid variant has no Excalidraw JSON until the user first switches
+    // renderers. Convert it with the official browser converter instead of
+    // leaving the target variant empty. Existing target scenes always win.
+    const shouldConvertMermaid = nextVariant.engine === 'excalidraw'
+      && nextElements.length === 0
+      && engine === 'mermaid'
+      && typeof code === 'string'
+      && code.trim();
+    if (shouldConvertMermaid) {
+      setIsConvertingMermaid(true);
+      try {
+        const converted = await convertMermaidToExcalidrawScene(code, {
+          baseScene: normalizeExcalidrawScene([]),
+          idPrefix: activeDrawing?.id || 'mermaid',
+        });
+        if (mermaidConversionSeqRef.current !== conversionSequence) return;
+        nextElements = converted.scene.elements;
+        nextAppState = converted.scene.appState;
+        nextFiles = converted.scene.files;
+        nextSource = JSON.stringify(nextElements, null, 2);
+      } catch (caughtError) {
+        if (mermaidConversionSeqRef.current !== conversionSequence) return;
+        setError(caughtError?.message || 'Mermaid 转 Excalidraw 失败。');
+      } finally {
+        if (mermaidConversionSeqRef.current === conversionSequence) setIsConvertingMermaid(false);
+      }
+    }
+    if (mermaidConversionSeqRef.current !== conversionSequence) return;
+    setCode(nextSource);
     setElements(nextElements);
     setAppState(nextAppState);
     setFiles(nextFiles);
     persistCurrent({
       engine: nextVariant.engine,
-      source: nextVariant.source,
+      source: nextSource,
       chartType: nextVariant.chartType,
       elements: nextElements,
       appState: nextAppState,
@@ -468,12 +508,14 @@ export function useDocumentDiagram({
     revision: getDiagramRevision(draftDrawingRef.current || activeDrawing),
     revisionHistory,
     presentation,
+    presentationDisabled,
     streamElements,
     error,
     setError,
     isGenerating,
     isApplyingCode,
     isOptimizingCode,
+    isConvertingMermaid,
     generate,
     handleApply,
     handleOptimize,
