@@ -3,6 +3,8 @@ import test from 'node:test';
 import {
   buildDiagramUrl,
   buildDiagramWorkspaceUrl,
+  createInlineDiagramResult,
+  createInlineViewResult,
   createMcpBrowserRecoveryResult,
   createMcpToolResult,
 } from '../lib/diagram-mcp-links.js';
@@ -43,4 +45,19 @@ test('browser recovery result adds a workspace link only for browser-unavailable
   assert.equal(recovery.content[1].uri, 'https://anchorread.example/diagrams');
   assert.match(recovery.content[0].text, /open_diagram_workspace_then_retry/);
   assert.equal(createMcpBrowserRecoveryResult(new Error('bad request')), null);
+});
+
+test('inline MCP results retain scene content without a browser bridge', () => {
+  const result = createInlineViewResult({
+    elements: JSON.stringify([{ id: 'rect-1', type: 'rectangle', x: 10, y: 20, width: 120, height: 60 }]),
+  });
+  assert.equal(result.engine, 'excalidraw');
+  assert.equal(result.scene.elements[0].id, 'rect-1');
+  const mermaid = createInlineDiagramResult({ title: 'Flow', engine: 'mermaid', source: 'flowchart TD\nA-->B' });
+  assert.equal(mermaid.source, 'flowchart TD\nA-->B');
+  assert.equal(mermaid.presentation.steps.length, 2);
+  const inferredExcalidraw = createInlineDiagramResult({ title: 'Nodes', elements: [{ id: 'node-1', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 }] });
+  assert.equal(inferredExcalidraw.engine, 'excalidraw');
+  assert.equal(inferredExcalidraw.presentation.steps.length, 1);
+  assert.equal(createInlineDiagramResult({ title: 'Empty', engine: 'mermaid' }), null);
 });

@@ -47,12 +47,18 @@ import {
 } from '../lib/diagram-scene-record.js';
 import { createWorkspaceFilePayload, parseWorkspaceFile } from '../lib/workspace-file.js';
 import { getPresentationSpec, normalizePresentationSpec } from '../lib/diagram-presentation.js';
+import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation } from '../lib/diagram-stream.js';
 import {
   buildDiagramUrl,
   buildDiagramWorkspaceUrl,
   createMcpBrowserRecoveryResult,
   createMcpToolResult,
+  createInlineDiagramResult,
+  createInlineViewResult,
 } from '../lib/diagram-mcp-links.js';
+import {
+  DIAGRAM_MCP_READ_ME,
+} from '../lib/diagram-agent-mcp-contract.js';
 import {
   DIAGRAM_MCP_APP_RESOURCE_URI,
   diagramMcpAppResourceListing,
@@ -60,8 +66,8 @@ import {
 } from '../lib/diagram-mcp-app-resource.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
-const SERVER_INFO = { name: 'anchor-read-diagram', title: 'AnchorRead Diagram', version: '1.2.0' };
-const SERVER_INSTRUCTIONS = 'Use create_diagram when a visual would materially clarify a concept, process, relationship, or architecture. Set open=true unless the user asks for a link only. If create_diagram returns nextAction=open_diagram_workspace_then_retry, an AI client with browser or open-URL capability should open the returned workspace resource_link and retry the same request; clients without that capability should show the link and ask the user to open it. After a successful diagram or workspace tool returns a resource_link, an AI client with browser or open-URL capability should open that URI; clients without that capability should show the link and say that the user can open it. Live browser mode is the default: keep local AnchorRead open and treat its IndexedDB workspace as the source of truth. Create or edit diagrams directly through these tools; do not introduce .anchorread export/import into the live workflow. Use expectedRevision for edits so concurrent user changes fail instead of being overwritten.';
+const SERVER_INFO = { name: 'anchor-read-diagram', title: 'AnchorRead Diagram', version: '1.3.0' };
+const SERVER_INSTRUCTIONS = 'Use create_view for a pure in-chat editable Excalidraw canvas; it accepts the official elements JSON string and does not require a browser. Use create_diagram when a diagram should also be persisted in the AnchorRead browser workspace. Contentful Mermaid or Excalidraw diagrams automatically receive playback steps and start playback when opened; stream is optional and only adds pseudo-element/camera timeline input. Set open=true for that persisted workflow unless the user asks for a link only. If the browser is unavailable but create_diagram includes scene/elements/source, the MCP App renders the supplied content directly in chat; only content-free requests need open_diagram_workspace_then_retry. For incremental edits, pass the AnchorRead diagram id as id and the target element id as elementId; use create_element/update_element/delete_element/query_elements/get_element and expectedRevision. After a successful diagram or workspace tool returns a resource_link, an AI client with browser or open-URL capability should open that URI; clients without that capability should show the link and say that the user can open it. Use expectedRevision for edits so concurrent user changes fail instead of being overwritten.';
 const rawArgs = process.argv.slice(2);
 const writeEnabled = rawArgs.includes('--write') || process.env.ANCHORREAD_DIAGRAM_MCP_WRITE === 'true';
 const bridgeIndex = rawArgs.findIndex((argument) => argument === '--bridge');
@@ -136,6 +142,18 @@ function getDrawing(payload, id) {
   return drawing;
 }
 
+function getEffectivePresentation(drawing) {
+  const stored = getPresentationSpec(drawing);
+  if (drawing?.presentationDisabled === true) return null;
+  if (drawing?.engine === 'mermaid') {
+    if (!stored || isDefaultMermaidPresentation(stored)) return createDefaultMermaidPresentation(drawing.source);
+    return stored;
+  }
+  if (stored) return stored;
+  if (drawing?.engine && drawing.engine !== 'excalidraw') return null;
+  return createDefaultPresentation(getDrawingScene(drawing).elements);
+}
+
 function writeDrawing(payload, nextDrawing) {
   const drawings = Array.isArray(payload.data?.drawings) ? payload.data.drawings : [];
   const index = drawings.findIndex((item) => item.id === nextDrawing.id);
@@ -182,7 +200,61 @@ function applyRequestedScenePatch(scene, patch = {}) {
   return next;
 }
 
+const ELEMENT_COMMAND_KEYS = new Set([
+  'id', 'diagramId', 'drawingId', 'element', 'elements', 'elementId', 'elementIds',
+  'changes', 'expectedRevision', 'author', 'reason', 'hardDelete', 'filter', 'filters',
+  'bbox', 'includeDeleted',
+]);
+
+function elementPayload(args, { requireType = true, now = Date.now(), usedIds = new Set() } = {}) {
+  const explicit = args?.element && typeof args.element === 'object' && !Array.isArray(args.element)
+    ? args.element
+    : (args?.changes && typeof args.changes === 'object' && !Array.isArray(args.changes) ? args.changes : null);
+  const payload = explicit ? { ...explicit } : Object.fromEntries(
+    Object.entries(args || {}).filter(([key]) => !ELEMENT_COMMAND_KEYS.has(key)),
+  );
+  if (args?.elementId !== undefined && payload.id === undefined) payload.id = args.elementId;
+  if (payload.id === undefined) {
+    const base = `element-${now}`;
+    let candidate = base;
+    let suffix = 1;
+    while (usedIds.has(candidate)) candidate = `${base}-${suffix++}`;
+    payload.id = candidate;
+  }
+  if (requireType && (!payload.type || typeof payload.type !== 'string')) {
+    throw new TypeError('create_element requires an element type');
+  }
+  usedIds.add(String(payload.id));
+  return payload;
+}
+
+function elementIdFromArgs(args) {
+  const id = args?.elementId ?? (args?.element && typeof args.element === 'object' ? args.element.id : undefined);
+  if (id === undefined || id === null || String(id).trim() === '') throw new TypeError('elementId is required');
+  return String(id);
+}
+
+function queryFiltersFromArgs(args = {}) {
+  const filters = { ...(args.filters || args.filter || {}) };
+  if (args.type !== undefined && filters.type === undefined) filters.type = args.type;
+  if (args.includeDeleted !== undefined) filters.includeDeleted = args.includeDeleted === true;
+  if (args.bbox && typeof args.bbox === 'object') {
+    const bbox = args.bbox;
+    const x = Number.isFinite(bbox.x) ? bbox.x : bbox.x_min;
+    const y = Number.isFinite(bbox.y) ? bbox.y : bbox.y_min;
+    const maxX = Number.isFinite(bbox.maxX) ? bbox.maxX : bbox.x_max;
+    const maxY = Number.isFinite(bbox.maxY) ? bbox.maxY : bbox.y_max;
+    if ([x, y, maxX, maxY].every(Number.isFinite)) filters.bounds = { x, y, width: maxX - x, height: maxY - y };
+  }
+  return filters;
+}
+
 const BASE_TOOLS = [
+  {
+    name: 'read_me',
+    description: '返回当前图解 MCP App 的输入格式与渲染约定，兼容官方 Excalidraw MCP Apps 的 read_me 工具。',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
   {
     name: 'open_diagram_workspace',
     description: '返回 AnchorRead 图解工作区的可打开链接。具备浏览器或打开 URL 能力的 AI 客户端应立即打开该链接；不具备该能力的客户端应把链接展示给用户。该工具不要求已有配对浏览器在线。',
@@ -219,6 +291,26 @@ const BASE_TOOLS = [
     },
   },
   {
+    name: 'query_elements',
+    description: '按元素类型、文本、分组、锁定状态或区域查询指定图解中的元素；id 是图解 id。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, filters: { type: 'object', additionalProperties: true }, filter: { type: 'object', additionalProperties: true }, type: { type: 'string' }, bbox: { type: 'object', additionalProperties: true }, includeDeleted: { type: 'boolean' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'get_element',
+    description: '读取指定图解中的单个元素。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, elementId: { type: 'string' }, includeDeleted: { type: 'boolean' } },
+      required: ['id', 'elementId'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'list_diagram_revisions',
     description: '列出图解的 revision 历史。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
@@ -230,7 +322,7 @@ const BASE_TOOLS = [
   },
   {
     name: 'get_presentation',
-    description: 'Read the persisted presentation steps for a diagram.',
+    description: '读取图解播放步骤；有内容的 Mermaid 或 Excalidraw 图解即使尚未持久化脚本也会返回默认播放步骤。',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
   },
   {
@@ -246,7 +338,7 @@ const CREATE_TOOL = {
     ui: { resourceUri: DIAGRAM_MCP_APP_RESOURCE_URI },
     'ui/resourceUri': DIAGRAM_MCP_APP_RESOURCE_URI,
   },
-  description: '创建并保存一个新图解。默认要求已配对的 AnchorRead 浏览器在线，并在创建后切换到该图解；结果同时包含可打开的 resource_link。具备浏览器或打开 URL 能力的 AI 客户端应打开该链接。优先传入完整 Excalidraw scene；也可传 Mermaid source。',
+  description: '创建并保存一个新图解。浏览器在线时写入 AnchorRead 工作区并可自动打开；浏览器暂时不可用时，只要传入 scene/elements/source，内容仍会直接渲染到当前对话画布。结果同时包含可打开的 resource_link。优先传入完整 Excalidraw scene 或 elements；也可传 Mermaid source。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -254,13 +346,14 @@ const CREATE_TOOL = {
       title: { type: 'string' },
       documentId: { type: 'string' },
       engine: { type: 'string', enum: ['excalidraw', 'mermaid'] },
+      elements: { type: 'array', description: '官方兼容的 Excalidraw raw element 数组；可替代 scene。' },
       scene: {},
       source: { type: 'string' },
       prompt: { type: 'string' },
       scope: { type: 'string' },
       intent: { type: 'string' },
       presentation: { type: 'object' },
-      stream: { type: 'boolean', description: '流式重放：元素可含 cameraUpdate/delete 伪元素，创建后按官方流式观感逐元素播放（自动生成演示步骤并自动播放）。' },
+      stream: { type: 'boolean', description: '兼容性流式输入：元素可含 cameraUpdate/delete 伪元素；普通有内容的 Excalidraw 图解也会自动生成播放步骤。' },
       open: { type: 'boolean', description: '是否在当前 AnchorRead 标签页打开，默认 true。' },
     },
     required: ['title'],
@@ -268,7 +361,78 @@ const CREATE_TOOL = {
   },
 };
 
+// Keep the official Excalidraw MCP Apps entry point available for clients that
+// only know the upstream create_view contract. This path is intentionally
+// local to the MCP App and does not require a paired AnchorRead browser.
+const CREATE_VIEW_TOOL = {
+  name: 'create_view',
+  _meta: {
+    ui: { resourceUri: DIAGRAM_MCP_APP_RESOURCE_URI },
+    'ui/resourceUri': DIAGRAM_MCP_APP_RESOURCE_URI,
+  },
+  description: '在当前对话中直接创建可编辑的 Excalidraw 画布。elements 必须是 JSON 数组字符串；不依赖浏览器工作区。',
+  annotations: { readOnlyHint: true },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      elements: { type: 'string', description: 'Excalidraw raw element 数组的 JSON 字符串。' },
+    },
+    required: ['elements'],
+    additionalProperties: false,
+  },
+};
+
 const WRITE_TOOLS = [
+  {
+    name: 'create_element',
+    description: '在指定 AnchorRead 图解中增量创建一个 Excalidraw 元素。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, elementId: { type: 'string' }, element: { type: 'object', additionalProperties: true }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' } },
+      required: ['id', 'element'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'batch_create_elements',
+    description: '在指定 AnchorRead 图解中原子地增量创建多个 Excalidraw 元素。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, elements: { type: 'array', items: { type: 'object', additionalProperties: true }, minItems: 1 }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' } },
+      required: ['id', 'elements'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_element',
+    description: '按 elementId 增量更新指定图解中的一个元素。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, elementId: { type: 'string' }, changes: { type: 'object', additionalProperties: true }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' } },
+      required: ['id', 'elementId', 'changes'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'delete_element',
+    description: '按 elementId 删除指定图解中的元素，默认使用 Excalidraw 软删除。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, elementId: { type: 'string' }, hardDelete: { type: 'boolean' }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' } },
+      required: ['id', 'elementId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'clear_canvas',
+    description: '清空指定图解中的全部活动元素，默认使用 Excalidraw 软删除。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, hardDelete: { type: 'boolean' }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
   {
     name: 'set_presentation',
     description: 'Persist presentation steps without creating a scene revision.',
@@ -398,8 +562,8 @@ const WRITE_TOOLS = [
 
 const LIVE_READ_TOOLS = BASE_TOOLS.filter((tool) => tool.name !== 'export_excalidraw');
 const TOOLS = bridgeUrl
-  ? [...LIVE_READ_TOOLS, CREATE_TOOL, ...WRITE_TOOLS]
-  : (writeEnabled ? [...BASE_TOOLS, ...WRITE_TOOLS] : BASE_TOOLS);
+  ? [...LIVE_READ_TOOLS, CREATE_VIEW_TOOL, CREATE_TOOL, ...WRITE_TOOLS]
+  : (writeEnabled ? [...BASE_TOOLS, CREATE_VIEW_TOOL, ...WRITE_TOOLS] : [...BASE_TOOLS, CREATE_VIEW_TOOL]);
 const WRITE_TOOL_NAMES = new Set(WRITE_TOOLS.map((tool) => tool.name));
 let writeQueue = Promise.resolve();
 
@@ -410,6 +574,7 @@ function enqueueWrite(task) {
 }
 
 async function callTool(name, args = {}) {
+  if (name === 'read_me') return textResult({ name: 'anchor-read-diagram', instructions: DIAGRAM_MCP_READ_ME });
   if (name === 'open_diagram_workspace') {
     return textResult({
       url: buildDiagramWorkspaceUrl(),
@@ -418,7 +583,19 @@ async function callTool(name, args = {}) {
       openResource: { kind: 'workspace' },
     });
   }
-  if (bridgeUrl) return callBridgeTool(name, args);
+  if (name === 'create_view') return textResult(createInlineViewResult(args));
+  if (bridgeUrl) {
+    try {
+      return await callBridgeTool(name, args);
+    } catch (error) {
+      const browserUnavailable = ['BROWSER_SESSION_OFFLINE', 'BRIDGE_TIMEOUT'].includes(error?.code);
+      const fallback = name === 'create_diagram' && browserUnavailable
+        ? createInlineDiagramResult(args, error)
+        : null;
+      if (fallback) return textResult(fallback);
+      throw error;
+    }
+  }
   const payload = await readWorkspace();
   switch (name) {
     case 'list_diagrams':
@@ -443,27 +620,85 @@ async function callTool(name, args = {}) {
       }));
     case 'query_diagram':
       return textResult(querySceneElements(getDrawingScene(getDrawing(payload, args.id)), args.filters || {}));
+    case 'query_elements': {
+      const drawing = getDrawing(payload, args.id);
+      return textResult(querySceneElements(getDrawingScene(drawing), queryFiltersFromArgs(args)));
+    }
+    case 'get_element': {
+      const drawing = getDrawing(payload, args.id);
+      const elementId = elementIdFromArgs(args);
+      const element = querySceneElements(getDrawingScene(drawing), { ids: [elementId], includeDeleted: args.includeDeleted === true })[0];
+      if (!element) throw new Error(`Element not found: ${elementId}`);
+      return textResult({ id: drawing.id, routeId: drawing.routeId, revision: drawing.revision || 0, element });
+    }
     case 'list_diagram_revisions':
       return textResult(listDiagramRevisions(getDrawing(payload, args.id)));
     case 'list_diagram_snapshots':
       return textResult(snapshotSummary(getDrawing(payload, args.id)));
     case 'get_presentation': {
       const drawing = getDrawing(payload, args.id);
-      return textResult({ id: drawing.id, routeId: drawing.routeId, presentation: getPresentationSpec(drawing) });
+      return textResult({ id: drawing.id, routeId: drawing.routeId, presentation: getEffectivePresentation(drawing) });
     }
     case 'export_excalidraw':
       return textResult(serializeExcalidrawScene(getDrawingScene(getDrawing(payload, args.id))));
+    case 'create_element': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = getDrawingScene(drawing);
+      const usedIds = new Set(scene.elements.map((element) => String(element.id)));
+      const element = elementPayload(args, { now: Date.now(), usedIds });
+      const nextDrawing = commitDiagramScene(drawing, applyScenePatch(scene, { create: [element] }), args);
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, element: nextDrawing.scene.elements.find((item) => item.id === element.id), scene: nextDrawing.scene });
+    }
+    case 'batch_create_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = getDrawingScene(drawing);
+      const usedIds = new Set(scene.elements.map((element) => String(element.id)));
+      const rawElements = Array.isArray(args.elements) ? args.elements : [];
+      if (rawElements.length === 0) throw new TypeError('batch_create_elements requires a non-empty elements array');
+      const elements = rawElements.map((item) => elementPayload({ ...args, element: item }, { now: Date.now(), usedIds }));
+      const nextDrawing = commitDiagramScene(drawing, applyScenePatch(scene, { create: elements }), args);
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, elements: elements.map((element) => nextDrawing.scene.elements.find((item) => item.id === element.id)), scene: nextDrawing.scene });
+    }
+    case 'update_element': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = getDrawingScene(drawing);
+      const elementId = elementIdFromArgs(args);
+      const changes = args.changes && typeof args.changes === 'object' ? { ...args.changes } : elementPayload(args, { requireType: false });
+      delete changes.id;
+      if (Object.keys(changes).length === 0) throw new TypeError('update_element requires at least one change');
+      const nextDrawing = commitDiagramScene(drawing, applyScenePatch(scene, { update: [{ id: elementId, ...changes }] }), args);
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, element: nextDrawing.scene.elements.find((item) => item.id === elementId), scene: nextDrawing.scene });
+    }
+    case 'delete_element': {
+      const drawing = getDrawing(payload, args.id);
+      const elementId = elementIdFromArgs(args);
+      const nextDrawing = commitDiagramScene(drawing, applyScenePatch(getDrawingScene(drawing), { delete: [elementId] }, { hardDelete: args.hardDelete === true }), args);
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, element: nextDrawing.scene.elements.find((item) => item.id === elementId) || null, deleted: true, hardDelete: args.hardDelete === true, scene: nextDrawing.scene });
+    }
+    case 'clear_canvas': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = getDrawingScene(drawing);
+      const ids = scene.elements.filter((element) => !element.isDeleted).map((element) => element.id);
+      if (ids.length === 0) return textResult({ id: drawing.id, routeId: drawing.routeId, revision: drawing.revision || 0, deletedCount: 0, scene });
+      const nextDrawing = commitDiagramScene(drawing, applyScenePatch(scene, { delete: ids }, { hardDelete: args.hardDelete === true }), args);
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, deletedCount: ids.length, hardDelete: args.hardDelete === true, scene: nextDrawing.scene });
+    }
     case 'set_presentation': {
       const drawing = getDrawing(payload, args.id);
       const presentation = normalizePresentationSpec(args.presentation);
-      const nextDrawing = { ...drawing, presentation, updatedAt: Date.now() };
+      const nextDrawing = { ...drawing, presentation, presentationDisabled: false, updatedAt: Date.now() };
       await writeWorkspace(writeDrawing(payload, nextDrawing));
       return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision || 0, presentation });
     }
     case 'clear_presentation': {
       const drawing = getDrawing(payload, args.id);
       const { presentation: _presentation, presentationSpec: _presentationSpec, ...rest } = drawing;
-      const nextDrawing = { ...rest, updatedAt: Date.now() };
+      const nextDrawing = { ...rest, presentationDisabled: true, updatedAt: Date.now() };
       await writeWorkspace(writeDrawing(payload, nextDrawing));
       return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision || 0, presentation: null });
     }
@@ -575,7 +810,9 @@ async function callBridgeTool(name, args = {}) {
       signal: AbortSignal.timeout(timeoutMs + 5_000),
     });
   } catch (error) {
-    throw new Error(`无法连接 AnchorRead live bridge ${bridgeUrl}: ${error?.message || error}`);
+    const wrapped = new Error(`无法连接 AnchorRead live bridge ${bridgeUrl}: ${error?.message || error}`);
+    wrapped.code = 'BROWSER_SESSION_OFFLINE';
+    throw wrapped;
   }
   let body;
   try {
@@ -623,7 +860,11 @@ async function handleRequest(request) {
         return send({ jsonrpc: '2.0', id, result: { contents: [readDiagramMcpAppResource()] } });
       }
       case 'tools/call': {
-        const result = await (WRITE_TOOL_NAMES.has(params?.name)
+        // Offline workspace reads and writes share one queue so a read sent in
+        // the same JSON-RPC batch cannot observe the scene before a prior
+        // element mutation has finished persisting it. Live browser reads stay
+        // concurrent; live writes retain their existing serialization.
+        const result = await (!bridgeUrl || WRITE_TOOL_NAMES.has(params?.name)
           ? enqueueWrite(() => callTool(params?.name, params?.arguments))
           : callTool(params?.name, params?.arguments));
         return send({ jsonrpc: '2.0', id, result });

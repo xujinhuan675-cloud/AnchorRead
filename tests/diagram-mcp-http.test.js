@@ -56,8 +56,21 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     }, { 'MCP-Session-Id': sessionId }));
     const resource = (await resourceRead.json()).result.contents[0];
     assert.equal(resource.mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
-    assert.match(resource.text, /@modelcontextprotocol\/ext-apps@1\.7\.5/);
-    assert.match(resource.text, /app\.connect\(\)/);
+    assert.match(resource.text, /@modelcontextprotocol\/ext-apps@0\.4\.0\/react/);
+    assert.match(resource.text, /useApp\(/);
+
+    const inline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 22, method: 'tools/call', params: {
+        name: 'create_view', arguments: {
+          elements: JSON.stringify([{ id: 'inline-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }]),
+        },
+      },
+    }, { 'MCP-Session-Id': sessionId }), {
+      submitTool: async () => { throw new Error('create_view must not wait for the browser bridge'); },
+    });
+    const inlineResult = await inline.json();
+    assert.equal(inlineResult.result.isError, undefined);
+    assert.match(inlineResult.result.content[0].text, /inline-rect/);
 
     let submitted;
     const called = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {

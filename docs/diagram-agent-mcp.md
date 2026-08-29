@@ -88,7 +88,9 @@ ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
 
 ## MCP Apps 客户端内嵌画布
 
-`create_diagram` 在工具元数据中声明了 `ui://anchorread/diagram/mcp-app.html` 资源。支持 MCP Apps 的 AI 客户端会读取该 HTML 资源，并在客户端消息中直接渲染可编辑的 Excalidraw 画布；画布中的“在 AnchorRead 中打开”按钮仍可跳转到正式工作区。客户端还可以主动调用 `resources/list` / `resources/read` 获取同一资源。
+`create_view` 和 `create_diagram` 都在工具元数据中声明了 `ui://anchorread/diagram/mcp-app.html` 资源。支持 MCP Apps 的 AI 客户端会读取该 HTML 资源，并在客户端消息中直接渲染可编辑的 Mermaid 或 Excalidraw 画布，同时为有内容的图解提供播放控件；画布中的“在 AnchorRead 中打开”按钮仍可跳转到正式工作区。客户端还可以主动调用 `resources/list` / `resources/read` 获取同一资源。`create_view` 完全兼容官方 Excalidraw MCP Apps 的 elements JSON 输入，不依赖浏览器；`create_diagram` 仍负责工作区持久化。
+
+`read_me` 提供与官方入口一致的简短输入约定，说明何时使用 `create_view`、如何传递 Excalidraw elements，以及 Mermaid、流式伪元素和稳定 id 的处理方式。
 
 不支持 MCP Apps 的客户端不会被阻塞：工具结果仍返回标准 MCP `resource_link`，客户端可以打开图解 URL，或把链接交给用户。当前内嵌资源使用固定版本的 `esm.sh` 依赖；如果客户端宿主禁止外部资源加载，它应自动退回这个链接工作流。
 
@@ -96,9 +98,11 @@ ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
 
 客户端需要让用户进入 AnchorRead 时，先调用 `open_diagram_workspace`。它会立即返回一个 MCP `resource_link`，支持浏览器或打开 URL 的 AI 客户端可以直接打开；它不依赖已配对的浏览器在线。
 
-`create_diagram` 接收 `title`、`engine`，以及 Mermaid 的 `source` 或 Excalidraw 的完整 `scene`。默认 `open: true`，成功后当前 AnchorRead 标签页会打开新图解并将它保存到本地工作区。
+`create_diagram` 接收 `title`、`engine`，以及 Mermaid 的 `source`、Excalidraw 的 `elements` 或完整 `scene`。默认 `open: true`，浏览器在线时当前 AnchorRead 标签页会打开新图解并将它保存到本地工作区；浏览器暂时不可用时，带有内容的请求会直接在当前对话画布中渲染。
 
-如果调用时没有在线的 AnchorRead 浏览器，`create_diagram` 会返回 `nextAction: open_diagram_workspace_then_retry` 和工作区 `resource_link`。支持打开 URL 的客户端应先打开该链接再自动重试；CLI 或不支持打开网页的客户端只展示链接并提示用户手动打开。浏览器在线时不会增加这一步。
+有内容的 Mermaid 或 Excalidraw 图解会自动生成按节点/DSL 行推进的播放脚本，并在 `open: true` 的创建流程中自动开始播放；也可以通过 `play_presentation`、`pause_presentation`、`next_presentation_step`、`previous_presentation_step` 和 `stop_presentation` 控制。需要关闭默认脚本时显式传 `presentation: false`。
+
+如果调用时没有在线的 AnchorRead 浏览器且请求没有提供可渲染内容，`create_diagram` 会返回 `nextAction: open_diagram_workspace_then_retry` 和工作区 `resource_link`。支持打开 URL 的客户端应先打开该链接再自动重试；CLI 或不支持打开网页的客户端只展示链接并提示用户手动打开。带有 `source`、`elements` 或 `scene` 的请求不再因为浏览器暂时离线而变成空画布。
 
 其它实时工具包括 `list_diagrams`、`get_diagram`、`describe_diagram`、`query_diagram`、`list_diagram_revisions`、`apply_diagram_patch`、`commit_diagram_scene` 和 `restore_diagram_revision`。写操作使用 `expectedRevision` 做乐观锁，避免 AI 覆盖用户刚刚的画布编辑。
 

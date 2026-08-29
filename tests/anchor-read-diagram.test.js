@@ -82,10 +82,12 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram');
     assert.equal(responses[0].result.serverInfo.title, 'AnchorRead Diagram');
     assert.deepEqual(responses[0].result.capabilities.resources, {});
+    assert.ok(responses[1].result.tools.some((tool) => tool.name === 'read_me'));
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'query_diagram'));
     assert.match(responses[2].result.content[0].text, /Architecture/);
     assert.match(responses[3].result.content[0].text, /Total elements: 1/);
-    assert.match(responses[4].result.content[0].text, /"presentation": null/);
+    assert.match(responses[4].result.content[0].text, /"presentation":\s*\{/);
+    assert.match(responses[4].result.content[0].text, /"visibleElementIds":\s*\[\s*"a"\s*\]/);
     assert.equal(responses[5].result.content[1].type, 'resource_link');
     assert.match(responses[5].result.content[1].uri, /\/diagrams$/);
     assert.equal(responses.find((response) => response.id === 10).result.resources[0].mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
@@ -118,6 +120,46 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.equal(updated.data.drawings[0].revision, 1);
     assert.equal(updated.data.drawings[0].scene.elements[0].text, 'Updated');
     assert.equal(updated.data.drawings[0].presentation.steps[0].visibleElementIds[0], 'a');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('offline stdio supports diagram-scoped element CRUD without global canvas state', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anchor-read-element-crud-'));
+  const workspacePath = join(directory, 'workspace.anchorread');
+  const payload = createWorkspaceFilePayload({
+    drawings: [{
+      id: 'drawing-crud',
+      routeId: 'dg-crud1234',
+      documentId: 'doc-1',
+      title: 'CRUD',
+      engine: 'excalidraw',
+      scene: { elements: [{ id: 'start', type: 'rectangle', x: 0, y: 0, width: 40, height: 20 }] },
+      source: JSON.stringify([{ id: 'start', type: 'rectangle', x: 0, y: 0, width: 40, height: 20 }]),
+      revision: 1,
+      revisionHistory: [],
+      createdAt: 1,
+      updatedAt: 1,
+    }],
+  });
+  await writeFile(workspacePath, JSON.stringify(payload), 'utf8');
+  try {
+    const listed = await callServer(workspacePath, [{ jsonrpc: '2.0', id: 0, method: 'tools/list', params: {} }], true);
+    assert.ok(listed[0].result.tools.some((tool) => tool.name === 'create_element'));
+    assert.ok(listed[0].result.tools.some((tool) => tool.name === 'get_element'));
+    const created = await callServer(workspacePath, [{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_element', arguments: { id: 'drawing-crud', expectedRevision: 1, element: { id: 'note', type: 'text', x: 60, y: 0, text: 'Draft' } } } }], true);
+    assert.match(created[0].result.content[0].text, /"revision": 2/);
+    const queried = await callServer(workspacePath, [{ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'query_elements', arguments: { id: 'drawing-crud', filters: { text: 'draft' } } } }], true);
+    assert.match(queried[0].result.content[0].text, /"id": "note"/);
+    const updated = await callServer(workspacePath, [{ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'update_element', arguments: { id: 'drawing-crud', elementId: 'note', changes: { text: 'Published' }, expectedRevision: 2 } } }], true);
+    assert.match(updated[0].result.content[0].text, /"revision": 3/);
+    const read = await callServer(workspacePath, [{ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'get_element', arguments: { id: 'drawing-crud', elementId: 'note' } } }], true);
+    assert.match(read[0].result.content[0].text, /Published/);
+    const deleted = await callServer(workspacePath, [{ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'delete_element', arguments: { id: 'drawing-crud', elementId: 'note', expectedRevision: 3 } } }], true);
+    assert.match(deleted[0].result.content[0].text, /"deleted": true/);
+    const stored = JSON.parse(await readFile(workspacePath, 'utf8'));
+    assert.equal(stored.data.drawings[0].scene.elements.find((element) => element.id === 'note').isDeleted, true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -177,6 +219,27 @@ test('live mode returns a workspace recovery link when no browser claims a reque
     assert.match(responses[0].result.content[0].text, /open_diagram_workspace_then_retry/);
     assert.equal(responses[0].result.content[1].type, 'resource_link');
     assert.match(responses[0].result.content[1].uri, /\/diagrams$/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('live mode keeps diagram content in the chat when the browser is offline', async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(504, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ ok: false, code: 'BRIDGE_TIMEOUT', error: 'No open AnchorRead browser claimed the request.' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    const responses = await callLiveServer(`http://127.0.0.1:${port}`, [
+      { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        name: 'create_diagram', arguments: { title: 'Chat flow', engine: 'mermaid', source: 'flowchart TD\nA-->B' },
+      } },
+    ]);
+    assert.equal(responses[0].result.isError, undefined);
+    assert.match(responses[0].result.content[0].text, /flowchart TD/);
+    assert.match(responses[0].result.content[0].text, /对话画布/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
