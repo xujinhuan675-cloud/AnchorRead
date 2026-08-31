@@ -71,6 +71,8 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     const inlineResult = await inline.json();
     assert.equal(inlineResult.result.isError, undefined);
     assert.match(inlineResult.result.content[0].text, /inline-rect/);
+    assert.equal(inlineResult.result.structuredContent.engine, 'excalidraw');
+    assert.equal(inlineResult.result.structuredContent.scene.elements[0].id, 'inline-rect');
 
     let submitted;
     const called = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {

@@ -54,7 +54,7 @@ import {
   createMcpBrowserRecoveryResult,
   createMcpToolResult,
   createInlineDiagramResult,
-  createInlineViewResult,
+  createInlineViewToolResult,
 } from '../lib/diagram-mcp-links.js';
 import {
   DIAGRAM_MCP_READ_ME,
@@ -583,7 +583,7 @@ async function callTool(name, args = {}) {
       openResource: { kind: 'workspace' },
     });
   }
-  if (name === 'create_view') return textResult(createInlineViewResult(args));
+  if (name === 'create_view') return createInlineViewToolResult(args);
   if (bridgeUrl) {
     try {
       return await callBridgeTool(name, args);

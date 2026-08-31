@@ -78,6 +78,10 @@ test('diagram MCP lists, describes and commits with revision protection', async 
       { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'open_diagram_workspace', arguments: {} } },
       { jsonrpc: '2.0', id: 10, method: 'resources/list', params: {} },
       { jsonrpc: '2.0', id: 11, method: 'resources/read', params: { uri: DIAGRAM_MCP_APP_RESOURCE_URI } },
+      { jsonrpc: '2.0', id: 12, method: 'tools/call', params: {
+        name: 'create_view',
+        arguments: { elements: JSON.stringify([{ id: 'stdio-inline-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }]) },
+      } },
     ], false);
     assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram');
     assert.equal(responses[0].result.serverInfo.title, 'AnchorRead Diagram');
@@ -92,6 +96,10 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.match(responses[5].result.content[1].uri, /\/diagrams$/);
     assert.equal(responses.find((response) => response.id === 10).result.resources[0].mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
     assert.match(responses.find((response) => response.id === 11).result.contents[0].text, /Excalidraw/);
+    const inline = responses.find((response) => response.id === 12).result;
+    assert.match(inline.content[0].text, /stdio-inline-rect/);
+    assert.equal(inline.structuredContent.engine, 'excalidraw');
+    assert.equal(inline.structuredContent.scene.elements[0].id, 'stdio-inline-rect');
 
     const writes = await callServer(workspacePath, [
       { jsonrpc: '2.0', id: 5, method: 'tools/call', params: {

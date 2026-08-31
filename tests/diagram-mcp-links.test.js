@@ -5,6 +5,7 @@ import {
   buildDiagramWorkspaceUrl,
   createInlineDiagramResult,
   createInlineViewResult,
+  createInlineViewToolResult,
   createMcpBrowserRecoveryResult,
   createMcpToolResult,
 } from '../lib/diagram-mcp-links.js';
@@ -60,4 +61,13 @@ test('inline MCP results retain scene content without a browser bridge', () => {
   assert.equal(inferredExcalidraw.engine, 'excalidraw');
   assert.equal(inferredExcalidraw.presentation.steps.length, 1);
   assert.equal(createInlineDiagramResult({ title: 'Empty', engine: 'mermaid' }), null);
+});
+
+test('inline view tool results expose a structured Excalidraw payload', () => {
+  const result = createInlineViewToolResult({
+    elements: JSON.stringify([{ id: 'structured-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }]),
+  });
+  assert.equal(result.content[0].type, 'text');
+  assert.equal(result.structuredContent.engine, 'excalidraw');
+  assert.equal(result.structuredContent.scene.elements[0].id, 'structured-rect');
 });
