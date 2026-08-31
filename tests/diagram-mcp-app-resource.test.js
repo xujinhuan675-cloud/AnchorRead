@@ -19,6 +19,9 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /exportToSvg/);
   assert.match(resource.text, /mermaid@11\.16\.1/);
   assert.match(resource.text, /useApp\(/);
+  assert.match(resource.text, /onAppCreated/);
+  assert.match(resource.text, /pendingEventsRef/);
+  assert.match(resource.text, /createdApp\.ontoolinputpartial/);
   assert.match(resource.text, /ontoolinputpartial/);
   assert.match(resource.text, /cameraUpdate/);
   assert.match(resource.text, /excludeIncompleteLastItem/);
