@@ -57,6 +57,7 @@ import {
   createInlineViewToolResult,
 } from '../lib/diagram-mcp-links.js';
 import {
+  DIAGRAM_MCP_INSTRUCTIONS,
   DIAGRAM_MCP_READ_ME,
 } from '../lib/diagram-agent-mcp-contract.js';
 import {
@@ -67,7 +68,7 @@ import {
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'anchor-read-diagram', title: 'AnchorRead Diagram', version: '1.3.0' };
-const SERVER_INSTRUCTIONS = 'Use create_view for a pure in-chat editable Excalidraw canvas; it accepts the official elements JSON string and does not require a browser. Use create_diagram when a diagram should also be persisted in the AnchorRead browser workspace. Contentful Mermaid or Excalidraw diagrams automatically receive playback steps and start playback when opened; stream is optional and only adds pseudo-element/camera timeline input. Set open=true for that persisted workflow unless the user asks for a link only. If the browser is unavailable but create_diagram includes scene/elements/source, the MCP App renders the supplied content directly in chat; only content-free requests need open_diagram_workspace_then_retry. For incremental edits, pass the AnchorRead diagram id as id and the target element id as elementId; use create_element/update_element/delete_element/query_elements/get_element and expectedRevision. After a successful diagram or workspace tool returns a resource_link, an AI client with browser or open-URL capability should open that URI; clients without that capability should show the link and say that the user can open it. Use expectedRevision for edits so concurrent user changes fail instead of being overwritten.';
+const SERVER_INSTRUCTIONS = DIAGRAM_MCP_INSTRUCTIONS;
 const rawArgs = process.argv.slice(2);
 const writeEnabled = rawArgs.includes('--write') || process.env.ANCHORREAD_DIAGRAM_MCP_WRITE === 'true';
 const bridgeIndex = rawArgs.findIndex((argument) => argument === '--bridge');
@@ -370,12 +371,12 @@ const CREATE_VIEW_TOOL = {
     ui: { resourceUri: DIAGRAM_MCP_APP_RESOURCE_URI },
     'ui/resourceUri': DIAGRAM_MCP_APP_RESOURCE_URI,
   },
-  description: '在当前对话中直接创建可编辑的 Excalidraw 画布。elements 必须是 JSON 数组字符串；不依赖浏览器工作区。',
+  description: '在当前对话中直接创建可编辑的 Excalidraw 画布。elements 必须是 JSON 数组字符串且数组顺序就是绘制与播放顺序；流程图按“带 label 的节点、箭头、下一个带 label 的节点”交替排列，不要为节点文字另建 text 元素。不依赖浏览器工作区。',
   annotations: { readOnlyHint: true },
   inputSchema: {
     type: 'object',
     properties: {
-      elements: { type: 'string', description: 'Excalidraw raw element 数组的 JSON 字符串。' },
+      elements: { type: 'string', description: 'Excalidraw raw element 数组的 JSON 字符串。数组顺序就是绘制与播放顺序；节点文字应放入 shape.label。' },
     },
     required: ['elements'],
     additionalProperties: false,

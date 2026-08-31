@@ -60,6 +60,23 @@ test('buildStreamTimeline follows official drawing order with camera and delete'
   assert.deepEqual(timeline[2].camera, { x: 100, y: 100, width: 400, height: 300 });
 });
 
+test('buildStreamTimeline keeps bound labels with their container frame', () => {
+  const timeline = buildStreamTimeline([
+    { type: 'rectangle', id: 'start' },
+    { type: 'text', id: 'start-label', containerId: 'start', text: '开始' },
+    { type: 'arrow', id: 'to-end' },
+    { type: 'rectangle', id: 'end' },
+    { type: 'text', id: 'end-label', containerId: 'end', text: '结束' },
+    { type: 'text', id: 'note', text: '说明' },
+    { type: 'rectangle', id: 'deleted', isDeleted: true },
+  ]);
+
+  assert.equal(timeline.length, 4);
+  assert.deepEqual(timeline.map((frame) => frame.currentId), ['start', 'to-end', 'end', 'note']);
+  assert.deepEqual(timeline[2].visibleIds, ['start', 'to-end', 'end']);
+  assert.deepEqual(timeline[3].visibleIds, ['start', 'to-end', 'end', 'note']);
+});
+
 test('buildStreamTimeline merges frames beyond the presentation step cap', () => {
   const elements = Array.from({ length: 250 }, (_, index) => ({
     type: 'rectangle',

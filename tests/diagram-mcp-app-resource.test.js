@@ -31,6 +31,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /\.app-canvas > \.excalidraw \{ width: 100%; height: 100%; \}/);
   assert.match(resource.text, /api\.scrollToContent\(displayedElements/);
   assert.match(resource.text, /defaultMermaidPresentation/);
+  assert.match(resource.text, /element\.type === 'text' && element\.containerId/);
   assert.match(resource.text, /'aria-label': presentationPlaying \? '暂停' : '播放'/);
   assert.match(resource.text, /presentationPlaying \? Pause : Play/);
   assert.match(resource.text, /React\.createElement\(ChevronLeft/);
