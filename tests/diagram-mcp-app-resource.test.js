@@ -31,6 +31,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.doesNotMatch(resource.text, /<script\[sS\]\*\?<\/script>/);
   assert.doesNotMatch(resource.text, /\.replace\(\/s\+on\[a-z-\]/);
   assert.match(resource.text, /MCP Apps delivers the renderable data through ontoolinput/);
+  assert.match(resource.text, /result\?\.structuredContent \?\? result\?\.structured_content/);
   assert.match(resource.text, /value\.engine === 'excalidraw'/);
   assert.match(resource.text, /applyInput\(value, false\)/);
   assert.doesNotMatch(resource.text, /const value = resultValue\(result\)/);
