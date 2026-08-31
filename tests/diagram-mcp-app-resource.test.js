@@ -16,6 +16,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /@modelcontextprotocol\/ext-apps@0\.4\.0\/react/);
   assert.match(resource.text, /@excalidraw\/excalidraw@0\.18\.0/);
   assert.match(resource.text, /@excalidraw\/excalidraw@0\.18\.0\/dist\/prod\/index\.css/);
+  assert.match(resource.text, /lucide-react@1\.31\.0/);
   assert.match(resource.text, /exportToSvg/);
   assert.match(resource.text, /mermaid@11\.16\.1/);
   assert.match(resource.text, /useApp\(/);
@@ -26,8 +27,16 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /cameraUpdate/);
   assert.match(resource.text, /excludeIncompleteLastItem/);
   assert.match(resource.text, /app-playback/);
+  assert.match(resource.text, /\.app-canvas \{ position: relative; height: clamp\(360px, 55vh, 620px\)/);
+  assert.match(resource.text, /\.app-canvas > \.excalidraw \{ width: 100%; height: 100%; \}/);
+  assert.match(resource.text, /api\.scrollToContent\(displayedElements/);
   assert.match(resource.text, /defaultMermaidPresentation/);
   assert.match(resource.text, /'aria-label': presentationPlaying \? '暂停' : '播放'/);
+  assert.match(resource.text, /presentationPlaying \? Pause : Play/);
+  assert.match(resource.text, /React\.createElement\(ChevronLeft/);
+  assert.match(resource.text, /React\.createElement\(ChevronRight/);
+  assert.match(resource.text, /React\.createElement\(Square/);
+  assert.doesNotMatch(resource.text, /presentationPlaying \? '\|\|' : '>'/);
   assert.match(resource.text, /在 AnchorRead 中打开/);
   assert.match(resource.text, /\.replace\(\/<script\[\\s\\S\]\*\?<\\\/script>\/gi/);
   assert.equal(resource.text.split('</script>').length - 1, 1);
