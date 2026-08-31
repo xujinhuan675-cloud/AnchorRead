@@ -77,6 +77,17 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     assert.equal(inlineResult.result.structuredContent.engine, 'excalidraw');
     assert.equal(inlineResult.result.structuredContent.scene.elements[0].id, 'inline-rect');
 
+    const statelessInline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 23, method: 'tools/call', params: {
+        name: 'create_view', arguments: {
+          elements: JSON.stringify([{ id: 'stateless-inline-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }]),
+        },
+      },
+    }));
+    const statelessResult = await statelessInline.json();
+    assert.equal(statelessInline.status, 200);
+    assert.equal(statelessResult.result.structuredContent.scene.elements[0].id, 'stateless-inline-rect');
+
     let submitted;
     const called = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 3, method: 'tools/call', params: {
@@ -143,6 +154,31 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     if (previousKey === undefined) delete process.env.ANCHORREAD_MCP_API_KEY;
     else process.env.ANCHORREAD_MCP_API_KEY = previousKey;
   }
+});
+
+test('Streamable HTTP keeps an optional SSE session alive and fails expired sessions fast', async () => {
+  const initialize = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+    jsonrpc: '2.0', id: 31, method: 'initialize', params: {},
+  }));
+  const sessionId = initialize.headers.get('mcp-session-id');
+  const streamResponse = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', undefined, {
+    Accept: 'text/event-stream',
+    'MCP-Session-Id': sessionId,
+  }, 'GET'));
+  assert.equal(streamResponse.status, 200);
+  assert.equal(streamResponse.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+  const reader = streamResponse.body.getReader();
+  const firstChunk = await reader.read();
+  assert.equal(firstChunk.done, false);
+  assert.match(new TextDecoder().decode(firstChunk.value), /stream connected/);
+  await reader.cancel();
+
+  const expired = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+    jsonrpc: '2.0', id: 32, method: 'ping', params: {},
+  }, { 'MCP-Session-Id': 'anchorread-expired-session' }));
+  assert.equal(expired.status, 404);
+  assert.equal(expired.headers.get('retry-after'), '0');
+  assert.match((await expired.json()).error.message, /Re-initialize/);
 });
 
 test('remote MCP requires an OAuth access token, binds the session, and enforces CORS origins', async () => {

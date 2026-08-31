@@ -84,7 +84,7 @@ ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
 
 当前仍只支持单实例部署。多实例负载均衡会把 MCP 与浏览器轮询分到不同进程；生产多实例需要接入共享 Redis/数据库、跨实例队列和 WebSocket 或等价的可靠推送层。
 
-远程端点实现 MCP 的 JSON-RPC `initialize`、`tools/list`、`tools/call`、`resources/list`、`resources/read`、`ping`、会话 `DELETE` 和 CORS `OPTIONS`。GET/SSE 未启用时返回 `405`，客户端应使用 Streamable HTTP 的 POST 请求/响应模式。
+远程端点实现 MCP 的 JSON-RPC `initialize`、`tools/list`、`tools/call`、`resources/list`、`resources/read`、`ping`、会话 `DELETE` 和 CORS `OPTIONS`。普通调用使用 Streamable HTTP 的 POST 请求/响应模式；客户端如果请求 `Accept: text/event-stream`，也可以通过同一 `MCP-Session-Id` 建立可选的 SSE 保活连接，服务端每 15 秒发送一次注释心跳，避免长时间空闲连接被中间代理回收。会话过期或进程重启时，端点立即返回 `404` 和 `Retry-After: 0`，客户端应重新 `initialize`；无会话的只读 `create_view` 仍可直接走无状态快速通道，不等待浏览器或工作区。
 
 ## MCP Apps 客户端内嵌画布
 
