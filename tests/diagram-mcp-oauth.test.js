@@ -157,7 +157,9 @@ test('file OAuth store survives restarts without persisting raw codes or refresh
     const fourth = new FileDiagramMcpOAuthStore({ filePath });
     const rotated = fourth.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 5_000);
     assert.match(rotated.refreshToken, /^refresh_/u);
-    assert.throws(() => fourth.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 5_001), /invalid or expired/u);
+    const replayed = fourth.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 5_001);
+    assert.equal(replayed.refreshToken, rotated.refreshToken);
+    assert.throws(() => fourth.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 65_001), /invalid or expired/u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
