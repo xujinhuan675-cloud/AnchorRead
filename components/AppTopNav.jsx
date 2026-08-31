@@ -43,12 +43,19 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
       setOauthTransaction(transaction);
       setMcpOpen(true);
     }, 0);
+    return () => window.clearTimeout(openTimer);
+  }, []);
+
+  const closeMcpPanel = () => {
+    setMcpOpen(false);
+    setOauthTransaction('');
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
     params.delete('mcp');
     params.delete('transaction');
     const query = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
-    return () => window.clearTimeout(openTimer);
-  }, []);
+  };
 
   const nextLocale = locale === 'zh-CN' ? 'en' : 'zh-CN';
   const languageLabel = t('topNav.switchLanguage', { language: t(nextLocale === 'zh-CN' ? 'locale.zhCN' : 'locale.en') });
@@ -232,7 +239,7 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
       <McpConnectionPanel
         isOpen={mcpOpen}
         oauthTransaction={oauthTransaction}
-        onClose={() => { setMcpOpen(false); setOauthTransaction(''); }}
+        onClose={closeMcpPanel}
         onOpenDiagrams={() => onNavigate('diagram')}
       />
     </>

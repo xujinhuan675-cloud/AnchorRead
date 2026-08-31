@@ -36,7 +36,10 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
   const [copied, setCopied] = useState(false);
   const [endpoint, setEndpoint] = useState('');
   const [diagramPage, setDiagramPage] = useState(false);
-  const oauthApprovalStartedRef = useRef(false);
+  // OAuth approval is an explicit user action. Keep a local guard because a
+  // double click or a delayed browser event must not consume the one-shot
+  // transaction twice.
+  const oauthApprovalInFlightRef = useRef(false);
 
   const request = useCallback(async (action) => {
     const identity = createDiagramAgentIdentity();
@@ -129,48 +132,39 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
     await refresh({ quiet: true });
   });
 
-  const approveOAuth = useCallback(() => perform('oauth-approve', async () => {
-    if (!oauthTransaction) throw new Error(zh ? '授权请求已过期，请从 MCP 客户端重新连接。' : 'The authorization request expired. Reconnect from the MCP client.');
-    const identity = createDiagramAgentIdentity();
-    const response = await fetch('/api/mcp/oauth/approve', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-AnchorRead-Session-Secret': identity.managementSecret,
-      },
-      cache: 'no-store',
-      body: JSON.stringify({
-        transaction: oauthTransaction,
-        workspaceId: identity.workspaceId,
-        browserSessionId: identity.browserSessionId,
-        tabId: identity.tabId,
-        clientId: identity.clientId,
-        href: window.location.href,
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.ok || !payload.redirectUrl) {
-      const error = new Error(payload.error || `OAuth approval failed (${response.status}).`);
-      error.code = payload.code;
-      throw error;
-    }
-    window.location.assign(payload.redirectUrl);
-  }), [oauthTransaction, zh, perform]);
-
-  useEffect(() => {
-    if (!isOpen) oauthApprovalStartedRef.current = false;
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen || !diagramPage || !oauthTransaction || oauthApprovalStartedRef.current) return undefined;
-    oauthApprovalStartedRef.current = true;
-    const timer = window.setTimeout(() => {
-      approveOAuth().catch(() => {
-        oauthApprovalStartedRef.current = false;
+  const approveOAuth = useCallback(() => {
+    if (oauthApprovalInFlightRef.current) return Promise.resolve();
+    oauthApprovalInFlightRef.current = true;
+    return perform('oauth-approve', async () => {
+      if (!oauthTransaction) throw new Error(zh ? '授权请求已过期，请从 MCP 客户端重新连接。' : 'The authorization request expired. Reconnect from the MCP client.');
+      const identity = createDiagramAgentIdentity();
+      const response = await fetch('/api/mcp/oauth/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-AnchorRead-Session-Secret': identity.managementSecret,
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          transaction: oauthTransaction,
+          workspaceId: identity.workspaceId,
+          browserSessionId: identity.browserSessionId,
+          tabId: identity.tabId,
+          clientId: identity.clientId,
+          href: window.location.href,
+        }),
       });
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [isOpen, diagramPage, oauthTransaction, approveOAuth]);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok || !payload.redirectUrl) {
+        const error = new Error(payload.error || `OAuth approval failed (${response.status}).`);
+        error.code = payload.code;
+        throw error;
+      }
+      window.location.assign(payload.redirectUrl);
+    }).finally(() => {
+      oauthApprovalInFlightRef.current = false;
+    });
+  }, [oauthTransaction, zh, perform]);
 
   const copyEndpoint = async () => {
     try {
@@ -208,7 +202,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
           <>
             {oauthTransaction ? (
               <section className="border-b border-stone-200 pb-5 dark:border-stone-800">
-                <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '正在完成 OAuth 授权' : 'Completing OAuth authorization'}</div>
+                <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '等待确认 OAuth 授权' : 'Confirm OAuth authorization'}</div>
                 <p className="mt-1 text-xs leading-5 text-stone-500">
                   {zh ? '授权成功后会自动返回 MCP 客户端。' : 'After approval, you will return to the MCP client automatically.'}
                 </p>

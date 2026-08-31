@@ -62,7 +62,13 @@ test('authorization metadata rejects invalid URL input', () => {
 test('browser connection surface exposes OAuth only', () => {
   const pairingRoute = readFileSync(new URL('../app/api/mcp/pairing/route.js', import.meta.url), 'utf8');
   const panel = readFileSync(new URL('../components/McpConnectionPanel.jsx', import.meta.url), 'utf8');
+  const topNav = readFileSync(new URL('../components/AppTopNav.jsx', import.meta.url), 'utf8');
+  const approvalRoute = readFileSync(new URL('../app/api/mcp/oauth/approve/route.js', import.meta.url), 'utf8');
   assert.doesNotMatch(pairingRoute, /create-token|rotate-token|revoke-token/u);
   assert.doesNotMatch(panel, /ANCHORREAD_MCP_BEARER_TOKEN|bearer_token_env_var|create-token|rotate-token|revoke-token/u);
   assert.match(panel, /OAuth authorization|OAuth 授权/u);
+  assert.match(panel, /oauthApprovalInFlightRef/u);
+  assert.doesNotMatch(panel, /oauthApprovalStartedRef/u);
+  assert.match(topNav, /const closeMcpPanel = \(\) =>/u);
+  assert.ok(approvalRoute.indexOf('oauthStore.getTransaction') < approvalRoute.indexOf('registerConnection'));
 });

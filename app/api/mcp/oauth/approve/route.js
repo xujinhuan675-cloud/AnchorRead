@@ -31,11 +31,15 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const context = contextFrom(request, body);
+    const oauthStore = getDiagramMcpOAuthStore();
+    // Validate before mutating pairing state. A stale or already-consumed
+    // transaction must not replace the browser connection.
+    oauthStore.getTransaction(body?.transaction);
     const pairingStore = getDiagramMcpPairingStore();
     // Register this browser before issuing the code so later MCP requests are
     // routed back to the page the user explicitly approved.
     const connection = await pairingStore.registerConnection(context, { replace: true });
-    const approved = getDiagramMcpOAuthStore().approveTransaction(body?.transaction, context);
+    const approved = oauthStore.approveTransaction(body?.transaction, context);
     return NextResponse.json({ ok: true, ...approved, connection }, {
       headers: { 'Cache-Control': 'no-store' },
     });
