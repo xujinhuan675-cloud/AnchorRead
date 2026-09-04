@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import '@excalidraw/excalidraw/index.css';
 import { FileCode2, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { useAppTheme } from '@/lib/theme';
@@ -311,6 +311,30 @@ export default function ExcalidrawCanvas({
     ...(presentationActive ? { viewModeEnabled: true } : {}),
   }), [appState, isDark, presentationActive]);
 
+  // Excalidraw renders these callbacks from its own store. Keep their
+  // identities stable so a parent state update does not make the canvas
+  // rebuild its toolbar and menu tunnels synchronously.
+  const handleExcalidrawAPI = useCallback((api) => setExcalidrawAPI(api), []);
+  const renderTopRightUI = useCallback(() => {
+    // 自定义面板触发器挂在原生 renderTopRightUI 槽位：与 Library 触发器
+    // 同一 flex 行并排（CSS 里 order: 99 排到它右侧）；风格用 ar-overlay-*
+    // 类，暗色模式由 Excalidraw 根部的 theme--dark 类自动接管。
+    if (!onExpandPanel && !onCollapsePanel) return null;
+    const togglePanel = onExpandPanel || onCollapsePanel;
+    const toggleTitle = onExpandPanel ? expandPanelTitle : collapsePanelTitle;
+    return (
+      <div className="ar-toolbar-container flex items-center gap-1 rounded bg-[#ececf4] dark:bg-hsl(240,8%,15%) p-0.5" style={{ order: 99 }}>
+        <CanvasToolbarButton
+          onClick={togglePanel}
+          title={toggleTitle}
+          aria-label={toggleTitle}
+        >
+          {onExpandPanel ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}
+        </CanvasToolbarButton>
+      </div>
+    );
+  }, [collapsePanelTitle, expandPanelTitle, onCollapsePanel, onExpandPanel]);
+
   // Load convert function on mount
   useEffect(() => {
     getConvertFunction().then(fn => {
@@ -517,6 +541,34 @@ export default function ExcalidrawCanvas({
     return JSON.stringify(elements.map(el => el.id)).slice(0, 50) + themeSuffix + conversionSuffix;
   }, [convertToExcalidrawElements, elements, isDark]);
 
+  const initialData = useMemo(() => ({
+    elements: convertedElements,
+    appState: initialAppState,
+    ...(files === undefined ? {} : { files }),
+    scrollToContent: !hasPersistedAppState,
+  }), [convertedElements, files, hasPersistedAppState, initialAppState]);
+
+  const mainMenu = useMemo(() => {
+    if (!MainMenu || !onToggleSourceCode) return null;
+    return (
+      <MainMenu>
+        <MainMenu.Item
+          icon={<FileCode2 />}
+          selected={sourceCodeOpen}
+          onSelect={() => onToggleSourceCode()}
+        >
+          {sourceCodeOpen ? sourceCollapseLabel : sourceExpandLabel}
+        </MainMenu.Item>
+        <MainMenu.Separator />
+        <MainMenu.DefaultItems.ChangeCanvasBackground />
+        <MainMenu.DefaultItems.Export />
+        <MainMenu.DefaultItems.SaveAsImage />
+        <MainMenu.DefaultItems.ClearCanvas />
+        <MainMenu.DefaultItems.Help />
+      </MainMenu>
+    );
+  }, [MainMenu, onToggleSourceCode, sourceCodeOpen, sourceCollapseLabel, sourceExpandLabel]);
+
   // Remount 后 Excalidraw 在 initialData 应用前会触发一次瞬态空 onChange 回调。
   // 记录本实例挂载时的初始元素数：只要初始场景非空，任何空回调都视为瞬态，
   // 不依赖时间窗口，避免把已持久化的场景清空（初始化、重挂载、异步加载等
@@ -532,34 +584,10 @@ export default function ExcalidrawCanvas({
     <div className="anchor-read-excalidraw relative h-full w-full">
       <Excalidraw
         key={canvasKey}
-        excalidrawAPI={(api) => setExcalidrawAPI(api)}
+        excalidrawAPI={handleExcalidrawAPI}
         theme={isDark ? 'dark' : 'light'}
-        renderTopRightUI={() => {
-          // 自定义面板触发器挂在原生 renderTopRightUI 槽位：与 Library 触发器
-          // 同一 flex 行并排（CSS 里 order: 99 排到它右侧）；风格用 ar-overlay-*
-          // 类，暗色模式由 Excalidraw 根部的 theme--dark 类自动接管。
-          // 展开/收起同槽位切换，保证点击位置对称
-          if (!onExpandPanel && !onCollapsePanel) return null;
-          const togglePanel = onExpandPanel || onCollapsePanel;
-          const toggleTitle = onExpandPanel ? expandPanelTitle : collapsePanelTitle;
-          return (
-            <div className="ar-toolbar-container flex items-center gap-1 rounded bg-[#ececf4] dark:bg-hsl(240,8%,15%) p-0.5" style={{ order: 99 }}>
-              <CanvasToolbarButton
-                onClick={togglePanel}
-                title={toggleTitle}
-                aria-label={toggleTitle}
-              >
-                {onExpandPanel ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}
-              </CanvasToolbarButton>
-            </div>
-          );
-        }}
-        initialData={{
-          elements: convertedElements,
-          appState: initialAppState,
-          ...(files === undefined ? {} : { files }),
-          scrollToContent: !hasPersistedAppState,
-        }}
+        renderTopRightUI={renderTopRightUI}
+        initialData={initialData}
         onChange={(nextElements, nextAppState, nextFiles) => {
           // 实例初始数据非空而回调为空：Excalidraw 初始化/重挂载阶段的瞬态
           // 空场景。拒绝持久化，并把已加载的场景恢复到画布，防止任何路径
@@ -592,23 +620,7 @@ export default function ExcalidrawCanvas({
         {/* 自定义主菜单：源码开关收进菜单作为选项（点击才展开/收起源码区），
             其余保留官方默认项；不传 children 时 Excalidraw 自带默认菜单。
             主题切换由全站统一接管，不重复提供 ToggleTheme */}
-        {MainMenu && onToggleSourceCode ? (
-          <MainMenu>
-            <MainMenu.Item
-              icon={<FileCode2 />}
-              selected={sourceCodeOpen}
-              onSelect={() => onToggleSourceCode()}
-            >
-              {sourceCodeOpen ? sourceCollapseLabel : sourceExpandLabel}
-            </MainMenu.Item>
-            <MainMenu.Separator />
-            <MainMenu.DefaultItems.ChangeCanvasBackground />
-            <MainMenu.DefaultItems.Export />
-            <MainMenu.DefaultItems.SaveAsImage />
-            <MainMenu.DefaultItems.ClearCanvas />
-            <MainMenu.DefaultItems.Help />
-          </MainMenu>
-        ) : null}
+        {mainMenu}
       </Excalidraw>
       {/* 关闭外层的 div */}
     </div>

@@ -33,6 +33,15 @@ test('ExcalidrawCanvas accepts a complete persisted scene without breaking the l
   assert.doesNotMatch(componentSource, /Number\(current\?\.scrollX\)\s*!==\s*Number\(initialAppState\.scrollX\)/u);
 });
 
+test('Excalidraw toolbar and menu props remain referentially stable', () => {
+  assert.match(componentSource, /const handleExcalidrawAPI = useCallback\(/u);
+  assert.match(componentSource, /const renderTopRightUI = useCallback\(/u);
+  assert.match(componentSource, /const mainMenu = useMemo\(/u);
+  assert.match(componentSource, /excalidrawAPI=\{handleExcalidrawAPI\}/u);
+  assert.match(componentSource, /renderTopRightUI=\{renderTopRightUI\}/u);
+  assert.match(componentSource, /\{mainMenu\}/u);
+});
+
 test('presentation steps update one stable Excalidraw instance', () => {
   assert.match(componentSource, /JSON\.stringify\(elements\.map\(el => el\.id\)\)/u);
   assert.match(componentSource, /restoreFullSceneRef\.current/u);

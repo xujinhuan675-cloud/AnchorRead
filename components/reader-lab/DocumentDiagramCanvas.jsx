@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { FileCode2, Pause, Play, PanelRightClose, PanelRightOpen, SkipBack, SkipForward, Square } from 'lucide-react';
 import CodeEditor from '@/components/CodeEditor';
@@ -72,6 +72,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     ? Math.min(presentationStepIndex, presentation.steps.length - 1)
     : 0;
   const presentationStep = presentation?.steps?.[effectivePresentationStepIndex] || null;
+  const toggleCode = useCallback(() => setCodeOpen((open) => !open), []);
 
   useEffect(() => {
     const handlePresentation = (event) => {
@@ -116,7 +117,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
   const canToggleCode = typeof showCode !== 'boolean';
   const sourceCodeButton = (
     <CanvasToolbarButton
-      onClick={() => setCodeOpen((open) => !open)}
+      onClick={toggleCode}
       aria-label={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
       title={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
       active={codeOpen}
@@ -179,7 +180,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             expandPanelTitle={t('diagram.openChat')}
             onCollapsePanel={onCloseChat}
             collapsePanelTitle={t('workspace.collapseRightPanel')}
-            onToggleSourceCode={canToggleCode ? () => setCodeOpen((open) => !open) : null}
+            onToggleSourceCode={canToggleCode ? toggleCode : null}
             sourceCodeOpen={isCodeVisible}
             sourceExpandLabel={t('diagram.expandSource')}
             sourceCollapseLabel={t('diagram.collapseSource')}

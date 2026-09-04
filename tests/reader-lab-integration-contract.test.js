@@ -184,6 +184,8 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(appTopNav, /术语表/);
   assert.match(homePage, /<AppTopNav/);
   assert.match(homePage, /onNavigate=\{handleHomeNavigate\}/);
+  // 从具体图解/文档路由点首页时，必须先回到根路由，不能只切换工作区内部状态。
+  assert.match(homePage, /slug === ['"]read['"][\s\S]*?router\.push\(['"]\/['"]\)/);
   assert.match(homePage, /window\.dispatchEvent\(new Event\(GO_IMPORT_EVENT\)\)/);
   // 资源库深链支持图解和文档，并在工作区恢复后保留稳定资源路径。
   assert.match(homePage, /parseWorkspaceResourceLocation/);
@@ -210,7 +212,7 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(documentDiagramCanvas, /t\('diagram\.freeSubtitle'\)/);
   assert.match(documentDiagramCanvas, /headerActions=\{\(canToggleCode \|\| onOpenChat \|\| onCloseChat\) \? \(/);
   // excalidraw 源码开关收进画布左上角主菜单（onToggleSourceCode），不再悬浮右下角
-  assert.match(documentDiagramCanvas, /onToggleSourceCode=\{canToggleCode \? \(\) => setCodeOpen\(\(open\) => !open\) : null\}/);
+  assert.match(documentDiagramCanvas, /onToggleSourceCode=\{canToggleCode \? toggleCode : null\}/);
   assert.doesNotMatch(documentDiagramCanvas, /sourceCodeButton\(['"]float['"]\)/);
   assert.doesNotMatch(homePage, /<Chat\b|<CodeEditor\b|<MermaidCanvas\b|<ExcalidrawCanvas\b/);
 

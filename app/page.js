@@ -79,6 +79,10 @@ export default function Home() {
 
   // 全局顶栏导航：文档库走独立路由，图解/首页在当前页内切换视图
   const handleHomeNavigate = (slug) => {
+    if (slug === 'read' && (window.location.pathname !== '/' || window.location.search)) {
+      router.push('/');
+      return;
+    }
     if (slug === 'reader-lab') {
       router.push('/reader-lab');
       return;

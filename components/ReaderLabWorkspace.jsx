@@ -428,12 +428,12 @@ export default function ReaderLabWorkspace({
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('anchor-read-right-collapsed') === '1';
   });
-  const updateRightCollapsed = (collapsed) => {
+  const updateRightCollapsed = useCallback((collapsed) => {
     setRightCollapsed(collapsed);
     if (typeof window !== 'undefined') {
       localStorage.setItem('anchor-read-right-collapsed', collapsed ? '1' : '0');
     }
-  };
+  }, []);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [busyAction, setBusyAction] = useState('');
   const [notice, setNotice] = useState(null);
@@ -2272,6 +2272,17 @@ export default function ReaderLabWorkspace({
     onToolChange?.('diagram');
   }, [onDiagramResolved, onToolChange, saveSession]);
 
+  // Keep callbacks passed into the Excalidraw toolbar stable across workspace
+  // state updates. They must be declared before the conditional render exits.
+  const expandRightPanel = useCallback(() => {
+    if (isDesktop) updateRightCollapsed(false);
+    else setKnowledgeOpen(true);
+  }, [isDesktop, updateRightCollapsed]);
+  const collapseRightPanel = useCallback(() => {
+    if (isDesktop) updateRightCollapsed(true);
+    else setKnowledgeOpen(false);
+  }, [isDesktop, updateRightCollapsed]);
+
   if (!ready) {
     return (
       <main className="flex h-full min-h-0 items-center justify-center bg-[#f5f7f6] text-sm text-stone-500 dark:bg-stone-950 dark:text-stone-400">
@@ -2319,18 +2330,6 @@ export default function ReaderLabWorkspace({
   const diagramSplit = diagramMode && !standaloneDiagram && isDesktop && isWide;
   // 右栏展开态跨断点统一：桌面看折叠开关，窄屏看 Sheet 开合；顶栏图标因此全断点同款
   const rightPanelExpanded = isDesktop ? !rightCollapsed : knowledgeOpen;
-  // 右栏展开回调跨断点统一：桌面恢复折叠的右栏，窄屏打开 Sheet；
-  // 触发器已移入画布右上角与 Library 并排（Excalidraw renderTopRightUI 槽位）
-  const expandRightPanel = () => {
-    if (isDesktop) updateRightCollapsed(false);
-    else setKnowledgeOpen(true);
-  };
-  // 右栏收起回调与展开跨断点对称：触发器在画布右上角与展开入口同槽位
-  // （Library 右侧）两态切换，点击位置保持一致
-  const collapseRightPanel = () => {
-    if (isDesktop) updateRightCollapsed(true);
-    else setKnowledgeOpen(false);
-  };
 
   // 知识面板是派生内容的管理入口，始终可见；辅助开关只控制原文上的叠加显示
   // 桌面与 Sheet 共用同一面板：Sheet 形态额外注入内联关闭按钮槽位
