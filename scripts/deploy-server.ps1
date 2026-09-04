@@ -97,18 +97,62 @@ git fetch --prune origin '__BRANCH__'
 git checkout --detach '__COMMIT__'
 test "$(git rev-parse HEAD)" = '__COMMIT__'
 
-docker build --label 'org.opencontainers.image.revision=__COMMIT__' -t '__IMAGE_TAG__' .
-docker volume create '__DATA_VOLUME__' >/dev/null
-
 old_container='__CONTAINER__'
 candidate_container='__CONTAINER__-candidate-__SHORT_COMMIT__'
 rollback_container='__CONTAINER__-rollback-__SHORT_COMMIT__'
 env_file="$(mktemp)"
+runtime_env_file="$(mktemp)"
+sentry_env_file="$(mktemp)"
 cleanup_candidate() {
   docker rm -f "$candidate_container" >/dev/null 2>&1 || true
   rm -f "$env_file"
+  rm -f "$runtime_env_file"
+  rm -f "$sentry_env_file"
 }
 trap cleanup_candidate EXIT
+
+if docker inspect "$old_container" >/dev/null 2>&1; then
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$old_container" > "$env_file"
+else
+  : > "$env_file"
+fi
+# A server-side .env is the durable override for future deployments. It is
+# appended after the old container environment so one-time Sentry setup does
+# not require rebuilding or editing this repository.
+if [ -f .env ]; then
+  cat .env >> "$env_file"
+fi
+# Keep source-map upload credentials out of the running container. The app
+# only needs its DSN, environment, release, and sample rate at runtime.
+awk -F= '$1 != "SENTRY_AUTH_TOKEN" && $1 != "SENTRY_ORG" && $1 != "SENTRY_PROJECT"' "$env_file" > "$runtime_env_file"
+
+env_value() {
+  key="$1"
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$env_file"
+}
+
+sentry_dsn="$(env_value NEXT_PUBLIC_SENTRY_DSN)"
+sentry_dsn="${sentry_dsn:-$(env_value SENTRY_DSN)}"
+sentry_environment="$(env_value NEXT_PUBLIC_SENTRY_ENVIRONMENT)"
+sentry_environment="${sentry_environment:-$(env_value SENTRY_ENVIRONMENT)}"
+sentry_environment="${sentry_environment:-production}"
+sentry_sample_rate="$(env_value NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE)"
+sentry_sample_rate="${sentry_sample_rate:-$(env_value SENTRY_TRACES_SAMPLE_RATE)}"
+sentry_sample_rate="${sentry_sample_rate:-0.2}"
+{
+  printf 'SENTRY_AUTH_TOKEN=%s\n' "$(env_value SENTRY_AUTH_TOKEN)"
+  printf 'SENTRY_ORG=%s\n' "$(env_value SENTRY_ORG)"
+  printf 'SENTRY_PROJECT=%s\n' "$(env_value SENTRY_PROJECT)"
+} > "$sentry_env_file"
+DOCKER_BUILDKIT=1 docker build \
+  --secret "id=sentry_env,src=$sentry_env_file" \
+  --label 'org.opencontainers.image.revision=__COMMIT__' \
+  --build-arg "NEXT_PUBLIC_SENTRY_DSN=$sentry_dsn" \
+  --build-arg "NEXT_PUBLIC_SENTRY_ENVIRONMENT=$sentry_environment" \
+  --build-arg "NEXT_PUBLIC_SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" \
+  --build-arg "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=$sentry_sample_rate" \
+  -t '__IMAGE_TAG__' .
+docker volume create '__DATA_VOLUME__' >/dev/null
 
 check_url() {
   url="$1"
@@ -123,14 +167,8 @@ check_url() {
   return 1
 }
 
-if docker inspect "$old_container" >/dev/null 2>&1; then
-  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$old_container" > "$env_file"
-else
-  : > "$env_file"
-fi
-
 docker rm -f "$candidate_container" >/dev/null 2>&1 || true
-docker run -d --name "$candidate_container" --env-file "$env_file" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart no -p 127.0.0.1:__CANDIDATE_PORT__:3000 '__IMAGE_TAG__' >/dev/null
+docker run -d --name "$candidate_container" --env-file "$runtime_env_file" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart no -p 127.0.0.1:__CANDIDATE_PORT__:3000 '__IMAGE_TAG__' >/dev/null
 check_url http://127.0.0.1:__CANDIDATE_PORT__/
 docker rm -f "$candidate_container" >/dev/null
 
@@ -151,7 +189,7 @@ restore_rollback() {
   fi
 }
 
-if ! docker run -d --name "$old_container" --env-file "$env_file" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart unless-stopped -p 127.0.0.1:__HOST_PORT__:3000 '__IMAGE_TAG__' >/dev/null; then
+if ! docker run -d --name "$old_container" --env-file "$runtime_env_file" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart unless-stopped -p 127.0.0.1:__HOST_PORT__:3000 '__IMAGE_TAG__' >/dev/null; then
   restore_rollback
   exit 1
 fi

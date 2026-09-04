@@ -32,8 +32,9 @@
     "test:sync": "node --experimental-default-type=module --test tests/sync-storage.test.js",
     "test:inbox": "node --experimental-default-type=module --test tests/inbox-merge.test.js",
     "test:configs": "node --experimental-default-type=module --test tests/config-manager.test.js",
+    "test:sentry": "node --experimental-default-type=module --test tests/sentry-config.test.js",
     "test:i18n": "node --experimental-default-type=module --test tests/i18n.test.js",
-    "test:all": "npm run test:llm && npm run test:document && npm run test:explain && npm run test:workspace && npm run test:reader-lab && npm run test:diagrams && npm run test:analysis && npm run test:mermaid && npm run test:import && npm run test:api && npm run test:actions && npm run test:sync && npm run test:inbox && npm run test:configs && npm run test:i18n"
+    "test:all": "npm run test:llm && npm run test:document && npm run test:explain && npm run test:workspace && npm run test:reader-lab && npm run test:diagrams && npm run test:analysis && npm run test:mermaid && npm run test:import && npm run test:api && npm run test:actions && npm run test:sync && npm run test:inbox && npm run test:configs && npm run test:sentry && npm run test:i18n"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
@@ -45,6 +46,8 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-toggle-group": "^1.1.19",
     "@radix-ui/react-tooltip": "^1.2.16",
+    "@sentry/nextjs": "10.73.0",
+    "@sentry/node": "10.73.0",
     "@tiptap/extension-highlight": "^3.30.0",
     "@tiptap/extension-table": "^3.30.0",
     "@tiptap/extension-unique-id": "^3.30.0",

@@ -23,6 +23,7 @@
 
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import * as Sentry from '@sentry/node';
 import {
   applyScenePatch,
   alignScene,
@@ -65,10 +66,20 @@ import {
   diagramMcpAppResourceListing,
   readDiagramMcpAppResource,
 } from '../lib/diagram-mcp-app-resource.js';
+import { createSentryOptions, safeTelemetryIdentifier } from '../lib/sentry-config.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: 'anchor-read-diagram', title: 'AnchorRead Diagram', version: '1.3.0' };
 const SERVER_INSTRUCTIONS = DIAGRAM_MCP_INSTRUCTIONS;
+const sentryEnabled = Boolean(String(process.env.SENTRY_DSN || '').trim());
+if (sentryEnabled) {
+  Sentry.init(createSentryOptions({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.SENTRY_ENVIRONMENT,
+    release: process.env.SENTRY_RELEASE,
+    tracesSampleRate: process.env.SENTRY_TRACES_SAMPLE_RATE,
+  }));
+}
 const rawArgs = process.argv.slice(2);
 const writeEnabled = rawArgs.includes('--write') || process.env.ANCHORREAD_DIAGRAM_MCP_WRITE === 'true';
 const bridgeIndex = rawArgs.findIndex((argument) => argument === '--bridge');
@@ -574,7 +585,7 @@ function enqueueWrite(task) {
   return next;
 }
 
-async function callTool(name, args = {}) {
+async function callToolImpl(name, args = {}) {
   if (name === 'read_me') return textResult({ name: 'anchor-read-diagram', instructions: DIAGRAM_MCP_READ_ME });
   if (name === 'open_diagram_workspace') {
     return textResult({
@@ -797,6 +808,28 @@ async function callTool(name, args = {}) {
   }
 }
 
+async function callTool(name, args = {}) {
+  const toolName = safeTelemetryIdentifier(name);
+  return Sentry.startSpan({
+    name: `mcp.tool ${toolName}`,
+    op: 'mcp.server',
+    attributes: {
+      'app.mcp.transport': 'stdio',
+      'app.mcp.method': 'tools/call',
+      'app.mcp.tool': toolName,
+    },
+  }, async (span) => {
+    try {
+      const result = await callToolImpl(name, args);
+      span.setAttribute('app.mcp.outcome', 'ok');
+      return result;
+    } catch (error) {
+      span.setAttribute('app.mcp.outcome', 'error');
+      throw error;
+    }
+  });
+}
+
 async function callBridgeTool(name, args = {}) {
   const headers = { 'content-type': 'application/json' };
   const token = String(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN || '').trim();
@@ -834,7 +867,7 @@ function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-async function handleRequest(request) {
+async function handleRequestImpl(request) {
   const { id, method, params } = request;
   try {
     switch (method) {
@@ -891,6 +924,31 @@ async function handleRequest(request) {
   }
 }
 
+async function handleRequest(request) {
+  const method = safeTelemetryIdentifier(request?.method);
+  const tool = method === 'tools/call'
+    ? safeTelemetryIdentifier(request?.params?.name)
+    : undefined;
+  return Sentry.startSpan({
+    name: tool ? `mcp.rpc ${method}/${tool}` : `mcp.rpc ${method}`,
+    op: 'mcp.server',
+    attributes: {
+      'app.mcp.transport': 'stdio',
+      'app.mcp.method': method,
+      ...(tool ? { 'app.mcp.tool': tool } : {}),
+    },
+  }, async (span) => {
+    try {
+      const result = await handleRequestImpl(request);
+      span.setAttribute('app.mcp.outcome', 'completed');
+      return result;
+    } catch (error) {
+      span.setAttribute('app.mcp.outcome', 'error');
+      throw error;
+    }
+  });
+}
+
 let buffer = '';
 const pendingRequests = new Set();
 process.stdin.setEncoding('utf8');
@@ -914,5 +972,6 @@ process.stdin.on('data', (chunk) => {
 });
 process.stdin.on('end', async () => {
   await Promise.all(pendingRequests);
+  if (sentryEnabled) await Sentry.flush(2_000);
   process.exit(0);
 });
