@@ -9,6 +9,7 @@ param(
   [int]$HostPort = 3001,
   [int]$CandidatePort = 3002,
   [string]$HealthUrl = 'https://anchorread.flowguide.cc/',
+  [string]$PublicUrl = 'https://anchorread.flowguide.cc',
   [switch]$Push,
   [switch]$SkipHealthCheck
 )
@@ -65,6 +66,9 @@ if ($DataVolume -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'DataVolume contains unsu
 if ($HostPort -lt 1 -or $HostPort -gt 65535) { throw 'HostPort is outside the valid range.' }
 if ($CandidatePort -lt 1 -or $CandidatePort -gt 65535 -or $CandidatePort -eq $HostPort) {
   throw 'CandidatePort must be valid and different from HostPort.'
+}
+if ($PublicUrl -notmatch '^https://[a-zA-Z0-9.-]+(?::[0-9]+)?$') {
+  throw 'PublicUrl must be an HTTPS origin without a path, query, or fragment.'
 }
 
 $dirtyFiles = @(git status --porcelain)
@@ -168,7 +172,7 @@ check_url() {
 }
 
 docker rm -f "$candidate_container" >/dev/null 2>&1 || true
-docker run -d --name "$candidate_container" --env-file "$runtime_env_file" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart no -p 127.0.0.1:__CANDIDATE_PORT__:3000 '__IMAGE_TAG__' >/dev/null
+docker run -d --name "$candidate_container" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=__PUBLIC_URL__" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart no -p 127.0.0.1:__CANDIDATE_PORT__:3000 '__IMAGE_TAG__' >/dev/null
 check_url http://127.0.0.1:__CANDIDATE_PORT__/
 docker rm -f "$candidate_container" >/dev/null
 
@@ -189,7 +193,7 @@ restore_rollback() {
   fi
 }
 
-if ! docker run -d --name "$old_container" --env-file "$runtime_env_file" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart unless-stopped -p 127.0.0.1:__HOST_PORT__:3000 '__IMAGE_TAG__' >/dev/null; then
+if ! docker run -d --name "$old_container" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=__PUBLIC_URL__" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart unless-stopped -p 127.0.0.1:__HOST_PORT__:3000 '__IMAGE_TAG__' >/dev/null; then
   restore_rollback
   exit 1
 fi
@@ -213,6 +217,7 @@ $remoteScript = $remoteScript.Replace('__CONTAINER__', $ContainerName)
 $remoteScript = $remoteScript.Replace('__DATA_VOLUME__', $DataVolume)
 $remoteScript = $remoteScript.Replace('__HOST_PORT__', [string]$HostPort)
 $remoteScript = $remoteScript.Replace('__CANDIDATE_PORT__', [string]$CandidatePort)
+$remoteScript = $remoteScript.Replace('__PUBLIC_URL__', $PublicUrl)
 # SSH executes this payload on Linux; normalize the repository's CRLF text first.
 $remoteScript = $remoteScript.Replace("`r`n", "`n")
 
