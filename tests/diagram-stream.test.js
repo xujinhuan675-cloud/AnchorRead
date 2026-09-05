@@ -112,6 +112,7 @@ test('timelineToPresentation output survives presentation normalization with cam
   assert.equal(spec.steps.length, 1);
   assert.equal(spec.steps[0].durationMs, 500);
   assert.deepEqual(spec.steps[0].visibleElementIds, ['b1']);
+  assert.deepEqual(spec.steps[0].focusElementIds, ['b1']);
   assert.deepEqual(spec.steps[0].camera, { region: { x: 10, y: 20, width: 800, height: 600 } });
 });
 
@@ -122,10 +123,12 @@ test('default presentations cover both Excalidraw elements and Mermaid source', 
   ]);
   assert.equal(excalidraw.steps.length, 2);
   assert.deepEqual(excalidraw.steps[1].visibleElementIds, ['start', 'next']);
+  assert.deepEqual(excalidraw.steps[1].focusElementIds, ['next']);
 
   const mermaid = createDefaultMermaidPresentation('flowchart TD\nA[开始] --> B[结束]');
   assert.equal(mermaid.steps.length, 2);
   assert.deepEqual(mermaid.steps[1].visibleElementIds, ['mermaid-1', 'mermaid-2']);
+  assert.deepEqual(mermaid.steps[1].focusElementIds, ['mermaid-2']);
   assert.equal(createDefaultMermaidPresentation('%% only comment'), null);
 });
 

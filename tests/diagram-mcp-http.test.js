@@ -130,6 +130,28 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     const workspaceResult = await workspace.json();
     assert.equal(workspaceResult.result.content[1].type, 'resource_link');
     assert.match(workspaceResult.result.content[1].uri, /\/diagrams$/);
+    assert.equal(workspaceResult.result.structuredContent.openRequested, true);
+    assert.match(workspaceResult.result.structuredContent.openResource.url, /\/diagrams$/);
+
+    const inlineOffline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 24, method: 'tools/call', params: {
+        name: 'create_diagram', arguments: {
+          title: 'Offline content',
+          engine: 'excalidraw',
+          elements: [{ id: 'offline-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }],
+        },
+      },
+    }, { 'MCP-Session-Id': sessionId }), {
+      submitTool: async () => {
+        throw Object.assign(new Error('No AnchorRead browser is connected.'), { code: 'BRIDGE_TIMEOUT' });
+      },
+    });
+    const inlineOfflineResult = await inlineOffline.json();
+    assert.equal(inlineOfflineResult.result.isError, undefined);
+    assert.equal(inlineOfflineResult.result.structuredContent.scene.elements[0].id, 'offline-rect');
+    assert.equal(inlineOfflineResult.result.structuredContent.openRequested, true);
+    assert.match(inlineOfflineResult.result.structuredContent.url, /\/diagrams$/);
+    assert.equal(inlineOfflineResult.result.content[1].type, 'resource_link');
 
     const offline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 5, method: 'tools/call', params: {
@@ -145,6 +167,8 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     assert.match(offlineResult.result.content[0].text, /open_diagram_workspace_then_retry/);
     assert.equal(offlineResult.result.content[1].type, 'resource_link');
     assert.match(offlineResult.result.content[1].uri, /\/diagrams$/);
+    assert.equal(offlineResult.result.structuredContent.openRequested, true);
+    assert.match(offlineResult.result.structuredContent.url, /\/diagrams$/);
 
     const closed = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', undefined, {
       'MCP-Session-Id': sessionId,
