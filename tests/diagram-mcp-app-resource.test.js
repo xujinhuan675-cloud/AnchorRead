@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import vm from 'node:vm';
 import {
   DIAGRAM_MCP_APP_MIME_TYPE,
   DIAGRAM_MCP_APP_RESOURCE_URI,
@@ -60,6 +61,21 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /element\.type === 'text' && element\.containerId/);
   assert.match(resource.text, /'aria-label': presentationPlaying \? '暂停' : '播放'/);
   assert.match(resource.text, /presentationPlaying \? Pause : Play/);
+  assert.match(resource.text, /normalizePresentation\(/);
+  assert.match(resource.text, /presentationStep\.focusElementIds/);
+  assert.match(resource.text, /presentationStep\.camera/);
+  assert.match(resource.text, /presentationStep\.highlightElementIds/);
+  assert.match(resource.text, /app-playback-select/);
+  assert.match(resource.text, /presentationIndex \+ 1\) \+ '\/' \+ presentationSteps\.length/);
+  assert.match(resource.text, /@media \(max-width: 520px\)/);
+  assert.doesNotMatch(resource.text, /app-playback-title/);
+  assert.doesNotMatch(resource.text, /presentationStepLabel/);
+  assert.match(resource.text, /app-display-fullscreen/);
+  assert.match(resource.text, /app\.requestDisplayMode\(\{ mode \}\)/);
+  assert.match(resource.text, /app\.onhostcontextchanged = updateHostContext/);
+  assert.match(resource.text, /value\.openRequested === true/);
+  assert.match(resource.text, /app\.openLink\(\{ url: requestedUrl \}\)/);
+  assert.match(resource.text, /presentationTransitionDuration\(presentationStep\)/);
   assert.match(resource.text, /React\.createElement\(ChevronLeft/);
   assert.match(resource.text, /React\.createElement\(ChevronRight/);
   assert.match(resource.text, /React\.createElement\(Square/);
@@ -75,6 +91,16 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /applyInput\(value, false\)/);
   assert.doesNotMatch(resource.text, /const value = resultValue\(result\)/);
   assert.doesNotMatch(resource.text, /ANCHORREAD_MCP|Bearer\s+/i);
+});
+
+test('MCP App embedded module remains syntactically valid', () => {
+  const resource = readDiagramMcpAppResource();
+  const moduleMatch = resource.text.match(/<script type="module">([\s\S]*?)<\/script>/u);
+  assert.ok(moduleMatch, 'expected one embedded module script');
+  const scriptWithoutImports = moduleMatch[1]
+    .replace(/^\s*import\s+.*?;\s*$/gmu, '')
+    .replace(/^\s*createRoot\(document\.getElementById\('root'\)\).*?;\s*$/gmu, '');
+  assert.doesNotThrow(() => new vm.Script(scriptWithoutImports, { filename: 'anchorread-diagram-mcp-app.js' }));
 });
 
 test('MCP App resource listing carries the standard app MIME type', () => {
