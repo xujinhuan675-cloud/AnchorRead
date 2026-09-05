@@ -16,6 +16,98 @@ import {
 import CanvasZoomControls from './CanvasZoomControls';
 import useCanvasZoom from './useCanvasZoom';
 
+const MERMAID_VISUAL_SELECTOR = '.node, .edgePath, .edgeLabel, .cluster, .actor, .messageText, .loopText';
+
+function parseSvgViewBox(svg) {
+  const values = String(svg?.getAttribute?.('viewBox') || '')
+    .trim()
+    .split(/[\s,]+/u)
+    .map(Number);
+  if (values.length === 4 && values.every(Number.isFinite) && values[2] > 0 && values[3] > 0) {
+    return { x: values[0], y: values[1], width: values[2], height: values[3] };
+  }
+  const width = Number(svg?.getAttribute?.('width')) || 1;
+  const height = Number(svg?.getAttribute?.('height')) || 1;
+  return { x: 0, y: 0, width, height };
+}
+
+function presentationIdMatches(item, id, index) {
+  const value = String(id || '').trim();
+  if (!value) return false;
+  if (value === `mermaid-${index + 1}` || item?.id === value) return true;
+  const descendants = item?.querySelectorAll?.('[id]');
+  return Boolean(descendants && [...descendants].some((node) => node.id === value));
+}
+
+function matchingVisualItems(items, ids) {
+  const requested = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  if (!requested.length) return [];
+  return items.filter((item, index) => requested.some((id) => presentationIdMatches(item, id, index)));
+}
+
+function isSyntheticMermaidIds(ids) {
+  return Array.isArray(ids) && ids.length > 0 && ids.every((id) => /^mermaid-\d+$/u.test(String(id)));
+}
+
+function visualItemsBounds(items) {
+  const boxes = [];
+  for (const item of items) {
+    try {
+      const box = item.getBBox?.();
+      if (box && box.width > 0 && box.height > 0) boxes.push(box);
+    } catch {
+      // SVG nodes can briefly reject getBBox while Mermaid is still mounting.
+    }
+  }
+  if (!boxes.length) return null;
+  const minX = Math.min(...boxes.map((box) => box.x));
+  const minY = Math.min(...boxes.map((box) => box.y));
+  const maxX = Math.max(...boxes.map((box) => box.x + box.width));
+  const maxY = Math.max(...boxes.map((box) => box.y + box.height));
+  const paddingX = Math.max(12, (maxX - minX) * 0.16);
+  const paddingY = Math.max(12, (maxY - minY) * 0.16);
+  return {
+    x: minX - paddingX,
+    y: minY - paddingY,
+    width: Math.max(1, maxX - minX + paddingX * 2),
+    height: Math.max(1, maxY - minY + paddingY * 2),
+  };
+}
+
+function resolveMermaidViewBox(camera, baseViewBox) {
+  if (!baseViewBox) return null;
+  const region = camera?.region;
+  if (region && Number(region.width) > 0 && Number(region.height) > 0) {
+    return {
+      x: Number(region.x) || 0,
+      y: Number(region.y) || 0,
+      width: Number(region.width),
+      height: Number(region.height),
+    };
+  }
+  const zoom = Number(camera?.zoom);
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const width = baseViewBox.width / scale;
+  const height = baseViewBox.height / scale;
+  const offsetX = Number.isFinite(Number(camera?.scrollX)) ? Number(camera.scrollX) : 0;
+  const offsetY = Number.isFinite(Number(camera?.scrollY)) ? Number(camera.scrollY) : 0;
+  return {
+    x: baseViewBox.x + (baseViewBox.width - width) / 2 - offsetX,
+    y: baseViewBox.y + (baseViewBox.height - height) / 2 - offsetY,
+    width,
+    height,
+  };
+}
+
+function interpolateViewBox(from, to, progress) {
+  return {
+    x: from.x + (to.x - from.x) * progress,
+    y: from.y + (to.y - from.y) * progress,
+    width: from.width + (to.width - from.width) * progress,
+    height: from.height + (to.height - from.height) * progress,
+  };
+}
+
 export default function MermaidCanvas({
   source,
   definition,
@@ -44,6 +136,9 @@ export default function MermaidCanvas({
   const hostRef = useRef(null);
   const zoomContainerRef = useRef(null);
   const renderSequenceRef = useRef(0);
+  const presentationAnimFrameRef = useRef(0);
+  const baseViewBoxRef = useRef(null);
+  const currentViewBoxRef = useRef(null);
   const reactId = useId();
   const {
     zoom,
@@ -127,6 +222,10 @@ export default function MermaidCanvas({
         mountedSvg.setAttribute('aria-label', resolvedTitle);
 
         host.replaceChildren(mountedSvg);
+        const baseViewBox = parseSvgViewBox(mountedSvg);
+        baseViewBoxRef.current = baseViewBox;
+        currentViewBoxRef.current = baseViewBox;
+        mountedSvg.setAttribute('viewBox', `${baseViewBox.x} ${baseViewBox.y} ${baseViewBox.width} ${baseViewBox.height}`);
         dispatch({ type: 'success', source: validation.source });
         onRenderRef.current?.({ source: validation.source, svg: mountedSvg.outerHTML });
       } catch (error) {
@@ -145,17 +244,61 @@ export default function MermaidCanvas({
   useEffect(() => {
     const svg = hostRef.current?.querySelector('svg');
     if (!svg) return;
-    const visualItems = [...svg.querySelectorAll('.node, .edgePath, .edgeLabel, .cluster, .actor, .messageText, .loopText')];
+    const visualItems = [...svg.querySelectorAll(MERMAID_VISUAL_SELECTOR)];
     const stepCount = Math.max(1, Number(presentationStepCount) || 1);
     const stepNumber = Math.max(1, Math.min(stepCount, Number(presentationStepIndex) + 1));
+    const visibleIds = presentationActive && presentationStep ? presentationStep.visibleElementIds || [] : [];
+    const syntheticIds = isSyntheticMermaidIds(visibleIds);
+    const matchedVisible = syntheticIds ? [] : matchingVisualItems(visualItems, visibleIds);
     const visibleCount = presentationActive && presentationStep
       ? Math.max(1, Math.ceil(visualItems.length * stepNumber / stepCount))
       : visualItems.length;
     visualItems.forEach((item, index) => {
-      item.style.opacity = index < visibleCount ? '' : '0';
-      item.style.pointerEvents = index < visibleCount ? '' : 'none';
+      const visible = presentationActive && presentationStep && visibleIds.length && !syntheticIds && matchedVisible.length
+        ? matchedVisible.includes(item)
+        : index < visibleCount;
+      item.style.opacity = visible ? '' : '0';
+      item.style.pointerEvents = visible ? '' : 'none';
+      item.style.filter = '';
     });
+    if (presentationActive && presentationStep?.highlightElementIds?.length) {
+      for (const item of matchingVisualItems(visualItems, presentationStep.highlightElementIds)) {
+        item.style.filter = 'drop-shadow(0 0 4px rgba(225, 29, 72, 0.85))';
+      }
+    }
   }, [presentationActive, presentationStep, presentationStepCount, presentationStepIndex, renderState.renderedSource]);
+
+  useEffect(() => {
+    const svg = hostRef.current?.querySelector('svg');
+    const baseViewBox = baseViewBoxRef.current;
+    if (!svg || !baseViewBox) return undefined;
+    const visualItems = [...svg.querySelectorAll(MERMAID_VISUAL_SELECTOR)];
+    const focusItems = presentationActive && presentationStep?.focusElementIds?.length
+      ? matchingVisualItems(visualItems, presentationStep.focusElementIds)
+      : [];
+    const focusViewBox = visualItemsBounds(focusItems);
+    const target = presentationActive && presentationStep?.camera
+      ? resolveMermaidViewBox(presentationStep.camera, baseViewBox)
+      : focusViewBox || baseViewBox;
+    if (!target) return undefined;
+    const from = currentViewBoxRef.current || parseSvgViewBox(svg);
+    const transition = Number(presentationStep?.transitionMs);
+    const reducedMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const duration = reducedMotion ? 0 : Math.max(0, Math.min(1200, Number.isFinite(transition) ? transition : 450));
+    cancelAnimationFrame(presentationAnimFrameRef.current);
+    const startedAt = performance.now();
+    const tick = (now) => {
+      const progress = duration === 0 ? 1 : Math.min(1, (now - startedAt) / duration);
+      const eased = progress < 0.5 ? 2 * progress * progress : 1 - ((-2 * progress + 2) ** 2) / 2;
+      const next = interpolateViewBox(from, target, eased);
+      svg.setAttribute('viewBox', `${next.x} ${next.y} ${next.width} ${next.height}`);
+      currentViewBoxRef.current = next;
+      if (progress < 1) presentationAnimFrameRef.current = requestAnimationFrame(tick);
+    };
+    presentationAnimFrameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(presentationAnimFrameRef.current);
+  }, [presentationActive, presentationStep, renderState.renderedSource]);
 
   useEffect(() => {
     const svg = hostRef.current?.querySelector('svg');

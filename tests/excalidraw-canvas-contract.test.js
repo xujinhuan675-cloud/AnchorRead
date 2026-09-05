@@ -45,6 +45,8 @@ test('Excalidraw toolbar and menu props remain referentially stable', () => {
 test('presentation steps update one stable Excalidraw instance', () => {
   assert.match(componentSource, /JSON\.stringify\(elements\.map\(el => el\.id\)\)/u);
   assert.match(componentSource, /restoreFullSceneRef\.current/u);
+  assert.match(componentSource, /opacity: isVisible\(element\) \? \(element\.opacity \?\? 100\) : 0/u);
+  assert.match(componentSource, /currentElement\?\.opacity !== nextElement\?\.opacity/u);
   assert.match(componentSource, /if \(!convertToExcalidrawElements\) return \[\];/u);
   assert.match(componentSource, /!convertToExcalidrawElements && elements\?\.length > 0/u);
   assert.doesNotMatch(componentSource, /JSON\.stringify\(convertedElements\.map\(el => el\.id\)\)/u);
@@ -66,6 +68,8 @@ test('stream replay camera animates via rAF interpolation', () => {
   assert.match(componentSource, /camera\.region/u);
   assert.match(componentSource, /cancelAnimationFrame\(cameraAnimFrameRef\.current\)/u);
   assert.match(componentSource, /easeInOutQuad/u);
+  assert.match(componentSource, /duration === 0 \? 1/u);
+  assert.match(componentSource, /prefers-reduced-motion: reduce/u);
 });
 
 test('demo end cannot leak filtered elements into persistence', () => {
@@ -114,6 +118,13 @@ test('presentation auto-advance does not nest setState in an updater', () => {
   // （步进按钮的简洁箭头 updater 是纯的，不在禁止之列）
   assert.doesNotMatch(canvasHostSource, /setPresentationStepIndex\(\(index\) => \{/u);
   assert.match(canvasHostSource, /setPresentationStepIndex\(effectivePresentationStepIndex \+ 1\)/u);
+});
+
+test('presentation controls remain bounded on narrow canvases', () => {
+  assert.match(canvasHostSource, /max-w-\[calc\(100%-1\.5rem\)\]/u);
+  assert.match(canvasHostSource, /w-24 max-w-\[12rem\]/u);
+  assert.doesNotMatch(canvasHostSource, /presentationStepLabel/u);
+  assert.match(canvasHostSource, /presentationStepIndex \+ 1\}\/\{presentation\.steps\.length\}/u);
 });
 
 test('presentation script reconciles with the current canvas before playback', () => {

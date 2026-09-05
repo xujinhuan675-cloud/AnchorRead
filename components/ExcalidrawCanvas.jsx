@@ -48,6 +48,7 @@ function sceneElementsChanged(currentElements, nextElements) {
     return currentElement?.id !== nextElement?.id
       || currentElement?.version !== nextElement?.version
       || currentElement?.isDeleted !== nextElement?.isDeleted
+      || currentElement?.opacity !== nextElement?.opacity
       || currentElement?.strokeColor !== nextElement?.strokeColor
       || currentElement?.strokeWidth !== nextElement?.strokeWidth;
   });
@@ -357,13 +358,17 @@ export default function ExcalidrawCanvas({
       || (element.containerId && visible.has(element.containerId));
     const isHighlighted = (element) => highlighted.has(element.id)
       || (element.containerId && highlighted.has(element.containerId));
-    return (elements || [])
-      .filter(isVisible)
-      .map((element) => isHighlighted(element) ? {
-        ...element,
+    // Keep one complete scene mounted while presenting. Removing and re-adding
+    // elements on every step makes the canvas flash and can temporarily orphan
+    // bound text/arrows. Hidden items stay in the scene at opacity 0 instead.
+    return (elements || []).map((element) => ({
+      ...element,
+      opacity: isVisible(element) ? (element.opacity ?? 100) : 0,
+      ...(isHighlighted(element) ? {
         strokeColor: '#e11d48',
         strokeWidth: Math.max(2, Number(element.strokeWidth) || 1),
-      } : element);
+      } : {}),
+    }));
   }, [elements, presentationActive, presentationStep]);
 
   const convertedElements = useMemo(() => {
@@ -423,11 +428,16 @@ export default function ExcalidrawCanvas({
           scrollY: Number(currentState?.scrollY) || 0,
           zoom: Number(currentState?.zoom?.value) || 1,
         };
-        const duration = Math.max(120, Math.min(1200, Number(presentationStep.transitionMs) || 450));
+        const requestedTransition = Number(presentationStep.transitionMs);
+        const reducedMotion = typeof window !== 'undefined'
+          && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        const duration = reducedMotion
+          ? 0
+          : Math.max(0, Math.min(1200, Number.isFinite(requestedTransition) ? requestedTransition : 450));
         const startedAt = performance.now();
         cancelAnimationFrame(cameraAnimFrameRef.current);
         const tick = (nowTime) => {
-          const progress = Math.min(1, (nowTime - startedAt) / duration);
+          const progress = duration === 0 ? 1 : Math.min(1, (nowTime - startedAt) / duration);
           const k = easeInOutQuad(progress);
           excalidrawAPI.updateScene({
             appState: {

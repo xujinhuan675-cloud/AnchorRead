@@ -86,8 +86,8 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
         setPresentationPlaying(true);
       } else if (detail.action === 'pause') setPresentationPlaying(false);
       else if (detail.action === 'stop') { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }
-      else if (detail.action === 'next') { setPresentationActive(true); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }
-      else if (detail.action === 'previous') { setPresentationActive(true); setPresentationStepIndex((index) => Math.max(0, index - 1)); }
+      else if (detail.action === 'next') { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }
+      else if (detail.action === 'previous') { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.max(0, index - 1)); }
     };
     window.addEventListener(DIAGRAM_AGENT_PRESENTATION_EVENT, handlePresentation);
     try {
@@ -188,7 +188,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
         {presentation && (
           /* 播放条靠右下角：左下角是 Excalidraw 原生缩放控件的位置，避免与其重叠；
              源码开关已收进主菜单，右下角只剩播放条 */
-          <div className={`ar-overlay-island${excalidrawThemeClass} absolute bottom-3 right-3 z-10 flex items-center gap-1 p-0.5`}>
+          <div className={`ar-overlay-island${excalidrawThemeClass} absolute bottom-3 right-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-1 p-0.5`}>
             <button
               type="button"
               onClick={() => {
@@ -197,16 +197,30 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
               }}
               aria-label={effectivePresentationPlaying ? t('diagram.presentation.pause') : t('diagram.presentation.play')}
               title={effectivePresentationPlaying ? t('diagram.presentation.pause') : t('diagram.presentation.play')}
-              className="ar-overlay-tool flex h-8 w-8 items-center justify-center rounded outline-none"
+              className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"
             >
               {effectivePresentationPlaying ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
             </button>
-            <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(true); setPresentationStepIndex((index) => Math.max(0, index - 1)); }} aria-label={t('diagram.presentation.previous')} title={t('diagram.presentation.previous')} className="ar-overlay-tool flex h-8 w-8 items-center justify-center rounded outline-none"><SkipBack size={15} aria-hidden="true" /></button>
-            {/* 步数夹在左右步进键中间：播放器惯例，点步进键时视线不用移动；
-                字号与左下角 Excalidraw 原生缩放百分比（14px）保持一致 */}
+            <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.max(0, index - 1)); }} aria-label={t('diagram.presentation.previous')} title={t('diagram.presentation.previous')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><SkipBack size={15} aria-hidden="true" /></button>
+            <select
+              value={effectivePresentationStepIndex}
+              aria-label={t('diagram.presentation.selectStep')}
+              className="w-24 max-w-[12rem] min-w-0 bg-transparent px-1 text-xs outline-none sm:w-auto"
+              onChange={(event) => {
+                setPresentationActive(true);
+                setPresentationPlaying(false);
+                setPresentationStepIndex(Number(event.target.value));
+              }}
+            >
+              {presentation.steps.map((step, index) => (
+                <option key={step.id} value={index}>
+                  {step.title || t('diagram.presentation.unnamedStep', { number: index + 1 })}
+                </option>
+              ))}
+            </select>
             <span className="min-w-6 px-1 text-center text-[14px] tabular-nums" aria-live="polite">{presentationStepIndex + 1}/{presentation.steps.length}</span>
-            <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(true); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }} aria-label={t('diagram.presentation.next')} title={t('diagram.presentation.next')} className="ar-overlay-tool flex h-8 w-8 items-center justify-center rounded outline-none"><SkipForward size={15} aria-hidden="true" /></button>
-            {effectivePresentationActive && <button type="button" onClick={() => { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }} aria-label={t('diagram.presentation.stop')} title={t('diagram.presentation.stop')} className="ar-overlay-tool flex h-8 w-8 items-center justify-center rounded outline-none"><Square size={14} aria-hidden="true" /></button>}
+            <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }} aria-label={t('diagram.presentation.next')} title={t('diagram.presentation.next')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><SkipForward size={15} aria-hidden="true" /></button>
+            {effectivePresentationActive && <button type="button" onClick={() => { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }} aria-label={t('diagram.presentation.stop')} title={t('diagram.presentation.stop')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><Square size={14} aria-hidden="true" /></button>}
           </div>
         )}
       </div>

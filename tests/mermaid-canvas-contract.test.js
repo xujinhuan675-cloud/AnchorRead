@@ -108,3 +108,12 @@ test('render failures preserve the last successful diagram contract', () => {
   assert.equal(failed.renderedSource, ready.renderedSource);
   assert.equal(failed.error, 'Parse error');
 });
+
+test('presentation steps apply Mermaid visibility, focus camera, and highlight styling', () => {
+  assert.match(componentSource, /parseSvgViewBox/u);
+  assert.match(componentSource, /presentationStep\.focusElementIds/u);
+  assert.match(componentSource, /presentationStep\.camera/u);
+  assert.match(componentSource, /presentationStep\.highlightElementIds/u);
+  assert.match(componentSource, /requestAnimationFrame\(tick\)/u);
+  assert.match(componentSource, /viewBox/u);
+});
