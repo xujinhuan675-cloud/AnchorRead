@@ -336,6 +336,7 @@ export default function ReaderLabWorkspace({
   onDiagramResolved = () => {},
   onDocumentResolved = () => {},
   onOpenDocumentLibrary = null,
+  onOpenDiagramLibrary = null,
 }) {
   const { t } = useLocale();
   const isHomeLayout = layout === 'home';
@@ -437,6 +438,10 @@ export default function ReaderLabWorkspace({
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [busyAction, setBusyAction] = useState('');
   const [notice, setNotice] = useState(null);
+  // A stable route can outlive the browser profile that created it. Keep the
+  // missing-local-record state explicit instead of silently redirecting to an
+  // empty library and making the drawing look lost.
+  const [diagramResolutionError, setDiagramResolutionError] = useState(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [isWide, setIsWide] = useState(false);
   const [focusRange, setFocusRange] = useState(null);
@@ -1486,6 +1491,7 @@ export default function ReaderLabWorkspace({
 
     const restoreDiagramRequest = async () => {
       try {
+        setDiagramResolutionError(null);
         if (newDiagramRequestKey) {
           const now = Date.now();
           await createDrawing({
@@ -1524,9 +1530,14 @@ export default function ReaderLabWorkspace({
           if (drawing && !cancelled) setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
         }
         if (!drawing || cancelled) {
-          if (!cancelled) onDiagramResolved(null);
+          if (!cancelled) {
+            setHomeStarted(true);
+            setDiagramResolutionError({ requestedDrawingId });
+            onDiagramResolved(null, { reason: 'not_found', requestedDrawingId });
+          }
           return;
         }
+        if (!cancelled) setDiagramResolutionError(null);
         const drawingDocumentId = drawing.documentId;
         if (drawingDocumentId && drawingDocumentId !== STANDALONE_DIAGRAM_DOCUMENT_ID) {
           let requestedDocument = documents.find((item) => item.id === drawingDocumentId);
@@ -2313,6 +2324,26 @@ export default function ReaderLabWorkspace({
           />
         </main>
       </TooltipProvider>
+    );
+  }
+  if (diagramResolutionError) {
+    return (
+      <main className="flex h-full min-h-0 items-center justify-center bg-[#f5f7f6] px-6 text-stone-900 dark:bg-stone-950 dark:text-stone-100">
+        <section className="w-full max-w-xl rounded-lg border border-amber-200 bg-white p-8 text-center shadow-sm dark:border-amber-900 dark:bg-stone-900" role="alert">
+          <Network size={28} className="mx-auto text-amber-600 dark:text-amber-400" aria-hidden="true" />
+          <h1 className="mt-4 text-lg font-semibold">{t('workspace.diagramMissingTitle')}</h1>
+          <p className="mt-3 text-sm leading-6 text-stone-600 dark:text-stone-300">{t('workspace.diagramMissingBody')}</p>
+          <div className="mt-6 flex justify-center">
+            <button
+              type="button"
+              onClick={() => onOpenDiagramLibrary?.()}
+              className="inline-flex h-9 items-center rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
+            >
+              {t('workspace.openDiagramLibrary')}
+            </button>
+          </div>
+        </section>
+      </main>
     );
   }
   if (!currentDocument) {

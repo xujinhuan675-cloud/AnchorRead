@@ -12,6 +12,7 @@ const appTopNav = readSource('../components/AppTopNav.jsx');
 const readerLabPageShell = readSource('../components/ReaderLabPageShell.jsx');
 const diagramLibraryPage = readSource('../app/diagrams/page.js');
 const diagramLibraryShell = readSource('../components/DiagramLibraryPageShell.jsx');
+const diagramAgentBridge = readSource('../components/DiagramAgentBridge.jsx');
 const diagramLibrary = readSource('../components/reader-lab/DiagramLibrary.jsx');
 const diagramThumbnail = readSource('../components/reader-lab/DiagramThumbnail.jsx');
 const diagramLibraryLib = readSource('../lib/diagram-library.js');
@@ -104,6 +105,19 @@ test('diagram library routes are separate from the editor and preserve drawing h
   assert.match(diagramDetailRoute, /import Home from ['"]\.\.\/\.\.\/page['"]/);
   assert.match(homePage, /router\.push\('\/diagrams'\)/);
   assert.match(homePage, /requestedDrawingId=\{diagramRequest\?\.drawingId/);
+  // MCP creation only writes the current browser's IndexedDB and returns a
+  // link; it must not steal the user's current tab. A route missing from this
+  // profile is rendered as an explicit recovery state instead of a redirect.
+  assert.doesNotMatch(diagramAgentBridge, /router\.push\(/);
+  assert.match(diagramAgentBridge, /detail: \{ drawing, open: false, openRequested: open \}/);
+  assert.match(diagramAgentBridge, /searchParams\.get\('diagramWake'\)/);
+  assert.match(diagramAgentBridge, /request\.id === wakeRequestId/);
+  assert.match(diagramAgentBridge, /window\.location\.replace\(nextUrl\.href\)/);
+  assert.match(homePage, /if \(resolution\.reason !== 'not_found'\) router\.replace\('\/diagrams'\)/);
+  assert.match(readerLabWorkspace, /diagramResolutionError/);
+  assert.match(readerLabWorkspace, /onDiagramResolved\(null, \{ reason: 'not_found', requestedDrawingId \}\)/);
+  assert.match(readerLabWorkspace, /workspace\.diagramMissingBody/);
+  assert.match(homePage, /onOpenDiagramLibrary=\{\(\) => router\.push\('\/diagrams'\)\}/);
   assert.match(readerLabWorkspace, /newDiagramRequestKey/);
   assert.match(readerLabWorkspace, /createDocumentDrawingId\(STANDALONE_DIAGRAM_DOCUMENT_ID/);
   assert.match(readerQuickImport, /t\('home\.quick\.recentDocuments'\)/);

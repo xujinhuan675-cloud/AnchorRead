@@ -101,9 +101,12 @@ export default function Home() {
     router.push(buildNewDiagramPath());
   };
 
-  const handleDiagramResolved = useCallback((drawing) => {
+  const handleDiagramResolved = useCallback((drawing, resolution = {}) => {
+    // A route can point to a drawing stored in another browser profile. The
+    // workspace renders an explicit recovery state; do not silently redirect
+    // and make a local-only drawing appear to have disappeared.
     if (!drawing?.id || !drawing.documentId) {
-      router.replace('/diagrams');
+      if (resolution.reason !== 'not_found') router.replace('/diagrams');
       return;
     }
     setMode('diagram');
@@ -193,6 +196,7 @@ export default function Home() {
           }}
           onCurrentDocumentChange={setCurrentDocument}
           onOpenDocumentLibrary={() => router.push('/reader-lab')}
+          onOpenDiagramLibrary={() => router.push('/diagrams')}
           onCreateDiagram={handleCreateDiagram}
           onOpenDiagram={(drawing) => {
             if (!drawing) {
