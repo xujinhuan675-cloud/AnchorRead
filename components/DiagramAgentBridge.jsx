@@ -1,11 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { executeDiagramAgentCommand } from '@/lib/diagram-agent-commands';
-import { getDiagramRouteId } from '@/lib/diagram-route-id';
 import { workspaceRepository } from '@/lib/local-workspace-db';
-import { buildDiagramPath } from '@/lib/workspace-routes';
 import {
   createDiagramAgentIdentity,
   createDiagramAgentSession,
@@ -18,7 +16,6 @@ export const DIAGRAM_AGENT_PENDING_PRESENTATION_KEY = 'anchor-read:pending-diagr
 export const DIAGRAM_AGENT_CONNECTION_EVENT = 'anchor-read:diagram-agent-connection';
 
 export default function DiagramAgentBridge() {
-  const router = useRouter();
   const pathname = usePathname();
   const bridgeEnabled = /^\/diagrams(?:\/|$)/u.test(pathname || '');
   const clientIdRef = useRef(null);
@@ -26,6 +23,7 @@ export default function DiagramAgentBridge() {
   useEffect(() => {
     if (!bridgeEnabled) return undefined;
     const identity = createDiagramAgentIdentity();
+    const wakeRequestId = new URL(window.location.href).searchParams.get('diagramWake') || '';
     clientIdRef.current = identity.clientId;
     let cancelled = false;
     let pollController = null;
@@ -46,7 +44,7 @@ export default function DiagramAgentBridge() {
     const emitConnection = (detail) => {
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_CONNECTION_EVENT, { detail }));
     };
-    const isActiveTab = () => document.visibilityState !== 'hidden';
+    const isActiveTab = () => Boolean(wakeRequestId) || document.visibilityState !== 'hidden';
     const disconnectPairing = () => fetch('/api/mcp/pairing', {
       method: 'POST',
       headers: pairingHeaders,
@@ -58,7 +56,10 @@ export default function DiagramAgentBridge() {
       pollController?.abort();
       if (disconnect) disconnectPairing();
     };
-    const refreshSession = () => session.acquire({ visible: document.visibilityState !== 'hidden', focused: typeof document.hasFocus !== 'function' || document.hasFocus() });
+    const refreshSession = () => session.acquire({
+      visible: Boolean(wakeRequestId) || document.visibilityState !== 'hidden',
+      focused: Boolean(wakeRequestId) || typeof document.hasFocus !== 'function' || document.hasFocus(),
+    });
     const respond = async (request, result, error) => {
       await fetch('/api/diagram-agent', {
         method: 'POST',
@@ -68,6 +69,7 @@ export default function DiagramAgentBridge() {
           ...pairingBody(),
           id: request.id,
           claimToken: request.claimToken,
+          ...(wakeRequestId ? { wakeRequestId } : {}),
           ...(error ? { error: String(error?.message || error) } : { result }),
         }),
       }).catch(() => {});
@@ -85,8 +87,11 @@ export default function DiagramAgentBridge() {
       return payload.connection;
     };
     const publishDrawing = (drawing, { open = true } = {}) => {
+      // The MCP result carries the open request and resource link. Keep this
+      // tab as a background IndexedDB writer: changing its route here would
+      // interrupt whatever the user is doing in the default browser.
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_DRAWING_EVENT, {
-        detail: { drawing, open },
+        detail: { drawing, open: false, openRequested: open },
       }));
       syncChannel?.postMessage({
         type: 'drawing-upsert',
@@ -94,7 +99,6 @@ export default function DiagramAgentBridge() {
         drawing,
         emittedAt: Date.now(),
       });
-      if (open) router.push(buildDiagramPath(getDiagramRouteId(drawing)));
     };
     const publishPresentation = (detail) => {
       window.sessionStorage.setItem(DIAGRAM_AGENT_PENDING_PRESENTATION_KEY, JSON.stringify(detail));
@@ -102,7 +106,7 @@ export default function DiagramAgentBridge() {
     };
     const poll = async () => {
       while (!cancelled) {
-        if (!refreshSession()) {
+        if (!wakeRequestId && !refreshSession()) {
           await new Promise((resolve) => window.setTimeout(resolve, 500));
           continue;
         }
@@ -115,8 +119,9 @@ export default function DiagramAgentBridge() {
             tabId,
             workspaceId,
             browserSessionId,
-            visible: String(document.visibilityState !== 'hidden'),
-            focused: String(typeof document.hasFocus !== 'function' || document.hasFocus()),
+            visible: String(Boolean(wakeRequestId) || document.visibilityState !== 'hidden'),
+            focused: String(Boolean(wakeRequestId) || typeof document.hasFocus !== 'function' || document.hasFocus()),
+            wakeRequestId,
             href: window.location.href,
           });
           const response = await fetch(`/api/diagram-agent?${presence}`, {
@@ -136,7 +141,7 @@ export default function DiagramAgentBridge() {
             if (cancelled) break;
             // A tab that lost focus after claiming a request must not open or
             // mutate the user's newly focused tab. Return a retryable error.
-            if (!isActiveTab() || !session.isOwner()) {
+            if (!isActiveTab() || (!wakeRequestId && !session.isOwner())) {
               await respond(request, undefined, new Error('AnchorRead browser tab is no longer active; retry the diagram command.'));
               continue;
             }
@@ -147,6 +152,13 @@ export default function DiagramAgentBridge() {
                 onPresentation: publishPresentation,
               });
               await respond(request, result);
+              if (wakeRequestId && request.id === wakeRequestId && result?.url) {
+                const nextUrl = new URL(result.url, window.location.origin);
+                if (nextUrl.origin === window.location.origin && /^\/diagrams\//u.test(nextUrl.pathname)) {
+                  window.location.replace(nextUrl.href);
+                  return;
+                }
+              }
             } catch (error) {
               await respond(request, undefined, error);
             }
@@ -164,11 +176,11 @@ export default function DiagramAgentBridge() {
     const handleBlur = () => {
       // Keep a visible tab available while the user works in another app;
       // hidden tabs still release immediately through visibilitychange.
-      if (document.visibilityState === 'hidden') releaseSession({ disconnect: true });
+      if (!wakeRequestId && document.visibilityState === 'hidden') releaseSession({ disconnect: true });
       else refreshSession();
     };
     const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') releaseSession({ disconnect: true });
+      if (!wakeRequestId && document.visibilityState === 'hidden') releaseSession({ disconnect: true });
       else refreshSession();
     };
     window.addEventListener('focus', handleFocus);
@@ -177,11 +189,11 @@ export default function DiagramAgentBridge() {
     const connect = async () => {
       while (!cancelled) {
         try {
-          if (!refreshSession()) {
+          if (!wakeRequestId && !refreshSession()) {
             await new Promise((resolve) => window.setTimeout(resolve, 500));
             continue;
           }
-          await register();
+          if (!wakeRequestId) await register();
           if (!cancelled) await poll();
           return;
         } catch (error) {
@@ -199,7 +211,7 @@ export default function DiagramAgentBridge() {
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [bridgeEnabled, router]);
+  }, [bridgeEnabled]);
 
   return null;
 }

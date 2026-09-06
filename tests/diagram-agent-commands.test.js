@@ -24,7 +24,8 @@ test('creates and reads a diagram in the browser workspace without a file round-
   assert.equal(created.documentId, STANDALONE_DIAGRAM_DOCUMENT_ID);
   assert.equal(created.revision, 1);
   assert.match(created.url, new RegExp(`/diagrams/${created.routeId}$`));
-  assert.equal(created.openAction, 'navigate_current_tab');
+  assert.equal(created.openAction, 'open_url_if_supported');
+  assert.equal(created.openTarget, 'default_browser');
   assert.equal(created.openResource.kind, 'diagram');
   assert.equal(opened.id, created.id);
   assert.equal((await workspace.drawings.list()).length, 1);
