@@ -189,7 +189,7 @@ test('live mode exposes create_diagram and forwards it to the browser bridge', a
       received = JSON.parse(body);
       receivedToken = request.headers['x-anchorread-bridge-token'] || '';
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ ok: true, result: { id: 'live-1', routeId: 'dg-12345678' } }));
+      response.end(JSON.stringify({ ok: true, requestId: 'wake-live-1' }));
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -205,8 +205,8 @@ test('live mode exposes create_diagram and forwards it to the browser bridge', a
     const createTool = responses[0].result.tools.find((tool) => tool.name === 'create_diagram');
     assert.ok(createTool);
     assert.equal(createTool._meta.ui.resourceUri, DIAGRAM_MCP_APP_RESOURCE_URI);
-    assert.match(responses[1].result.content[0].text, /live-1/);
-    assert.equal(received.action, 'submit');
+    assert.match(responses[1].result.content[0].text, /wake-live-1/);
+    assert.equal(received.action, 'queue');
     assert.equal(received.request.tool, 'create_diagram');
     assert.equal(received.request.args.title, 'Live concept');
     assert.equal(receivedToken, 'test-token');

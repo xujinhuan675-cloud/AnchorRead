@@ -56,6 +56,7 @@ import {
   createMcpToolResult,
   createInlineDiagramResult,
   createInlineViewToolResult,
+  createDeferredDiagramResult,
 } from '../lib/diagram-mcp-links.js';
 import {
   DIAGRAM_MCP_INSTRUCTIONS,
@@ -350,7 +351,7 @@ const CREATE_TOOL = {
     ui: { resourceUri: DIAGRAM_MCP_APP_RESOURCE_URI },
     'ui/resourceUri': DIAGRAM_MCP_APP_RESOURCE_URI,
   },
-  description: '创建并保存一个新图解。浏览器在线时写入 AnchorRead 工作区并可自动打开；浏览器暂时不可用时，只要传入 scene/elements/source，内容仍会直接渲染到当前对话画布。结果同时包含可打开的 resource_link。优先传入完整 Excalidraw scene 或 elements；也可传 Mermaid source。',
+  description: '创建并保存一个新图解。浏览器在线时写入当前浏览器的本地 IndexedDB；open=true（默认）只请求客户端在用户的默认浏览器中打开返回链接，不会强制当前标签页跳转。浏览器暂时不可用时，只要传入 scene/elements/source，内容仍会直接渲染到当前对话画布。结果同时包含可打开的 resource_link。优先传入完整 Excalidraw scene 或 elements；也可传 Mermaid source。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -366,7 +367,7 @@ const CREATE_TOOL = {
       intent: { type: 'string' },
       presentation: { type: 'object' },
       stream: { type: 'boolean', description: '兼容性流式输入：元素可含 cameraUpdate/delete 伪元素；普通有内容的 Excalidraw 图解也会自动生成播放步骤。' },
-      open: { type: 'boolean', description: '是否在当前 AnchorRead 标签页打开，默认 true。' },
+      open: { type: 'boolean', description: '是否请求客户端在用户的默认浏览器中打开返回链接，默认 true；不会强制当前标签页跳转。' },
     },
     required: ['title'],
     additionalProperties: false,
@@ -834,6 +835,28 @@ async function callBridgeTool(name, args = {}) {
   const headers = { 'content-type': 'application/json' };
   const token = String(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN || '').trim();
   if (token) headers['x-anchorread-bridge-token'] = token;
+  if (name === 'create_diagram' && args.open !== false) {
+    let response;
+    try {
+      response = await fetch(bridgeUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'queue', request: { tool: name, args }, ttlMs: 2 * 60_000 }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (error) {
+      const wrapped = new Error(`无法连接 AnchorRead live bridge ${bridgeUrl}: ${error?.message || error}`);
+      wrapped.code = 'BROWSER_SESSION_OFFLINE';
+      throw wrapped;
+    }
+    const body = await response.json().catch(() => ({}));
+    if (response.ok && body?.ok && body.requestId) {
+      return textResult(createDeferredDiagramResult(args, body.requestId, { baseUrl: bridgeUrl }));
+    }
+    const error = new Error(body?.error || `AnchorRead live bridge queue failed (${response.status}).`);
+    error.code = String(body?.code || '').trim() || `BRIDGE_HTTP_${response.status}`;
+    throw error;
+  }
   const timeoutMs = Math.max(5_000, Math.min(Number(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TIMEOUT_MS) || 90_000, 180_000));
   let response;
   try {

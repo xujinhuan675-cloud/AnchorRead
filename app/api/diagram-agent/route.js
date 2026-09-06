@@ -73,6 +73,25 @@ function pairingError(error) {
   return jsonError(String(error?.message || error), status, code);
 }
 
+async function queueWakeRequest(body) {
+  const command = body?.request;
+  if (!command || typeof command !== 'object' || !command.tool) {
+    return jsonError('A diagram bridge request must include tool and args.');
+  }
+  try {
+    const transport = getDiagramAgentTransport();
+    const { id, promise } = await transport.createRequest(command, {
+      ttlMs: body?.ttlMs || 2 * 60_000,
+      wakeOnly: true,
+    });
+    promise.catch(() => {});
+    return NextResponse.json({ ok: true, requestId: id });
+  } catch (error) {
+    const status = error?.code === 'BRIDGE_QUEUE_FULL' ? 429 : 503;
+    return jsonError(String(error?.message || error), status, error?.code || 'BRIDGE_ERROR');
+  }
+}
+
 export async function GET(request) {
   const url = new URL(request.url);
   const action = url.searchParams.get('action') || 'poll';
@@ -83,6 +102,7 @@ export async function GET(request) {
   const browserSessionId = url.searchParams.get('browserSessionId') || '';
   const visible = url.searchParams.get('visible') !== 'false';
   const focused = url.searchParams.get('focused') !== 'false';
+  const wakeRequestId = url.searchParams.get('wakeRequestId') || '';
   const href = url.searchParams.get('href') || '';
   const context = pairingContext(request, { clientId, tabId, workspaceId, browserSessionId, href });
   const store = getDiagramMcpPairingStore();
@@ -108,15 +128,17 @@ export async function GET(request) {
     }
   }
   if (action !== 'poll') return jsonError(`Unsupported diagram bridge GET action: ${action}`);
-  try {
-    await store.registerConnection(context, { replace: false });
-  } catch (error) {
-    return pairingError(error);
+  if (!wakeRequestId) {
+    try {
+      await store.registerConnection(context, { replace: false });
+    } catch (error) {
+      return pairingError(error);
+    }
   }
   const waitMs = Math.max(0, Math.min(Number(url.searchParams.get('waitMs')) || 0, 25_000));
   const requests = waitMs
-    ? await transport.waitForRequests(clientId, { waitMs, client: { tabId, workspaceId, browserSessionId, visible, focused, href } })
-    : await transport.claimRequests(clientId, { client: { tabId, workspaceId, browserSessionId, visible, focused, href } });
+    ? await transport.waitForRequests(clientId, { waitMs, wakeRequestId, client: { tabId, workspaceId, browserSessionId, visible, focused, href } })
+    : await transport.claimRequests(clientId, { wakeRequestId, client: { tabId, workspaceId, browserSessionId, visible, focused, href } });
   return NextResponse.json({ ok: true, requests });
 }
 
@@ -154,11 +176,15 @@ export async function POST(request) {
       return jsonError(String(error?.message || error), status, error?.code || 'BRIDGE_ERROR');
     }
   }
+  if (action === 'queue') return queueWakeRequest(body);
   if (action === 'resolve') {
-    try {
-      await getDiagramMcpPairingStore().assertConnectionOwner(pairingContext(request, body));
-    } catch (error) {
-      return pairingError(error);
+    const wakeRequestId = String(body?.wakeRequestId || '').trim();
+    if (!wakeRequestId || wakeRequestId !== String(body?.id || '').trim()) {
+      try {
+        await getDiagramMcpPairingStore().assertConnectionOwner(pairingContext(request, body));
+      } catch (error) {
+        return pairingError(error);
+      }
     }
     const accepted = await getDiagramAgentTransport().resolveRequest(
       body?.id,

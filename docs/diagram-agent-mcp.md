@@ -1,6 +1,6 @@
 # AnchorRead Diagram MCP
 
-AnchorRead 的图解 MCP 默认连接当前打开的本地浏览器页面。MCP 只提交结构化命令；浏览器桥接在页面内读取和写入 IndexedDB，并按请求自动打开新图解。`.anchorread` 文件只用于用户主动执行的离线备份、导入导出和迁移，不是实时交互的中间层。
+AnchorRead 的图解 MCP 默认连接当前打开的浏览器工作区。MCP 只提交结构化命令；浏览器桥接在页面内读取和写入 IndexedDB。需要展示新图解时，MCP 返回链接并请求客户端通过操作系统默认浏览器打开，不会强制正在执行桥接的标签页跳转。`.anchorread` 文件只用于用户主动执行的离线备份、导入导出和迁移，不是实时交互的中间层。
 
 ## MCP 配置
 
@@ -44,7 +44,7 @@ public client，打开授权页并让用户点击“允许连接”。原生客�
 授权页会把用户带到 `/diagrams?mcp=oauth_approve&transaction=...`，当前图解页用本地浏览器身份完成确认，随后
 回调客户端。客户端用 `code_verifier` 换取短期 access token 和轮换 refresh token；access token 仍使用
 `Authorization: Bearer` 访问 `/mcp`。访问令牌绑定到用户确认的浏览器；浏览器关闭或离线时，MCP 会返回图解页链接，
-支持打开 URL 的客户端应自动打开，不支持的客户端提示用户手动打开。
+支持打开 URL 的客户端应使用用户的默认浏览器自动打开，不支持的客户端提示用户手动打开。
 
 `/mcp/authorize` 只保留为 OAuth 连接说明页。手工生成、复制和长期保存的静态 Bearer Token 已弃用；连接面板和
 `/api/mcp/pairing` 不再提供 Token 创建、轮换或撤销接口，旧的非过期 Token 记录也不会被加载或接受。
@@ -98,7 +98,9 @@ ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
 
 客户端需要让用户进入 AnchorRead 时，先调用 `open_diagram_workspace`。它会立即返回一个 MCP `resource_link`，支持浏览器或打开 URL 的 AI 客户端可以直接打开；它不依赖已配对的浏览器在线。
 
-`create_diagram` 接收 `title`、`engine`，以及 Mermaid 的 `source`、Excalidraw 的 `elements` 或完整 `scene`。默认 `open: true`，浏览器在线时当前 AnchorRead 标签页会打开新图解并将它保存到本地工作区；浏览器暂时不可用时，带有内容的请求会直接在当前对话画布中渲染。
+`create_diagram` 接收 `title`、`engine`，以及 Mermaid 的 `source`、Excalidraw 的 `elements` 或完整 `scene`。默认 `open: true`，浏览器在线时图解会保存到该浏览器的本地 IndexedDB，同时返回链接供客户端用系统默认浏览器打开；桥接标签页不会被强制跳转。浏览器暂时不可用时，带有内容的请求会直接在当前对话画布中渲染。
+
+如果创建时没有浏览器工作区在线，创建命令只在 MCP 进程内短时排队两分钟。客户端打开返回的一次性 `diagramWake` 链接后，默认浏览器页面领取该命令、写入自己的 IndexedDB，再进入新图解。链接不携带 scene，队列到期即丢弃，服务器不会把它当成图解库长期保存。
 
 有内容的 Mermaid 或 Excalidraw 图解会自动生成按节点/DSL 行推进的播放脚本，并在 `open: true` 的创建流程中自动开始播放；也可以通过 `play_presentation`、`pause_presentation`、`next_presentation_step`、`previous_presentation_step` 和 `stop_presentation` 控制。需要关闭默认脚本时显式传 `presentation: false`。
 

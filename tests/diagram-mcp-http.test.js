@@ -9,6 +9,11 @@ import {
   resetDiagramMcpPairingStoreForTests,
 } from '../lib/diagram-mcp-pairing-store.js';
 import { DIAGRAM_MCP_APP_RESOURCE_URI, DIAGRAM_MCP_APP_MIME_TYPE } from '../lib/diagram-mcp-app-resource.js';
+import {
+  claimDiagramAgentRequests,
+  resetDiagramAgentBrokerForTests,
+  resolveDiagramAgentRequest,
+} from '../lib/diagram-agent-broker.js';
 
 function request(url, body, headers = {}, method = 'POST') {
   return new Request(url, {
@@ -177,6 +182,60 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
   } finally {
     if (previousKey === undefined) delete process.env.ANCHORREAD_MCP_API_KEY;
     else process.env.ANCHORREAD_MCP_API_KEY = previousKey;
+  }
+});
+
+test('offline create queues a one-time wake command for the default browser', async () => {
+  resetDiagramAgentBrokerForTests();
+  try {
+    const initialize = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 70, method: 'initialize', params: {},
+    }));
+    const sessionId = initialize.headers.get('mcp-session-id');
+    const created = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 71, method: 'tools/call', params: {
+        name: 'create_diagram',
+        arguments: {
+          title: 'Default browser wake',
+          engine: 'excalidraw',
+          elements: [{ id: 'wake-node', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }],
+        },
+      },
+    }, { 'MCP-Session-Id': sessionId }));
+    const result = (await created.json()).result.structuredContent;
+    assert.equal(result.queued, true);
+    assert.equal(result.openTarget, 'default_browser');
+    assert.match(result.url, /\/diagrams\?diagramWake=/u);
+    assert.doesNotMatch(result.url, /wake-node/u);
+    assert.deepEqual(claimDiagramAgentRequests('ordinary-browser'), []);
+    const claimed = claimDiagramAgentRequests('default-browser', { wakeRequestId: result.requestId });
+    assert.equal(claimed[0].payload.args.elements[0].id, 'wake-node');
+    resolveDiagramAgentRequest(result.requestId, claimed[0].claimToken, { ok: true });
+  } finally {
+    resetDiagramAgentBrokerForTests();
+  }
+});
+
+test('default create always hands off to a fresh default-browser tab', async () => {
+  resetDiagramAgentBrokerForTests();
+  try {
+    const initialize = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 72, method: 'initialize', params: {},
+    }));
+    const sessionId = initialize.headers.get('mcp-session-id');
+    const created = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 73, method: 'tools/call', params: {
+        name: 'create_diagram',
+        arguments: { title: 'Fresh tab', engine: 'excalidraw', elements: [] },
+      },
+    }, { 'MCP-Session-Id': sessionId }));
+    const result = (await created.json()).result.structuredContent;
+    assert.equal(result.queued, true);
+    assert.deepEqual(claimDiagramAgentRequests('already-open-tab'), []);
+    const claimed = claimDiagramAgentRequests('fresh-default-browser-tab', { wakeRequestId: result.requestId });
+    resolveDiagramAgentRequest(result.requestId, claimed[0].claimToken, { ok: true });
+  } finally {
+    resetDiagramAgentBrokerForTests();
   }
 });
 

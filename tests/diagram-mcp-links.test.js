@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildDiagramUrl,
+  buildDiagramWakeUrl,
   buildDiagramWorkspaceUrl,
   createInlineDiagramResult,
   createInlineViewResult,
   createInlineViewToolResult,
+  createDeferredDiagramResult,
   createMcpBrowserRecoveryResult,
   createMcpToolResult,
 } from '../lib/diagram-mcp-links.js';
@@ -46,6 +48,7 @@ test('browser recovery result adds a workspace link only for browser-unavailable
   assert.equal(recovery.content[1].uri, 'https://anchorread.example/diagrams');
   assert.equal(recovery.structuredContent.url, 'https://anchorread.example/diagrams');
   assert.equal(recovery.structuredContent.openRequested, true);
+  assert.equal(recovery.structuredContent.openTarget, 'default_browser');
   assert.match(recovery.content[0].text, /open_diagram_workspace_then_retry/);
   assert.equal(createMcpBrowserRecoveryResult(new Error('bad request')), null);
 });
@@ -65,6 +68,33 @@ test('inline MCP results retain scene content without a browser bridge', () => {
   assert.equal(inferredExcalidraw.presentation.steps.length, 1);
   assert.deepEqual(inferredExcalidraw.presentation.steps[0].focusElementIds, ['node-1']);
   assert.equal(createInlineDiagramResult({ title: 'Empty', engine: 'mermaid' }), null);
+});
+
+test('deferred diagram links wake the default browser without carrying scene data in the URL', () => {
+  assert.equal(
+    buildDiagramWakeUrl('request id', { baseUrl: 'https://anchorread.example/mcp' }),
+    'https://anchorread.example/diagrams?diagramWake=request%20id',
+  );
+  const deferred = createDeferredDiagramResult({
+    title: 'Local-only',
+    engine: 'excalidraw',
+    elements: [{ id: 'local-node', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }],
+  }, 'wake-123', { baseUrl: 'https://anchorread.example/mcp' });
+  assert.equal(deferred.queued, true);
+  assert.equal(deferred.openTarget, 'default_browser');
+  assert.equal(deferred.url, 'https://anchorread.example/diagrams?diagramWake=wake-123');
+  assert.doesNotMatch(deferred.url, /local-node/u);
+});
+
+test('workspace links never expose an internal container bind address', () => {
+  assert.equal(
+    buildDiagramWorkspaceUrl({ baseUrl: 'https://0.0.0.0:3000/mcp' }),
+    'https://anchorread.flowguide.cc/diagrams',
+  );
+  assert.equal(
+    buildDiagramWakeUrl('wake-123', { baseUrl: 'http://[::]:3000/mcp' }),
+    'https://anchorread.flowguide.cc/diagrams?diagramWake=wake-123',
+  );
 });
 
 test('inline view tool results expose a structured Excalidraw payload', () => {

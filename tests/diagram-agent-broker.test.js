@@ -63,3 +63,17 @@ test('a scoped request is only claimable by its exact workspace and browser sess
   resolveDiagramAgentRequest(id, claimed[0].claimToken, { ok: true });
   await promise;
 });
+
+test('a deferred browser wake request requires its one-time request id', async () => {
+  const { id, promise } = createDiagramAgentRequest(
+    { tool: 'create_diagram', args: { title: 'Wake me' } },
+    { wakeOnly: true },
+  );
+  claimDiagramAgentRequests('already-open-client', { client: { visible: true, focused: true } });
+  assert.deepEqual(claimDiagramAgentRequests('ordinary-client'), []);
+  assert.deepEqual(claimDiagramAgentRequests('wrong-wake-client', { wakeRequestId: 'wrong' }), []);
+  const claimed = claimDiagramAgentRequests('default-browser-client', { wakeRequestId: id });
+  assert.equal(claimed[0]?.id, id);
+  resolveDiagramAgentRequest(id, claimed[0].claimToken, { ok: true });
+  await promise;
+});
