@@ -81,11 +81,14 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /React\.createElement\(Square/);
   assert.doesNotMatch(resource.text, /presentationPlaying \? '\|\|' : '>'/);
   assert.match(resource.text, /在 AnchorRead 中打开/);
+  assert.match(resource.text, /diagramResourceKind/);
+  assert.match(resource.text, /在默认浏览器中打开并进入当前图解/);
+  assert.match(resource.text, /打开 AnchorRead 图解工作区/);
   assert.match(resource.text, /\.replace\(\/<script\[\\s\\S\]\*\?<\\\/script>\/gi/);
   assert.equal(resource.text.split('</script>').length - 1, 1);
   assert.doesNotMatch(resource.text, /<script\[sS\]\*\?<\/script>/);
   assert.doesNotMatch(resource.text, /\.replace\(\/s\+on\[a-z-\]/);
-  assert.match(resource.text, /MCP Apps delivers the renderable data through ontoolinput/);
+  assert.match(resource.text, /Prefer the typed result channel when a host does not forward/);
   assert.match(resource.text, /result\?\.structuredContent \?\? result\?\.structured_content/);
   assert.match(resource.text, /value\.engine === 'excalidraw'/);
   assert.match(resource.text, /applyInput\(value, false\)/);

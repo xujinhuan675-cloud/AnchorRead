@@ -37,6 +37,7 @@ test('MCP result adds a standard resource link for openable resources', () => {
   assert.equal(result.content[0].type, 'text');
   assert.equal(result.content[1].type, 'resource_link');
   assert.equal(result.content[1].uri, 'https://anchorread.example/diagrams/dg-1234');
+  assert.equal(result.structuredContent.openResource.kind, 'diagram');
 });
 
 test('browser recovery result adds a workspace link only for browser-unavailable errors', () => {
@@ -104,6 +105,28 @@ test('inline view tool results expose a structured Excalidraw payload', () => {
   assert.equal(result.content[0].type, 'text');
   assert.equal(result.structuredContent.engine, 'excalidraw');
   assert.equal(result.structuredContent.scene.elements[0].id, 'structured-rect');
+});
+
+test('text-wrapped diagram results retain structured content for MCP Apps', () => {
+  const inline = createMcpToolResult(createInlineDiagramResult({
+    title: 'Inline flow',
+    engine: 'mermaid',
+    source: 'flowchart TD\nA-->B',
+  }));
+  assert.equal(inline.structuredContent.engine, 'mermaid');
+  assert.equal(inline.structuredContent.source, 'flowchart TD\nA-->B');
+
+  const deferred = createMcpToolResult(createDeferredDiagramResult({
+    title: 'Queued flow',
+    engine: 'excalidraw',
+    elements: [{ id: 'queued-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }],
+  }, 'wake-structured', { baseUrl: 'https://anchorread.example/mcp' }));
+  assert.equal(deferred.structuredContent.queued, true);
+  assert.equal(deferred.structuredContent.scene.elements[0].id, 'queued-rect');
+  assert.match(deferred.structuredContent.url, /diagramWake=wake-structured/u);
+
+  const metadata = createMcpToolResult({ title: 'Metadata only' });
+  assert.equal(metadata.structuredContent.title, 'Metadata only');
 });
 
 test('inline diagram payloads preserve named phase focus and camera steps', () => {

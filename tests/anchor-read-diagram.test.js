@@ -206,6 +206,8 @@ test('live mode exposes create_diagram and forwards it to the browser bridge', a
     assert.ok(createTool);
     assert.equal(createTool._meta.ui.resourceUri, DIAGRAM_MCP_APP_RESOURCE_URI);
     assert.match(responses[1].result.content[0].text, /wake-live-1/);
+    assert.equal(responses[1].result.structuredContent.queued, true);
+    assert.equal(responses[1].result.structuredContent.openTarget, 'default_browser');
     assert.equal(received.action, 'queue');
     assert.equal(received.request.tool, 'create_diagram');
     assert.equal(received.request.args.title, 'Live concept');
@@ -253,6 +255,8 @@ test('live mode keeps diagram content in the chat when the browser is offline', 
     assert.equal(responses[0].result.isError, undefined);
     assert.match(responses[0].result.content[0].text, /flowchart TD/);
     assert.match(responses[0].result.content[0].text, /对话画布/);
+    assert.equal(responses[0].result.structuredContent.engine, 'mermaid');
+    assert.equal(responses[0].result.structuredContent.source, 'flowchart TD\nA-->B');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
