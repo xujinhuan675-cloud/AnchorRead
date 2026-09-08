@@ -1,23 +1,40 @@
-﻿[CmdletBinding()]
+﻿<#
+.SYNOPSIS
+    AnchorRead 部署触发器：触发 GitHub Actions 的 Deploy 工作流并监控到结束，再做线上健康检查。
+
+.DESCRIPTION
+    构建与部署已迁移到 CI/CD（见 .github/workflows/deploy.yml）：
+      - GitHub Actions 在托管 runner 构建 linux/amd64 镜像并推送到 GHCR；
+      - 通过 SSH 调用 scripts/remote-deploy.sh 在生产服务器 docker pull + 蓝绿切换。
+    本脚本不再在本地或服务器构建，只负责「触发 + 监控 + 线上校验」。
+
+    两种触发方式：
+      - 默认：workflow_dispatch 手动触发（要求 deploy.yml 已在默认分支）。
+      - -Push：先把 HEAD 推到 origin/<Ref>，push 事件自动触发部署；
+               若远端已是最新（无 push 事件），自动回退为 workflow_dispatch。
+
+    首次使用请用 -Push：deploy.yml 尚未上默认分支时 workflow_dispatch 不可用，
+    而 push 事件会用被推送的提交里的 workflow 直接触发首次部署。
+
+.EXAMPLE
+    .\scripts\deploy-server.ps1 -Push
+.EXAMPLE
+    .\scripts\deploy-server.ps1            # 手动重新部署当前 main
+#>
+[CmdletBinding()]
 param(
-  [string]$SshTarget = 'lcayun-1panel',
-  [string]$RemoteDir = '/opt/anchorread',
-  [string]$Branch = 'main',
-  [string]$ContainerName = 'anchorread',
-  [string]$ImageRepository = 'anchorread',
-  [string]$DataVolume = 'anchorread-data',
-  [int]$HostPort = 3001,
-  [int]$CandidatePort = 3002,
+  [string]$Ref = 'main',
+  [string]$Workflow = 'deploy.yml',
   [string]$HealthUrl = 'https://anchorread.flowguide.cc/',
-  [string]$PublicUrl = 'https://anchorread.flowguide.cc',
+  [int]$RunWaitSeconds = 150,
   [switch]$Push,
   [switch]$SkipHealthCheck
 )
 
 $ErrorActionPreference = 'Stop'
 
-# 原生命令（git/ssh/docker）的 stderr 进度输出不是错误：Stop 偏好会把 stderr
-# 错误记录升级为 NativeCommandError 并终止语句，必须以退出码为准。
+# 原生命令（git/gh）的进度信息走 stderr：Stop 偏好会把它升级为错误并中断，
+# 故统一以退出码判定成败。
 function Invoke-NativeCapture {
   param([Parameter(Mandatory)] [scriptblock]$ScriptBlock)
   $previousPreference = $ErrorActionPreference
@@ -31,212 +48,82 @@ function Invoke-NativeCapture {
   }
 }
 
-function Invoke-CheckedCommand {
-  param(
-    [Parameter(Mandatory)] [string]$FilePath,
-    [Parameter(Mandatory)] [string[]]$Arguments
-  )
+if ($Ref -notmatch '^[a-zA-Z0-9._/-]+$') { throw 'Ref 含不支持的字符。' }
+if ($Workflow -notmatch '^[a-zA-Z0-9._-]+$') { throw 'Workflow 含不支持的字符。' }
 
-  $result = Invoke-NativeCapture { & $FilePath @Arguments }
-  $result.Output | ForEach-Object { Write-Host $_ }
-  if ($result.ExitCode -ne 0) {
-    throw "$FilePath failed with exit code $($result.ExitCode)."
+# --- gh CLI 前置检查 ---
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+  throw 'GitHub CLI (gh) 未安装或不在 PATH。请安装后执行 gh auth login（需 repo + workflow 权限）。'
+}
+$authCheck = Invoke-NativeCapture { & gh auth status }
+if ($authCheck.ExitCode -ne 0) {
+  throw "gh 未认证。请先执行 'gh auth login'。"
+}
+$repoResult = Invoke-NativeCapture { & gh repo view --json nameWithOwner --jq '.nameWithOwner' }
+if ($repoResult.ExitCode -ne 0) { throw '无法确定当前 GitHub 仓库，请在仓库根目录运行。' }
+Write-Host "仓库：$(($repoResult.Output | Out-String).Trim())"
+
+function Get-LatestRunId {
+  $r = Invoke-NativeCapture { & gh run list --workflow $Workflow --branch $Ref --limit 1 --json databaseId --jq '.[0].databaseId' }
+  if ($r.ExitCode -ne 0) { return $null }
+  $v = ($r.Output | Out-String).Trim()
+  if ([string]::IsNullOrWhiteSpace($v) -or $v -eq 'null') { return $null }
+  return $v
+}
+
+# 记录触发前的最新 run，用于识别本次新建的 run
+$beforeRunId = Get-LatestRunId
+
+# --- 可选：推送（push 事件会自动触发部署）---
+$upToDate = $false
+if ($Push) {
+  $dirty = @(git status --porcelain)
+  if ($dirty.Count -gt 0) { throw "工作区不干净，先提交或清理：`n$($dirty -join "`n")" }
+  Write-Host "推送 HEAD 到 origin/$Ref ..."
+  $pushResult = Invoke-NativeCapture { & git push origin "HEAD:$Ref" }
+  $pushResult.Output | ForEach-Object { Write-Host $_ }
+  if ($pushResult.ExitCode -ne 0) { throw "git push 失败（退出码 $($pushResult.ExitCode)）。" }
+  $upToDate = (($pushResult.Output | Out-String) -match 'Everything up-to-date')
+  if ($upToDate) { Write-Host "origin/$Ref 已是最新，无 push 事件；改用 workflow_dispatch 触发。" }
+}
+
+# --- 触发：非 push，或 push 但远端已最新 ---
+if ((-not $Push) -or $upToDate) {
+  Write-Host "手动触发 $Workflow（ref=$Ref）..."
+  $trig = Invoke-NativeCapture { & gh workflow run $Workflow --ref $Ref }
+  $trig.Output | ForEach-Object { Write-Host $_ }
+  if ($trig.ExitCode -ne 0) {
+    throw "触发失败（退出码 $($trig.ExitCode)）。若提示 workflow_dispatch 不可用，说明 $Workflow 尚未在默认分支；请改用 -Push 让首次部署随提交上线。"
   }
 }
 
-function Get-GitOutput {
-  param([Parameter(Mandatory)] [string[]]$Arguments)
-  $result = Invoke-NativeCapture { & git @Arguments }
-  if ($result.ExitCode -ne 0) {
-    throw "git $($Arguments -join ' ') failed with exit code $($result.ExitCode)."
-  }
-  return ($result.Output | Out-String).Trim()
+# --- 轮询等待本次 run 出现 ---
+$runId = $null
+$deadline = (Get-Date).AddSeconds($RunWaitSeconds)
+while ((Get-Date) -lt $deadline) {
+  Start-Sleep -Seconds 4
+  $candidate = Get-LatestRunId
+  if ($candidate -and $candidate -ne $beforeRunId) { $runId = $candidate; break }
 }
+if (-not $runId) { throw "未能在 $RunWaitSeconds 秒内识别到本次触发的 run。请到 Actions 页面手动确认。" }
+Write-Host "监控 run：$runId"
 
-if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) {
-  throw 'ssh.exe is required. Configure the SSH alias before deploying.'
+# --- 监控直到结束（--exit-status：run 失败时 gh 返回非零）---
+$watch = Invoke-NativeCapture { & gh run watch $runId --exit-status --interval 15 }
+$watch.Output | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+if ($watch.ExitCode -ne 0) {
+  throw "部署 run $runId 失败（退出码 $($watch.ExitCode)）。用 'gh run view $runId --log-failed' 查看失败日志；生产已由 remote-deploy.sh 的自动回滚保护。"
 }
+Write-Host "部署 run $runId 成功。"
 
-if ($SshTarget -notmatch '^[a-zA-Z0-9._-]+$') { throw 'SshTarget contains unsupported characters.' }
-if ($RemoteDir -notmatch '^/[a-zA-Z0-9._/-]+$') { throw 'RemoteDir must be an absolute Unix path.' }
-if ($Branch -notmatch '^[a-zA-Z0-9._/-]+$') { throw 'Branch contains unsupported characters.' }
-if ($ContainerName -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'ContainerName contains unsupported characters.' }
-if ($ImageRepository -notmatch '^[a-zA-Z0-9_./-]+$') { throw 'ImageRepository contains unsupported characters.' }
-if ($DataVolume -notmatch '^[a-zA-Z0-9_.-]+$') { throw 'DataVolume contains unsupported characters.' }
-if ($HostPort -lt 1 -or $HostPort -gt 65535) { throw 'HostPort is outside the valid range.' }
-if ($CandidatePort -lt 1 -or $CandidatePort -gt 65535 -or $CandidatePort -eq $HostPort) {
-  throw 'CandidatePort must be valid and different from HostPort.'
-}
-if ($PublicUrl -notmatch '^https://[a-zA-Z0-9.-]+(?::[0-9]+)?$') {
-  throw 'PublicUrl must be an HTTPS origin without a path, query, or fragment.'
-}
-
-$dirtyFiles = @(git status --porcelain)
-if ($dirtyFiles.Count -gt 0) {
-  throw "Working tree is dirty. Commit or clean it before deploying:`n$($dirtyFiles -join "`n")"
-}
-
-$localCommit = Get-GitOutput @('rev-parse', 'HEAD')
-$shortCommit = $localCommit.Substring(0, 7)
-$remoteCommit = Get-GitOutput @('ls-remote', 'origin', "refs/heads/$Branch")
-$remoteCommit = ($remoteCommit -split '\s+')[0]
-
-if ($remoteCommit -ne $localCommit) {
-  if (-not $Push) {
-    throw "origin/$Branch does not point to local commit $shortCommit. Re-run with -Push to sync first."
-  }
-  Invoke-CheckedCommand -FilePath 'git' -Arguments @('push', 'origin', "HEAD:$Branch")
-  $remoteCommit = Get-GitOutput @('ls-remote', 'origin', "refs/heads/$Branch")
-  $remoteCommit = ($remoteCommit -split '\s+')[0]
-}
-
-if ($remoteCommit -ne $localCommit) {
-  throw "Remote sync verification failed. Expected $localCommit but found $remoteCommit."
-}
-
-$remoteScriptTemplate = @'
-set -eu
-cd '__REMOTE_DIR__'
-git fetch --prune origin '__BRANCH__'
-git checkout --detach '__COMMIT__'
-test "$(git rev-parse HEAD)" = '__COMMIT__'
-
-old_container='__CONTAINER__'
-candidate_container='__CONTAINER__-candidate-__SHORT_COMMIT__'
-rollback_container='__CONTAINER__-rollback-__SHORT_COMMIT__'
-env_file="$(mktemp)"
-runtime_env_file="$(mktemp)"
-sentry_env_file="$(mktemp)"
-cleanup_candidate() {
-  docker rm -f "$candidate_container" >/dev/null 2>&1 || true
-  rm -f "$env_file"
-  rm -f "$runtime_env_file"
-  rm -f "$sentry_env_file"
-}
-trap cleanup_candidate EXIT
-
-if docker inspect "$old_container" >/dev/null 2>&1; then
-  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$old_container" > "$env_file"
-else
-  : > "$env_file"
-fi
-# A server-side .env is the durable override for future deployments. It is
-# appended after the old container environment so one-time Sentry setup does
-# not require rebuilding or editing this repository.
-if [ -f .env ]; then
-  cat .env >> "$env_file"
-fi
-# Keep source-map upload credentials out of the running container. The app
-# only needs its DSN, environment, release, and sample rate at runtime.
-awk -F= '$1 != "SENTRY_AUTH_TOKEN" && $1 != "SENTRY_ORG" && $1 != "SENTRY_PROJECT"' "$env_file" > "$runtime_env_file"
-
-env_value() {
-  key="$1"
-  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$env_file"
-}
-
-sentry_dsn="$(env_value NEXT_PUBLIC_SENTRY_DSN)"
-sentry_dsn="${sentry_dsn:-$(env_value SENTRY_DSN)}"
-sentry_environment="$(env_value NEXT_PUBLIC_SENTRY_ENVIRONMENT)"
-sentry_environment="${sentry_environment:-$(env_value SENTRY_ENVIRONMENT)}"
-sentry_environment="${sentry_environment:-production}"
-sentry_sample_rate="$(env_value NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE)"
-sentry_sample_rate="${sentry_sample_rate:-$(env_value SENTRY_TRACES_SAMPLE_RATE)}"
-sentry_sample_rate="${sentry_sample_rate:-0.2}"
-{
-  printf 'SENTRY_AUTH_TOKEN=%s\n' "$(env_value SENTRY_AUTH_TOKEN)"
-  printf 'SENTRY_ORG=%s\n' "$(env_value SENTRY_ORG)"
-  printf 'SENTRY_PROJECT=%s\n' "$(env_value SENTRY_PROJECT)"
-} > "$sentry_env_file"
-DOCKER_BUILDKIT=1 docker build \
-  --secret "id=sentry_env,src=$sentry_env_file" \
-  --label 'org.opencontainers.image.revision=__COMMIT__' \
-  --build-arg "NEXT_PUBLIC_SENTRY_DSN=$sentry_dsn" \
-  --build-arg "NEXT_PUBLIC_SENTRY_ENVIRONMENT=$sentry_environment" \
-  --build-arg "NEXT_PUBLIC_SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" \
-  --build-arg "NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=$sentry_sample_rate" \
-  -t '__IMAGE_TAG__' .
-docker volume create '__DATA_VOLUME__' >/dev/null
-
-check_url() {
-  url="$1"
-  attempt=1
-  while [ "$attempt" -le 20 ]; do
-    if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null; then
-      return 0
-    fi
-    attempt=$((attempt + 1))
-    sleep 1
-  done
-  return 1
-}
-
-docker rm -f "$candidate_container" >/dev/null 2>&1 || true
-docker run -d --name "$candidate_container" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=__PUBLIC_URL__" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart no -p 127.0.0.1:__CANDIDATE_PORT__:3000 '__IMAGE_TAG__' >/dev/null
-check_url http://127.0.0.1:__CANDIDATE_PORT__/
-docker rm -f "$candidate_container" >/dev/null
-
-docker ps -a --format '{{.Names}}' | grep '^__CONTAINER__-rollback-' | while read -r stale; do
-  docker rm -f "$stale" >/dev/null
-done || true
-
-if docker inspect "$old_container" >/dev/null 2>&1; then
-  docker stop "$old_container" >/dev/null
-  docker rename "$old_container" "$rollback_container"
-fi
-
-restore_rollback() {
-  docker rm -f "$old_container" >/dev/null 2>&1 || true
-  if docker inspect "$rollback_container" >/dev/null 2>&1; then
-    docker rename "$rollback_container" "$old_container"
-    docker start "$old_container" >/dev/null
-  fi
-}
-
-if ! docker run -d --name "$old_container" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=__PUBLIC_URL__" --env "SENTRY_RELEASE=anchor-read@__SHORT_COMMIT__" --mount type=volume,src='__DATA_VOLUME__',dst=/data --restart unless-stopped -p 127.0.0.1:__HOST_PORT__:3000 '__IMAGE_TAG__' >/dev/null; then
-  restore_rollback
-  exit 1
-fi
-
-if ! check_url http://127.0.0.1:__HOST_PORT__/; then
-  restore_rollback
-  exit 1
-fi
-
-docker inspect "$old_container" --format 'deployed_image={{.Config.Image}} status={{.State.Status}} commit=__COMMIT__'
-'@
-
-$imageTag = "${ImageRepository}:$localCommit"
-$remoteScript = $remoteScriptTemplate
-$remoteScript = $remoteScript.Replace('__REMOTE_DIR__', $RemoteDir)
-$remoteScript = $remoteScript.Replace('__BRANCH__', $Branch)
-$remoteScript = $remoteScript.Replace('__COMMIT__', $localCommit)
-$remoteScript = $remoteScript.Replace('__SHORT_COMMIT__', $shortCommit)
-$remoteScript = $remoteScript.Replace('__IMAGE_TAG__', $imageTag)
-$remoteScript = $remoteScript.Replace('__CONTAINER__', $ContainerName)
-$remoteScript = $remoteScript.Replace('__DATA_VOLUME__', $DataVolume)
-$remoteScript = $remoteScript.Replace('__HOST_PORT__', [string]$HostPort)
-$remoteScript = $remoteScript.Replace('__CANDIDATE_PORT__', [string]$CandidatePort)
-$remoteScript = $remoteScript.Replace('__PUBLIC_URL__', $PublicUrl)
-# SSH executes this payload on Linux; normalize the repository's CRLF text first.
-$remoteScript = $remoteScript.Replace("`r`n", "`n")
-
-$sshResult = Invoke-NativeCapture {
-  & ssh.exe -o BatchMode=yes -o ConnectTimeout=15 $SshTarget $remoteScript
-}
-$sshResult.Output | ForEach-Object { Write-Host $_ }
-if ($sshResult.ExitCode -ne 0) {
-  throw "Remote deployment failed with exit code $($sshResult.ExitCode)."
-}
-
+# --- 线上健康检查 ---
 if (-not $SkipHealthCheck) {
+  $short = ((Invoke-NativeCapture { & git rev-parse --short=7 HEAD }).Output | Out-String).Trim()
   $separator = if ($HealthUrl.Contains('?')) { '&' } else { '?' }
-  $probeUrl = "${HealthUrl}${separator}deploy=$shortCommit"
+  $probeUrl = if ($short) { "${HealthUrl}${separator}deploy=$short" } else { $HealthUrl }
   $response = Invoke-WebRequest -Uri $probeUrl -Method Get -MaximumRedirection 5 -TimeoutSec 30 -UseBasicParsing
-  if ($response.StatusCode -ne 200) {
-    throw "Online health check failed with HTTP $($response.StatusCode)."
-  }
-  Write-Host "Online health check passed: $HealthUrl (commit $shortCommit)."
+  if ($response.StatusCode -ne 200) { throw "线上健康检查失败：HTTP $($response.StatusCode)。" }
+  Write-Host "线上健康检查通过：$HealthUrl（commit $short）。"
 }
 
-Write-Host "Deployment complete: $localCommit."
+Write-Host "部署完成。"

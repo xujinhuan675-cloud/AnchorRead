@@ -1,0 +1,125 @@
+name: Deploy
+
+# 全自动 CI/CD：push 到 main 即构建镜像并部署到生产；也支持手动触发。
+# 构建发生在 GitHub 托管 runner，生产服务器只负责 docker pull + 蓝绿切换，
+# 因此彻底移除生产机上的 next build，消除与常驻容器的构建期资源争抢。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GITHUB_TOKEN 自动签发：packages:write 用于推送 GHCR，contents:read 用于 checkout。
+permissions:
+  contents: read
+  packages: write
+
+# 生产部署串行化：同组内新触发的部署排队，不打断进行中的部署。
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  # GHCR 镜像名必须小写；owner 与仓库同属一个 GitHub 账号。
+  IMAGE_NAME: ghcr.io/xujinhuan675-cloud/anchorread
+
+jobs:
+  build-push:
+    name: 构建并推送镜像
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 计算提交变量
+        id: vars
+        run: echo "short_commit=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 组装 Dockerfile 期望的 sentry_env secret 文件（KEY=value 行）。
+      # 密钥经 env 传入而非 ${{ }} 内联，避免脚本注入；未配置时值为空，
+      # next.config.mjs 会自动禁用 sourcemap 上传，构建仍成功（优雅降级）。
+      - name: 生成 Sentry 构建 secret
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          {
+            printf 'SENTRY_AUTH_TOKEN=%s\n' "$SENTRY_AUTH_TOKEN"
+            printf 'SENTRY_ORG=%s\n' "$SENTRY_ORG"
+            printf 'SENTRY_PROJECT=%s\n' "$SENTRY_PROJECT"
+          } > sentry_env.txt
+
+      # 为可选构建参数补默认值：未配置对应 Secret 时回落到 Dockerfile 既定默认，
+      # 避免全自动部署下把 environment/sample_rate 静默覆盖成空值。
+      - name: 计算构建参数默认值
+        env:
+          SENTRY_ENVIRONMENT: ${{ secrets.NEXT_PUBLIC_SENTRY_ENVIRONMENT }}
+          SENTRY_SAMPLE_RATE: ${{ secrets.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE }}
+        run: |
+          echo "ARG_SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}" >> "$GITHUB_ENV"
+          echo "ARG_SENTRY_SAMPLE_RATE=${SENTRY_SAMPLE_RATE:-0.2}" >> "$GITHUB_ENV"
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_ENVIRONMENT=${{ env.ARG_SENTRY_ENVIRONMENT }}
+            NEXT_PUBLIC_SENTRY_RELEASE=anchor-read@${{ steps.vars.outputs.short_commit }}
+            NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${{ env.ARG_SENTRY_SAMPLE_RATE }}
+          secret-files: sentry_env=sentry_env.txt
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: 部署到生产
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 兜底：即便 .gitattributes 未生效，也确保送到服务器的脚本是 LF。
+      - name: 规范脚本行尾
+        run: sed -i 's/\r$//' scripts/remote-deploy.sh
+
+      - name: SSH 执行远端蓝绿部署
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          IMAGE_REF: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          port="${DEPLOY_SSH_PORT:-22}"
+          short_commit="$(printf '%s' "$COMMIT" | cut -c1-7)"
+          # 通过 stdin 把脚本送到服务器执行；部署配置以环境变量前缀传入。
+          # GHCR 拉取凭证不经此处传递，由 remote-deploy.sh 从服务器本地 .env 读取。
+          ssh -i ~/.ssh/id_deploy -p "$port" \
+              -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
+              "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
+              "IMAGE_REF='$IMAGE_REF' SHORT_COMMIT='$short_commit' COMMIT='$COMMIT' bash -s" \
+              < scripts/remote-deploy.sh
