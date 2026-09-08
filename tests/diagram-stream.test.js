@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildStreamTimeline,
+  buildRelationshipPlaybackTimeline,
   createDefaultMermaidPresentation,
   createDefaultPresentation,
   excludeIncompleteLastItem,
@@ -161,6 +162,38 @@ test('default playback preserves one step per element and keeps generated camera
   ]), { includeCamera: true });
   assert.ok(cameraPresentation.steps[0].camera);
   assert.equal(cameraPresentation.steps[1].camera, undefined);
+});
+
+test('relationship playback reveals bound endpoints before the connector and names the relation', () => {
+  const elements = [
+    { type: 'rectangle', id: 'source', label: { text: '用户' } },
+    { type: 'arrow', id: 'edge', startElementId: 'source', endElementId: 'target', label: { text: '提交任务' } },
+    { type: 'rectangle', id: 'target', label: { text: 'Agent' } },
+  ];
+  const timeline = buildRelationshipPlaybackTimeline(elements);
+  assert.deepEqual(timeline.map((frame) => frame.currentId), ['source', 'target', 'edge']);
+  assert.deepEqual(timeline.map((frame) => frame.visibleIds), [
+    ['source'],
+    ['source', 'target'],
+    ['source', 'target', 'edge'],
+  ]);
+  assert.equal(timeline[0].title, '用户');
+  assert.equal(timeline[1].title, 'Agent');
+  assert.equal(timeline[2].title, '用户 —提交任务→ Agent');
+  const presentation = createDefaultPresentation(elements);
+  assert.deepEqual(presentation.steps.map((step) => step.title), ['用户', 'Agent', '用户 —提交任务→ Agent']);
+});
+
+test('relationship playback supports Excalidraw bindings and keeps bound labels with the connector', () => {
+  const timeline = buildRelationshipPlaybackTimeline([
+    { type: 'rectangle', id: 'a', label: { text: 'A' } },
+    { type: 'arrow', id: 'ab', startBinding: { elementId: 'a' }, endBinding: { elementId: 'b' } },
+    { type: 'rectangle', id: 'b' },
+    { type: 'text', id: 'ab-label', containerId: 'ab', text: '调用' },
+  ]);
+  assert.deepEqual(timeline.map((frame) => frame.currentId), ['a', 'b', 'ab']);
+  assert.equal(timeline.at(-1).title, 'A —调用→ 节点');
+  assert.equal(timeline.length, 3);
 });
 
 test('playback timing preserves a readable hold and supports speed choices', () => {

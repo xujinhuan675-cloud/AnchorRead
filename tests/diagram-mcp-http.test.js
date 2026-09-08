@@ -39,7 +39,7 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     const initializeResult = (await initialize.json()).result;
     assert.equal(initializeResult.protocolVersion, '2025-06-18');
     assert.deepEqual(initializeResult.capabilities.resources, {});
-    assert.match(initializeResult.instructions, /shape -> arrow -> shape/);
+    assert.match(initializeResult.instructions, /source -> target -> connector/);
 
     const listed = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 2, method: 'tools/list', params: {},
@@ -48,7 +48,7 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     const createTool = tools.find((tool) => tool.name === 'create_diagram');
     const createViewTool = tools.find((tool) => tool.name === 'create_view');
     assert.ok(createTool);
-    assert.match(createViewTool.description, /带 label 的节点、箭头、下一个带 label 的节点/);
+    assert.match(createViewTool.description, /起点节点.*终点节点.*连线及关系文字/);
     assert.equal(createTool._meta.ui.resourceUri, DIAGRAM_MCP_APP_RESOURCE_URI);
     assert.equal(tools.some((tool) => tool.name === 'export_excalidraw'), false);
 

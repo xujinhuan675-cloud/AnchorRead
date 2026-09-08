@@ -83,6 +83,26 @@ test('content diagrams receive a default presentation and play when opened', asy
   assert.equal(created.presentationAutoPlayed, true);
   assert.deepEqual(events.map((event) => event.action), ['play']);
 
+  const relationship = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Relationship playback',
+      engine: 'excalidraw',
+      elements: [
+        { id: 'source', type: 'rectangle', x: 0, y: 0, width: 120, height: 50, label: { text: '请求' } },
+        { id: 'edge', type: 'arrow', x: 0, y: 0, width: 120, height: 100, startElementId: 'source', endElementId: 'target', label: { text: '触发' } },
+        { id: 'target', type: 'rectangle', x: 0, y: 100, width: 120, height: 50, label: { text: '处理' } },
+      ],
+      open: false,
+    },
+  }, { repository: workspace, now: 103.5 });
+  assert.deepEqual(relationship.presentation.steps.map((step) => step.visibleElementIds), [
+    ['source'],
+    ['source', 'target'],
+    ['source', 'target', 'edge'],
+  ]);
+  assert.equal(relationship.presentation.steps.at(-1).title, '请求 —触发→ 处理');
+
   // A legacy record without a stored script still exposes the same playback contract.
   const legacy = { ...created };
   delete legacy.presentation;

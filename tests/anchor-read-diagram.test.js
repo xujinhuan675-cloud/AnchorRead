@@ -86,12 +86,12 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram');
     assert.equal(responses[0].result.serverInfo.title, 'AnchorRead Diagram');
     assert.deepEqual(responses[0].result.capabilities.resources, {});
-    assert.match(responses[0].result.instructions, /shape -> arrow -> shape/);
+    assert.match(responses[0].result.instructions, /source -> target -> connector/);
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'read_me'));
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'query_diagram'));
     assert.match(
       responses[1].result.tools.find((tool) => tool.name === 'create_view').description,
-      /带 label 的节点、箭头、下一个带 label 的节点/,
+      /起点节点.*终点节点.*连线及关系文字/,
     );
     assert.match(responses[2].result.content[0].text, /Architecture/);
     assert.match(responses[3].result.content[0].text, /Total elements: 1/);

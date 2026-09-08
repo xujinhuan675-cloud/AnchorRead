@@ -60,7 +60,10 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /defaultMermaidPresentation/);
   assert.match(resource.text, /DEFAULT_STEP_DURATION_MS = 1500/);
   assert.doesNotMatch(resource.text, /MAX_DEFAULT_PLAYBACK_STEPS/);
-  assert.match(resource.text, /return ids\.map\(\(_id, index\) => \(\{/);
+  assert.match(resource.text, /function connectorEndpointId/);
+  assert.match(resource.text, /const startId = connectorElement\(element\) \? connectorEndpointId/);
+  assert.match(resource.text, /const startId = connectorElement\(element\)/);
+  assert.match(resource.text, /title: frame\.title/);
   assert.match(resource.text, /focusElementIds: \[\]/);
   assert.match(resource.text, /element\.type === 'text' && element\.containerId/);
   assert.match(resource.text, /'aria-label': presentationPlaying \? '暂停' : '播放'/);

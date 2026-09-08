@@ -68,6 +68,22 @@ test('inline view tool results expose a structured Excalidraw payload', () => {
   assert.equal(result.structuredContent.scene.elements[0].id, 'structured-rect');
 });
 
+test('inline view defaults preserve relationship playback semantics', () => {
+  const result = createInlineViewResult({
+    elements: JSON.stringify([
+      { id: 'source', type: 'rectangle', label: { text: '请求' } },
+      { id: 'edge', type: 'arrow', startElementId: 'source', endElementId: 'target', label: { text: '触发' } },
+      { id: 'target', type: 'rectangle', label: { text: '处理' } },
+    ]),
+  });
+  assert.deepEqual(result.presentation.steps.map((step) => step.visibleElementIds), [
+    ['source'],
+    ['source', 'target'],
+    ['source', 'target', 'edge'],
+  ]);
+  assert.equal(result.presentation.steps.at(-1).title, '请求 —触发→ 处理');
+});
+
 test('text-wrapped object results retain structured content for MCP Apps', () => {
   const metadata = createMcpToolResult({ title: 'Metadata only' });
   assert.equal(metadata.structuredContent.title, 'Metadata only');
