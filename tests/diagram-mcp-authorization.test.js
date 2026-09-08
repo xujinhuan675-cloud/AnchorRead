@@ -75,6 +75,9 @@ test('browser connection surface exposes OAuth only', () => {
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{\(\) => revokeAuthorizations\(\)\}/u);
   assert.match(pairingRoute, /authorizations/u);
   assert.match(pairingRoute, /revoke-authorizations/u);
+  assert.match(pairingRoute, /token\.status === 'active'/u);
+  assert.match(panel, /submitOAuthApproval\(\{ silent: true \}\)/u);
+  assert.match(panel, /payload\.refreshTokensRevoked/u);
   assert.match(panel, /oauthApprovalInFlightRef/u);
   assert.doesNotMatch(panel, /oauthApprovalStartedRef/u);
   assert.match(topNav, /const closeMcpPanel = \(\) =>/u);

@@ -138,7 +138,7 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     assert.equal(workspaceResult.result.structuredContent.openRequested, true);
     assert.match(workspaceResult.result.structuredContent.openResource.url, /\/diagrams$/);
 
-    const inlineOffline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+    const contentfulOffline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 24, method: 'tools/call', params: {
         name: 'create_diagram', arguments: {
           title: 'Offline content',
@@ -151,12 +151,12 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
         throw Object.assign(new Error('No AnchorRead browser is connected.'), { code: 'BRIDGE_TIMEOUT' });
       },
     });
-    const inlineOfflineResult = await inlineOffline.json();
-    assert.equal(inlineOfflineResult.result.isError, undefined);
-    assert.equal(inlineOfflineResult.result.structuredContent.scene.elements[0].id, 'offline-rect');
-    assert.equal(inlineOfflineResult.result.structuredContent.openRequested, true);
-    assert.match(inlineOfflineResult.result.structuredContent.url, /\/diagrams$/);
-    assert.equal(inlineOfflineResult.result.content[1].type, 'resource_link');
+    const contentfulOfflineResult = await contentfulOffline.json();
+    assert.equal(contentfulOfflineResult.result.isError, true);
+    assert.equal(contentfulOfflineResult.result.structuredContent.code, 'BRIDGE_TIMEOUT');
+    assert.equal(contentfulOfflineResult.result.structuredContent.nextAction, 'open_diagram_workspace_then_retry');
+    assert.equal(contentfulOfflineResult.result.structuredContent.scene, undefined);
+    assert.equal(contentfulOfflineResult.result.content[1].type, 'resource_link');
 
     const offline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 5, method: 'tools/call', params: {
@@ -185,14 +185,14 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
   }
 });
 
-test('offline create queues a one-time wake command for the default browser', async () => {
+test('create_diagram returns only after the browser acknowledges persistence', async () => {
   resetDiagramAgentBrokerForTests();
   try {
     const initialize = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 70, method: 'initialize', params: {},
     }));
     const sessionId = initialize.headers.get('mcp-session-id');
-    const created = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+    const created = handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 71, method: 'tools/call', params: {
         name: 'create_diagram',
         arguments: {
@@ -202,38 +202,19 @@ test('offline create queues a one-time wake command for the default browser', as
         },
       },
     }, { 'MCP-Session-Id': sessionId }));
-    const result = (await created.json()).result.structuredContent;
-    assert.equal(result.queued, true);
-    assert.equal(result.openTarget, 'default_browser');
-    assert.match(result.url, /\/diagrams\?diagramWake=/u);
-    assert.doesNotMatch(result.url, /wake-node/u);
-    assert.deepEqual(claimDiagramAgentRequests('ordinary-browser'), []);
-    const claimed = claimDiagramAgentRequests('default-browser', { wakeRequestId: result.requestId });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const claimed = claimDiagramAgentRequests('connected-browser', {
+      client: { workspaceId: '', visible: true, focused: true },
+    });
     assert.equal(claimed[0].payload.args.elements[0].id, 'wake-node');
-    resolveDiagramAgentRequest(result.requestId, claimed[0].claimToken, { ok: true });
-  } finally {
-    resetDiagramAgentBrokerForTests();
-  }
-});
-
-test('default create always hands off to a fresh default-browser tab', async () => {
-  resetDiagramAgentBrokerForTests();
-  try {
-    const initialize = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
-      jsonrpc: '2.0', id: 72, method: 'initialize', params: {},
-    }));
-    const sessionId = initialize.headers.get('mcp-session-id');
-    const created = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
-      jsonrpc: '2.0', id: 73, method: 'tools/call', params: {
-        name: 'create_diagram',
-        arguments: { title: 'Fresh tab', engine: 'excalidraw', elements: [] },
-      },
-    }, { 'MCP-Session-Id': sessionId }));
-    const result = (await created.json()).result.structuredContent;
-    assert.equal(result.queued, true);
-    assert.deepEqual(claimDiagramAgentRequests('already-open-tab'), []);
-    const claimed = claimDiagramAgentRequests('fresh-default-browser-tab', { wakeRequestId: result.requestId });
-    resolveDiagramAgentRequest(result.requestId, claimed[0].claimToken, { ok: true });
+    resolveDiagramAgentRequest(claimed[0].id, claimed[0].claimToken, {
+      id: 'drawing-ack', routeId: 'dg-ack', revision: 1,
+    });
+    const result = (await (await created).json()).result.structuredContent;
+    assert.equal(result.id, 'drawing-ack');
+    assert.equal(result.routeId, 'dg-ack');
+    assert.equal(result.revision, 1);
+    assert.equal(result.queued, undefined);
   } finally {
     resetDiagramAgentBrokerForTests();
   }

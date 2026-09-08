@@ -2,12 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildDiagramUrl,
-  buildDiagramWakeUrl,
   buildDiagramWorkspaceUrl,
-  createInlineDiagramResult,
   createInlineViewResult,
   createInlineViewToolResult,
-  createDeferredDiagramResult,
   createMcpBrowserRecoveryResult,
   createMcpToolResult,
 } from '../lib/diagram-mcp-links.js';
@@ -54,48 +51,12 @@ test('browser recovery result adds a workspace link only for browser-unavailable
   assert.equal(createMcpBrowserRecoveryResult(new Error('bad request')), null);
 });
 
-test('inline MCP results retain scene content without a browser bridge', () => {
-  const result = createInlineViewResult({
-    elements: JSON.stringify([{ id: 'rect-1', type: 'rectangle', x: 10, y: 20, width: 120, height: 60 }]),
-  });
-  assert.equal(result.engine, 'excalidraw');
-  assert.equal(result.scene.elements[0].id, 'rect-1');
-  const mermaid = createInlineDiagramResult({ title: 'Flow', engine: 'mermaid', source: 'flowchart TD\nA-->B' });
-  assert.equal(mermaid.source, 'flowchart TD\nA-->B');
-  assert.equal(mermaid.presentation.steps.length, 2);
-  assert.deepEqual(mermaid.presentation.steps[1].focusElementIds, ['mermaid-2']);
-  const inferredExcalidraw = createInlineDiagramResult({ title: 'Nodes', elements: [{ id: 'node-1', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 }] });
-  assert.equal(inferredExcalidraw.engine, 'excalidraw');
-  assert.equal(inferredExcalidraw.presentation.steps.length, 1);
-  assert.deepEqual(inferredExcalidraw.presentation.steps[0].focusElementIds, ['node-1']);
-  assert.equal(createInlineDiagramResult({ title: 'Empty', engine: 'mermaid' }), null);
-});
-
-test('deferred diagram links wake the default browser without carrying scene data in the URL', () => {
-  assert.equal(
-    buildDiagramWakeUrl('request id', { baseUrl: 'https://anchorread.example/mcp' }),
-    'https://anchorread.example/diagrams?diagramWake=request%20id',
-  );
-  const deferred = createDeferredDiagramResult({
-    title: 'Local-only',
-    engine: 'excalidraw',
-    elements: [{ id: 'local-node', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }],
-  }, 'wake-123', { baseUrl: 'https://anchorread.example/mcp' });
-  assert.equal(deferred.queued, true);
-  assert.equal(deferred.openTarget, 'default_browser');
-  assert.equal(deferred.url, 'https://anchorread.example/diagrams?diagramWake=wake-123');
-  assert.doesNotMatch(deferred.url, /local-node/u);
-});
-
 test('workspace links never expose an internal container bind address', () => {
   assert.equal(
     buildDiagramWorkspaceUrl({ baseUrl: 'https://0.0.0.0:3000/mcp' }),
     'https://anchorread.flowguide.cc/diagrams',
   );
-  assert.equal(
-    buildDiagramWakeUrl('wake-123', { baseUrl: 'http://[::]:3000/mcp' }),
-    'https://anchorread.flowguide.cc/diagrams?diagramWake=wake-123',
-  );
+  assert.equal(buildDiagramWorkspaceUrl({ baseUrl: 'http://[::]:3000/mcp' }), 'https://anchorread.flowguide.cc/diagrams');
 });
 
 test('inline view tool results expose a structured Excalidraw payload', () => {
@@ -107,24 +68,7 @@ test('inline view tool results expose a structured Excalidraw payload', () => {
   assert.equal(result.structuredContent.scene.elements[0].id, 'structured-rect');
 });
 
-test('text-wrapped diagram results retain structured content for MCP Apps', () => {
-  const inline = createMcpToolResult(createInlineDiagramResult({
-    title: 'Inline flow',
-    engine: 'mermaid',
-    source: 'flowchart TD\nA-->B',
-  }));
-  assert.equal(inline.structuredContent.engine, 'mermaid');
-  assert.equal(inline.structuredContent.source, 'flowchart TD\nA-->B');
-
-  const deferred = createMcpToolResult(createDeferredDiagramResult({
-    title: 'Queued flow',
-    engine: 'excalidraw',
-    elements: [{ id: 'queued-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }],
-  }, 'wake-structured', { baseUrl: 'https://anchorread.example/mcp' }));
-  assert.equal(deferred.structuredContent.queued, true);
-  assert.equal(deferred.structuredContent.scene.elements[0].id, 'queued-rect');
-  assert.match(deferred.structuredContent.url, /diagramWake=wake-structured/u);
-
+test('text-wrapped object results retain structured content for MCP Apps', () => {
   const metadata = createMcpToolResult({ title: 'Metadata only' });
   assert.equal(metadata.structuredContent.title, 'Metadata only');
 });
@@ -152,12 +96,4 @@ test('inline diagram payloads preserve named phase focus and camera steps', () =
   assert.deepEqual(result.presentation.steps[0].focusElementIds, ['a']);
   assert.equal(result.presentation.steps[0].camera.region.width, 240);
 
-  const offline = createInlineDiagramResult({
-    title: 'Flow',
-    engine: 'mermaid',
-    source: 'flowchart TD\nA-->B',
-    presentation,
-  });
-  assert.equal(offline.presentation.steps[0].title, '需求分析');
-  assert.equal(offline.presentation.steps[0].transitionMs, 300);
 });

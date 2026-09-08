@@ -19,7 +19,7 @@ function contextFrom(request, body) {
 
 function errorStatus(code) {
   if (['PAIRING_FORBIDDEN', 'SESSION_CONFLICT'].includes(code)) return 403;
-  if (code === 'CONNECTION_REPLACED') return 409;
+  if (['CONNECTION_REPLACED', 'CONSENT_REQUIRED'].includes(code)) return 409;
   if (code === 'BROWSER_SESSION_OFFLINE') return 503;
   return 400;
 }
@@ -34,11 +34,19 @@ export async function POST(request) {
     const oauthStore = getDiagramMcpOAuthStore();
     // Validate before mutating pairing state. A stale or already-consumed
     // transaction must not replace the browser connection.
-    oauthStore.getTransaction(body?.transaction);
+    const transaction = oauthStore.getTransaction(body?.transaction);
     const pairingStore = getDiagramMcpPairingStore();
     // Authorization belongs to this browser workspace. Reuse its online
     // diagram page without letting the temporary OAuth page take ownership.
     const connection = await pairingStore.ensureBrowserBinding(context);
+    if (body?.silent === true && !oauthStore.hasAuthorization(connection, {
+      clientId: transaction.clientId,
+      scopes: transaction.scopes,
+    })) {
+      const error = new Error('This OAuth client has no remembered authorization in the current browser workspace.');
+      error.code = 'CONSENT_REQUIRED';
+      throw error;
+    }
     const approved = oauthStore.approveTransaction(body?.transaction, connection);
     return NextResponse.json({ ok: true, ...approved, connection }, {
       headers: { 'Cache-Control': 'no-store' },

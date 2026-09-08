@@ -11,7 +11,13 @@ import {
   stripPseudoElements,
   timelineToPresentation,
 } from '../lib/diagram-stream.js';
-import { normalizePresentationSpec } from '../lib/diagram-presentation.js';
+import {
+  DEFAULT_PRESENTATION_HOLD_MS,
+  DEFAULT_PRESENTATION_REVEAL_MS,
+  DEFAULT_PRESENTATION_STEP_DURATION_MS,
+  getPresentationStepPlaybackDuration,
+  normalizePresentationSpec,
+} from '../lib/diagram-presentation.js';
 
 test('parsePartialElements tolerates truncated JSON like the official client', () => {
   const partial = '[{"type":"rectangle","id":"a","x":0,"y":0,"width":10,"height":10},{"type":"rect';
@@ -103,33 +109,84 @@ test('stripPseudoElements removes cameraUpdate/delete/restoreCheckpoint', () => 
   assert.deepEqual(stripped.map((element) => element.id), ['b1']);
 });
 
-test('timelineToPresentation output survives presentation normalization with camera region', () => {
+test('timelineToPresentation preserves an explicitly requested camera region', () => {
   const timeline = buildStreamTimeline([
     { type: 'cameraUpdate', x: 10, y: 20, width: 800, height: 600 },
     { type: 'rectangle', id: 'b1', x: 0, y: 0, width: 10, height: 10 },
   ]);
-  const spec = normalizePresentationSpec(timelineToPresentation(timeline, { durationMs: 500 }));
+  const spec = normalizePresentationSpec(timelineToPresentation(timeline, { durationMs: 500, includeCamera: true }));
   assert.equal(spec.steps.length, 1);
   assert.equal(spec.steps[0].durationMs, 500);
   assert.deepEqual(spec.steps[0].visibleElementIds, ['b1']);
-  assert.deepEqual(spec.steps[0].focusElementIds, ['b1']);
+  assert.deepEqual(spec.steps[0].focusElementIds, []);
   assert.deepEqual(spec.steps[0].camera, { region: { x: 10, y: 20, width: 800, height: 600 } });
 });
 
-test('default presentations cover both Excalidraw elements and Mermaid source', () => {
+test('default presentations reveal each element on a stable overview', () => {
   const excalidraw = createDefaultPresentation([
     { type: 'rectangle', id: 'start' },
     { type: 'arrow', id: 'next' },
+    { type: 'rectangle', id: 'end' },
   ]);
-  assert.equal(excalidraw.steps.length, 2);
+  assert.equal(excalidraw.steps.length, 3);
+  assert.deepEqual(excalidraw.steps[0].visibleElementIds, ['start']);
   assert.deepEqual(excalidraw.steps[1].visibleElementIds, ['start', 'next']);
-  assert.deepEqual(excalidraw.steps[1].focusElementIds, ['next']);
+  assert.deepEqual(excalidraw.steps[2].visibleElementIds, ['start', 'next', 'end']);
+  assert.deepEqual(excalidraw.steps[2].focusElementIds, []);
+  assert.equal(excalidraw.steps[2].durationMs, DEFAULT_PRESENTATION_STEP_DURATION_MS);
+  assert.equal(excalidraw.steps[2].revealMs, DEFAULT_PRESENTATION_REVEAL_MS);
+  assert.equal(excalidraw.steps[2].holdMs, DEFAULT_PRESENTATION_HOLD_MS);
 
   const mermaid = createDefaultMermaidPresentation('flowchart TD\nA[开始] --> B[结束]');
   assert.equal(mermaid.steps.length, 2);
   assert.deepEqual(mermaid.steps[1].visibleElementIds, ['mermaid-1', 'mermaid-2']);
-  assert.deepEqual(mermaid.steps[1].focusElementIds, ['mermaid-2']);
+  assert.deepEqual(mermaid.steps[1].focusElementIds, []);
   assert.equal(createDefaultMermaidPresentation('%% only comment'), null);
+});
+
+test('default playback preserves one step per element and keeps generated camera movement disabled', () => {
+  const complex = Array.from({ length: 40 }, (_item, index) => ({
+    type: 'rectangle', id: `node-${index + 1}`, x: index * 20, y: 0, width: 10, height: 10,
+  }));
+  const presentation = createDefaultPresentation(complex);
+  assert.equal(presentation.steps.length, 40);
+  assert.equal(presentation.steps.at(-1).visibleElementIds.length, 40);
+
+  assert.ok(presentation.steps.every((step) => step.camera === undefined));
+
+  const cameraPresentation = timelineToPresentation(buildStreamTimeline([
+    { type: 'cameraUpdate', x: 0, y: 0, width: 800, height: 600 },
+    { type: 'rectangle', id: 'a' },
+    { type: 'rectangle', id: 'b' },
+  ]), { includeCamera: true });
+  assert.ok(cameraPresentation.steps[0].camera);
+  assert.equal(cameraPresentation.steps[1].camera, undefined);
+});
+
+test('playback timing preserves a readable hold and supports speed choices', () => {
+  const legacyFastStep = { durationMs: 500, transitionMs: 450, revealMs: 360, holdMs: 900, focusElementIds: ['a'] };
+  assert.equal(getPresentationStepPlaybackDuration(legacyFastStep), 1350);
+  assert.equal(getPresentationStepPlaybackDuration(legacyFastStep, 0.75), 1800);
+  assert.equal(getPresentationStepPlaybackDuration({ focusElementIds: [] }), DEFAULT_PRESENTATION_STEP_DURATION_MS);
+});
+
+test('legacy generated presentations rebuild with the human playback policy', () => {
+  const legacy = {
+    title: '流式重放',
+    steps: [
+      { id: 'stream-1', durationMs: 500, transitionMs: 450, visibleElementIds: ['start'], focusElementIds: ['start'] },
+      { id: 'stream-2', durationMs: 500, transitionMs: 450, visibleElementIds: ['start', 'next'], focusElementIds: ['next'] },
+      { id: 'stream-3', durationMs: 500, transitionMs: 450, visibleElementIds: ['start', 'next', 'end'], focusElementIds: ['end'] },
+    ],
+  };
+  const rebuilt = reconcilePresentationSpec(legacy, [
+    { type: 'rectangle', id: 'start' },
+    { type: 'arrow', id: 'next' },
+    { type: 'rectangle', id: 'end' },
+  ]);
+  assert.equal(rebuilt.steps.length, 3);
+  assert.deepEqual(rebuilt.steps.at(-1).focusElementIds, []);
+  assert.equal(rebuilt.steps.at(-1).durationMs, DEFAULT_PRESENTATION_STEP_DURATION_MS);
 });
 
 test('reconcilePresentationSpec appends added elements as highlighted steps after the original flow', () => {

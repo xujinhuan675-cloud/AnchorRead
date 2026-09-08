@@ -48,15 +48,13 @@ import {
 } from '../lib/diagram-scene-record.js';
 import { createWorkspaceFilePayload, parseWorkspaceFile } from '../lib/workspace-file.js';
 import { getPresentationSpec, normalizePresentationSpec } from '../lib/diagram-presentation.js';
-import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation } from '../lib/diagram-stream.js';
+import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation, isDefaultPresentation } from '../lib/diagram-stream.js';
 import {
   buildDiagramUrl,
   buildDiagramWorkspaceUrl,
   createMcpBrowserRecoveryResult,
   createMcpToolResult,
-  createInlineDiagramResult,
   createInlineViewToolResult,
-  createDeferredDiagramResult,
 } from '../lib/diagram-mcp-links.js';
 import {
   DIAGRAM_MCP_INSTRUCTIONS,
@@ -162,7 +160,7 @@ function getEffectivePresentation(drawing) {
     if (!stored || isDefaultMermaidPresentation(stored)) return createDefaultMermaidPresentation(drawing.source);
     return stored;
   }
-  if (stored) return stored;
+  if (stored && !isDefaultPresentation(stored)) return stored;
   if (drawing?.engine && drawing.engine !== 'excalidraw') return null;
   return createDefaultPresentation(getDrawingScene(drawing).elements);
 }
@@ -351,7 +349,7 @@ const CREATE_TOOL = {
     ui: { resourceUri: DIAGRAM_MCP_APP_RESOURCE_URI },
     'ui/resourceUri': DIAGRAM_MCP_APP_RESOURCE_URI,
   },
-  description: '创建并保存一个新图解。浏览器在线时写入当前浏览器的本地 IndexedDB；open=true（默认）只请求客户端在用户的默认浏览器中打开返回链接，不会强制当前标签页跳转。浏览器暂时不可用时，只要传入 scene/elements/source，内容仍会直接渲染到当前对话画布。结果同时包含可打开的 resource_link。优先传入完整 Excalidraw scene 或 elements；也可传 Mermaid source。',
+  description: '创建并保存一个新图解。只有浏览器完成 IndexedDB 写入并返回 id、routeId 与 revision 后才算成功；浏览器不可用时返回错误并提示打开图解工作区后重试。open=true（默认）只请求客户端在用户的默认浏览器中打开已保存图解的返回链接，不会强制当前标签页跳转。优先传入完整 Excalidraw scene 或 elements；也可传 Mermaid source。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -383,12 +381,13 @@ const CREATE_VIEW_TOOL = {
     ui: { resourceUri: DIAGRAM_MCP_APP_RESOURCE_URI },
     'ui/resourceUri': DIAGRAM_MCP_APP_RESOURCE_URI,
   },
-  description: '在当前对话中直接创建可编辑的 Excalidraw 画布。elements 必须是 JSON 数组字符串且数组顺序就是绘制与播放顺序；流程图按“带 label 的节点、箭头、下一个带 label 的节点”交替排列，不要为节点文字另建 text 元素。不依赖浏览器工作区。',
+  description: '在当前对话中直接创建可编辑的 Excalidraw 画布。elements 必须是 JSON 数组字符串且数组顺序就是渐进显现顺序；默认按语义成组、稳定全局视口播放。流程图按“带 label 的节点、箭头、下一个带 label 的节点”交替排列，不要为节点文字另建 text 元素。可选 presentation.steps 仅在跨阶段或跨区域时使用聚焦与镜头动画。不依赖浏览器工作区。',
   annotations: { readOnlyHint: true },
   inputSchema: {
     type: 'object',
     properties: {
-      elements: { type: 'string', description: 'Excalidraw raw element 数组的 JSON 字符串。数组顺序就是绘制与播放顺序；节点文字应放入 shape.label。' },
+      elements: { type: 'string', description: 'Excalidraw raw element 数组的 JSON 字符串。数组顺序就是渐进显现顺序；节点文字应放入 shape.label。' },
+      presentation: { type: 'object', description: '可选阶段脚本；默认保持全局视口，仅在跨阶段或跨区域时设置 focus/camera。支持 durationMs、transitionMs、revealMs、holdMs。' },
     },
     required: ['elements'],
     additionalProperties: false,
@@ -598,16 +597,7 @@ async function callToolImpl(name, args = {}) {
   }
   if (name === 'create_view') return createInlineViewToolResult(args);
   if (bridgeUrl) {
-    try {
-      return await callBridgeTool(name, args);
-    } catch (error) {
-      const browserUnavailable = ['BROWSER_SESSION_OFFLINE', 'BRIDGE_TIMEOUT'].includes(error?.code);
-      const fallback = name === 'create_diagram' && browserUnavailable
-        ? createInlineDiagramResult(args, error)
-        : null;
-      if (fallback) return textResult(fallback);
-      throw error;
-    }
+    return callBridgeTool(name, args);
   }
   const payload = await readWorkspace();
   switch (name) {
@@ -835,28 +825,6 @@ async function callBridgeTool(name, args = {}) {
   const headers = { 'content-type': 'application/json' };
   const token = String(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN || '').trim();
   if (token) headers['x-anchorread-bridge-token'] = token;
-  if (name === 'create_diagram' && args.open !== false) {
-    let response;
-    try {
-      response = await fetch(bridgeUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ action: 'queue', request: { tool: name, args }, ttlMs: 2 * 60_000 }),
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch (error) {
-      const wrapped = new Error(`无法连接 AnchorRead live bridge ${bridgeUrl}: ${error?.message || error}`);
-      wrapped.code = 'BROWSER_SESSION_OFFLINE';
-      throw wrapped;
-    }
-    const body = await response.json().catch(() => ({}));
-    if (response.ok && body?.ok && body.requestId) {
-      return textResult(createDeferredDiagramResult(args, body.requestId, { baseUrl: bridgeUrl }));
-    }
-    const error = new Error(body?.error || `AnchorRead live bridge queue failed (${response.status}).`);
-    error.code = String(body?.code || '').trim() || `BRIDGE_HTTP_${response.status}`;
-    throw error;
-  }
   const timeoutMs = Math.max(5_000, Math.min(Number(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TIMEOUT_MS) || 90_000, 180_000));
   let response;
   try {

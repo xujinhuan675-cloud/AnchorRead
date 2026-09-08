@@ -43,6 +43,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
   // double click or a delayed browser event must not consume the one-shot
   // transaction twice.
   const oauthApprovalInFlightRef = useRef(false);
+  const oauthAutoApprovalAttemptRef = useRef('');
 
   const request = useCallback(async (action, extra = {}) => {
     const identity = createDiagramAgentIdentity();
@@ -154,25 +155,28 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
     const label = clientId || (zh ? '全部授权' : 'all authorizations');
     if (typeof window !== 'undefined' && !window.confirm(zh ? `确定撤销${label}吗？` : `Revoke ${label}?`)) return;
     const payload = await request('revoke-authorizations', clientId ? { clientId } : {});
-    setAuthorizations((current) => current ? {
-      ...current,
-      grants: current.grants.filter((grant) => clientId && grant.clientId !== clientId),
-      accessTokens: current.accessTokens.map((token) => (
-        (!clientId || token.clientId === clientId) ? { ...token, status: 'revoked' } : token
-      )),
-    } : current);
+    const grants = Array.isArray(payload.authorizations) ? payload.authorizations : [];
+    const accessTokens = Array.isArray(payload.accessTokens) ? payload.accessTokens : [];
+    setAuthorizations({ binding: payload.binding, grants, accessTokens });
+    const targetStillExists = clientId
+      ? grants.some((grant) => grant.clientId === clientId)
+        || accessTokens.some((token) => token.clientId === clientId)
+      : grants.length > 0 || accessTokens.length > 0;
+    if (targetStillExists) {
+      throw new Error(zh ? '服务端仍返回待撤销的授权，请稍后重试。' : 'The server still reports the authorization. Please retry.');
+    }
     setMessage({
       type: 'success',
       text: zh
-        ? `已撤销 ${payload.revokedTokens?.length || 0} 个访问授权。`
-        : `${payload.revokedTokens?.length || 0} access authorization(s) revoked.`,
+        ? `已撤销 ${payload.refreshTokensRevoked || 0} 个长期授权和 ${payload.revokedTokens?.length || 0} 个访问授权。`
+        : `${payload.refreshTokensRevoked || 0} refresh authorization(s) and ${payload.revokedTokens?.length || 0} access authorization(s) revoked.`,
     });
   });
 
-  const approveOAuth = useCallback(() => {
+  const submitOAuthApproval = useCallback(async ({ silent = false } = {}) => {
     if (oauthApprovalInFlightRef.current) return Promise.resolve();
     oauthApprovalInFlightRef.current = true;
-    return perform('oauth-approve', async () => {
+    try {
       if (!oauthTransaction) throw new Error(zh ? '授权请求已过期，请从 MCP 客户端重新连接。' : 'The authorization request expired. Reconnect from the MCP client.');
       const identity = createDiagramAgentIdentity();
       const response = await fetch('/api/mcp/oauth/approve', {
@@ -189,6 +193,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
           tabId: identity.tabId,
           clientId: identity.clientId,
           href: window.location.href,
+          silent,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -198,10 +203,22 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
         throw error;
       }
       window.location.assign(payload.redirectUrl);
-    }).finally(() => {
+    } finally {
       oauthApprovalInFlightRef.current = false;
+    }
+  }, [oauthTransaction, zh]);
+
+  const approveOAuth = useCallback(() => perform('oauth-approve', () => submitOAuthApproval()), [perform, submitOAuthApproval]);
+
+  useEffect(() => {
+    if (!isOpen || !diagramPage || !oauthTransaction || oauthAutoApprovalAttemptRef.current === oauthTransaction) return;
+    oauthAutoApprovalAttemptRef.current = oauthTransaction;
+    submitOAuthApproval({ silent: true }).catch((error) => {
+      if (error?.code !== 'CONSENT_REQUIRED') {
+        setMessage({ type: 'error', text: String(error?.message || error) });
+      }
     });
-  }, [oauthTransaction, zh, perform]);
+  }, [diagramPage, isOpen, oauthTransaction, submitOAuthApproval]);
 
   const copyEndpoint = async () => {
     try {

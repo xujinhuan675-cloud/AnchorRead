@@ -7,7 +7,7 @@ import CodeEditor from '@/components/CodeEditor';
 import MermaidCanvas from '@/components/MermaidCanvas';
 import { useLocale } from '@/components/LocaleProvider';
 import { DIAGRAM_AGENT_PENDING_PRESENTATION_KEY, DIAGRAM_AGENT_PRESENTATION_EVENT } from '@/components/DiagramAgentBridge';
-import { normalizePresentationSpec } from '@/lib/diagram-presentation';
+import { getPresentationStepPlaybackDuration, normalizePresentationSpec, PRESENTATION_PLAYBACK_RATES } from '@/lib/diagram-presentation';
 import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation, reconcilePresentationSpec } from '@/lib/diagram-stream';
 import { useAppTheme } from '@/lib/theme';
 import './diagram-overlay.css';
@@ -29,6 +29,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
   const [presentationActive, setPresentationActive] = useState(false);
   const [presentationPlaying, setPresentationPlaying] = useState(false);
   const [presentationStepIndex, setPresentationStepIndex] = useState(0);
+  const [presentationPlaybackRate, setPresentationPlaybackRate] = useState(1);
   const isCodeVisible = typeof showCode === 'boolean' ? showCode : codeOpen;
   const {
     engine,
@@ -72,6 +73,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     ? Math.min(presentationStepIndex, presentation.steps.length - 1)
     : 0;
   const presentationStep = presentation?.steps?.[effectivePresentationStepIndex] || null;
+  const presentationHasNamedSteps = presentation?.steps?.some((step) => Boolean(step.title));
   const toggleCode = useCallback(() => setCodeOpen((open) => !open), []);
 
   useEffect(() => {
@@ -109,9 +111,9 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
       } else {
         setPresentationStepIndex(effectivePresentationStepIndex + 1);
       }
-    }, presentationStep.durationMs);
+    }, getPresentationStepPlaybackDuration(presentationStep, presentationPlaybackRate));
     return () => window.clearTimeout(timer);
-  }, [effectivePresentationPlaying, effectivePresentationStepIndex, presentationStep, presentation]);
+  }, [effectivePresentationPlaying, effectivePresentationStepIndex, presentationStep, presentation, presentationPlaybackRate]);
 
   // 源码开关：自管模式下才可切换；mermaid 挂在画布头部，excalidraw 收进主菜单
   const canToggleCode = typeof showCode !== 'boolean';
@@ -202,21 +204,32 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
               {effectivePresentationPlaying ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
             </button>
             <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.max(0, index - 1)); }} aria-label={t('diagram.presentation.previous')} title={t('diagram.presentation.previous')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><SkipBack size={15} aria-hidden="true" /></button>
+            {presentationHasNamedSteps && (
+              <select
+                value={effectivePresentationStepIndex}
+                aria-label={t('diagram.presentation.selectStep')}
+                className="w-24 max-w-[12rem] min-w-0 bg-transparent px-1 text-xs outline-none sm:w-auto"
+                onChange={(event) => {
+                  setPresentationActive(true);
+                  setPresentationPlaying(false);
+                  setPresentationStepIndex(Number(event.target.value));
+                }}
+              >
+                {presentation.steps.map((step, index) => (
+                  <option key={step.id} value={index}>
+                    {step.title || t('diagram.presentation.unnamedStep', { number: index + 1 })}
+                  </option>
+                ))}
+              </select>
+            )}
             <select
-              value={effectivePresentationStepIndex}
-              aria-label={t('diagram.presentation.selectStep')}
-              className="w-24 max-w-[12rem] min-w-0 bg-transparent px-1 text-xs outline-none sm:w-auto"
-              onChange={(event) => {
-                setPresentationActive(true);
-                setPresentationPlaying(false);
-                setPresentationStepIndex(Number(event.target.value));
-              }}
+              value={presentationPlaybackRate}
+              aria-label={t('diagram.presentation.speed')}
+              title={t('diagram.presentation.speed')}
+              className="w-14 shrink-0 bg-transparent px-1 text-xs tabular-nums outline-none"
+              onChange={(event) => setPresentationPlaybackRate(Number(event.target.value))}
             >
-              {presentation.steps.map((step, index) => (
-                <option key={step.id} value={index}>
-                  {step.title || t('diagram.presentation.unnamedStep', { number: index + 1 })}
-                </option>
-              ))}
+              {PRESENTATION_PLAYBACK_RATES.map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
             </select>
             <span className="min-w-6 px-1 text-center text-[14px] tabular-nums" aria-live="polite">{presentationStepIndex + 1}/{presentation.steps.length}</span>
             <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }} aria-label={t('diagram.presentation.next')} title={t('diagram.presentation.next')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><SkipForward size={15} aria-hidden="true" /></button>

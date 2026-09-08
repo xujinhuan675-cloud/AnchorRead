@@ -108,6 +108,26 @@ function interpolateViewBox(from, to, progress) {
   };
 }
 
+function viewBoxContains(outer, inner, insetRatio = 0.1) {
+  if (!outer || !inner) return false;
+  const left = outer.x + outer.width * insetRatio;
+  const top = outer.y + outer.height * insetRatio;
+  const right = outer.x + outer.width * (1 - insetRatio);
+  const bottom = outer.y + outer.height * (1 - insetRatio);
+  return inner.x >= left
+    && inner.y >= top
+    && inner.x + inner.width <= right
+    && inner.y + inner.height <= bottom;
+}
+
+function sameViewBox(first, second) {
+  return first && second
+    && Math.abs(first.x - second.x) < 0.5
+    && Math.abs(first.y - second.y) < 0.5
+    && Math.abs(first.width - second.width) < 0.5
+    && Math.abs(first.height - second.height) < 0.5;
+}
+
 export default function MermaidCanvas({
   source,
   definition,
@@ -253,10 +273,17 @@ export default function MermaidCanvas({
     const visibleCount = presentationActive && presentationStep
       ? Math.max(1, Math.ceil(visualItems.length * stepNumber / stepCount))
       : visualItems.length;
+    const requestedReveal = Number(presentationStep?.revealMs);
+    const reducedMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const revealDuration = reducedMotion
+      ? 0
+      : Math.max(0, Math.min(1200, Number.isFinite(requestedReveal) ? requestedReveal : 360));
     visualItems.forEach((item, index) => {
       const visible = presentationActive && presentationStep && visibleIds.length && !syntheticIds && matchedVisible.length
         ? matchedVisible.includes(item)
         : index < visibleCount;
+      item.style.transition = revealDuration > 0 ? `opacity ${revealDuration}ms ease` : 'none';
       item.style.opacity = visible ? '' : '0';
       item.style.pointerEvents = visible ? '' : 'none';
       item.style.filter = '';
@@ -277,15 +304,17 @@ export default function MermaidCanvas({
       ? matchingVisualItems(visualItems, presentationStep.focusElementIds)
       : [];
     const focusViewBox = visualItemsBounds(focusItems);
+    const from = currentViewBoxRef.current || parseSvgViewBox(svg);
     const target = presentationActive && presentationStep?.camera
       ? resolveMermaidViewBox(presentationStep.camera, baseViewBox)
-      : focusViewBox || baseViewBox;
-    if (!target) return undefined;
-    const from = currentViewBoxRef.current || parseSvgViewBox(svg);
+      : presentationActive && focusViewBox && !viewBoxContains(from, focusViewBox)
+        ? focusViewBox
+        : presentationActive ? from : baseViewBox;
+    if (!target || sameViewBox(from, target)) return undefined;
     const transition = Number(presentationStep?.transitionMs);
     const reducedMotion = typeof window !== 'undefined'
       && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const duration = reducedMotion ? 0 : Math.max(0, Math.min(1200, Number.isFinite(transition) ? transition : 450));
+    const duration = reducedMotion ? 0 : Math.max(0, Math.min(1200, Number.isFinite(transition) ? transition : 600));
     cancelAnimationFrame(presentationAnimFrameRef.current);
     const startedAt = performance.now();
     const tick = (now) => {

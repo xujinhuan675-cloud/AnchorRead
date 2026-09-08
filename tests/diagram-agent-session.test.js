@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   DIAGRAM_AGENT_LEASE_HEARTBEAT_MS,
   DIAGRAM_AGENT_LEASE_MS,
+  DIAGRAM_AGENT_LONG_POLL_MS,
   createDiagramAgentSession,
   createDiagramAgentIdentity,
   isDiagramAgentLeaseActive,
@@ -21,19 +22,20 @@ function createStorage() {
   };
 }
 
-test('diagram agent lease only belongs to a visible focused tab', () => {
+test('diagram agent lease remains valid for a background IndexedDB writer', () => {
   const active = parseDiagramAgentLease({ tabId: 'a', expiresAt: 2_000, acquiredAt: 1_000 });
   assert.equal(isDiagramAgentLeaseActive(active, 1_500), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: true, focused: true, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: true, focused: false, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 1_500 }), false);
-  assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: false, focused: true, now: 1_500 }), false);
+  assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: false, focused: false, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 2_001 }), true);
 });
 
-test('lease heartbeat renews before the ownership lease expires', () => {
+test('lease covers a complete long poll and heartbeat renews it early', () => {
   assert.ok(DIAGRAM_AGENT_LEASE_HEARTBEAT_MS > 0);
   assert.ok(DIAGRAM_AGENT_LEASE_HEARTBEAT_MS < DIAGRAM_AGENT_LEASE_MS);
+  assert.ok(DIAGRAM_AGENT_LONG_POLL_MS < DIAGRAM_AGENT_LEASE_MS);
 });
 
 test('session acquire and release are owner-scoped', () => {

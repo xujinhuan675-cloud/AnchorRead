@@ -99,6 +99,26 @@ test('OAuth loopback redirects may change only their ephemeral port', () => {
   assert.equal(redirectUriMatches('https://client.example:443/callback', 'https://client.example:444/callback'), false);
 });
 
+test('OAuth dynamic registration reuses one client across loopback port changes', () => {
+  const store = new DiagramMcpOAuthStore();
+  const first = store.registerClient({
+    clientName: 'Codex',
+    redirectUris: ['http://127.0.0.1:43123/callback/stable-client'],
+  }, 1_000);
+  const repeated = store.registerClient({
+    clientName: 'Codex',
+    redirectUris: ['http://127.0.0.1:11791/callback/stable-client'],
+  }, 2_000);
+  const anotherClient = store.registerClient({
+    clientName: 'Another MCP client',
+    redirectUris: ['http://127.0.0.1:11791/callback/stable-client'],
+  }, 3_000);
+
+  assert.equal(repeated.clientId, first.clientId);
+  assert.notEqual(anotherClient.clientId, first.clientId);
+  assert.equal(store.clients.size, 2);
+});
+
 test('OAuth accepts an exactly registered IPv4 loopback redirect URI', () => {
   const store = new DiagramMcpOAuthStore();
   const client = store.registerClient({
@@ -204,7 +224,88 @@ test('OAuth store lists and revokes refresh authorizations across browser tab se
   assert.equal(store.revokeAuthorizations(anotherTab, { clientId: 'another-client', now: 2_002 }), 0);
   assert.equal(store.revokeAuthorizations(anotherTab, { clientId: client.clientId, now: 2_003 }), 1);
   assert.deepEqual(store.listAuthorizations(browserContext, 2_004), []);
+  assert.equal(store.hasAuthorization(browserContext, {
+    clientId: client.clientId,
+    scopes: ['diagrams:read'],
+    now: 2_004,
+  }), false);
   assert.throws(() => store.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 2_005), /invalid or expired/u);
+});
+
+test('OAuth store keeps one refresh authorization per logical client and browser workspace', () => {
+  const store = new DiagramMcpOAuthStore();
+  const client = store.registerClient({
+    clientName: 'Codex',
+    redirectUris: ['http://127.0.0.1:43123/callback/one-grant'],
+  }, 1_000);
+  const browserContext = {
+    bindingId: 'binding-one-grant',
+    workspaceId: 'workspace-one-grant',
+    browserSessionId: 'session-one-grant',
+  };
+  const record = {
+    clientId: client.clientId,
+    clientName: client.clientName,
+    registrationKey: client.registrationKey,
+    browserContext,
+    scopes: ['diagrams:read', 'diagrams:write'],
+  };
+  const first = store.createRefreshToken(record, 2_000);
+  const replacement = store.createRefreshToken(record, 3_000);
+
+  assert.notEqual(replacement, first);
+  assert.equal(store.listAuthorizations(browserContext, 3_001).length, 1);
+  assert.equal(store.hasAuthorization(browserContext, {
+    clientId: client.clientId,
+    scopes: ['diagrams:read', 'diagrams:write'],
+    now: 3_001,
+  }), true);
+  assert.throws(() => store.rotateRefreshToken(first, { clientId: client.clientId }, 3_002), /invalid or expired/u);
+  assert.match(store.rotateRefreshToken(replacement, { clientId: client.clientId }, 3_003).refreshToken, /^refresh_/u);
+  assert.equal(store.listAuthorizations(browserContext, 3_004).length, 1);
+});
+
+test('OAuth store migrates duplicate legacy registrations to the newest refresh authorization', () => {
+  const store = new DiagramMcpOAuthStore();
+  const first = store.registerClient({
+    clientName: 'Codex',
+    redirectUris: ['http://127.0.0.1:43123/callback/legacy-duplicates'],
+  }, 1_000);
+  const duplicate = {
+    ...first,
+    clientId: 'arc_legacy_duplicate',
+    createdAt: 2_000,
+  };
+  delete duplicate.registrationKey;
+  store.clients.set(duplicate.clientId, duplicate);
+  const browserContext = {
+    bindingId: 'binding-legacy-duplicates',
+    workspaceId: 'workspace-legacy-duplicates',
+    browserSessionId: 'session-legacy-duplicates',
+  };
+  store.refreshTokens.set('old-refresh-hash', {
+    tokenHash: 'old-refresh-hash',
+    clientId: first.clientId,
+    clientName: first.clientName,
+    browserContext,
+    scopes: ['diagrams:read', 'diagrams:write'],
+    createdAt: 3_000,
+    expiresAt: 100_000,
+  });
+  store.refreshTokens.set('new-refresh-hash', {
+    tokenHash: 'new-refresh-hash',
+    clientId: duplicate.clientId,
+    clientName: duplicate.clientName,
+    browserContext,
+    scopes: ['diagrams:read', 'diagrams:write'],
+    createdAt: 4_000,
+    expiresAt: 100_000,
+  });
+
+  const authorizations = store.listAuthorizations(browserContext, 5_000);
+  assert.equal(authorizations.length, 1);
+  assert.equal(authorizations[0].clientId, duplicate.clientId);
+  assert.equal(store.refreshTokens.size, 1);
 });
 
 test('file OAuth store refreshes state shared by separate route contexts', async () => {

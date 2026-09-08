@@ -99,7 +99,7 @@ async function authorizationSnapshot(pairingStore, oauthStore, context) {
   return {
     binding,
     authorizations: oauthStore.listAuthorizations(binding),
-    accessTokens: tokenSnapshot.tokens,
+    accessTokens: tokenSnapshot.tokens.filter((token) => token.status === 'active'),
   };
 }
 
@@ -155,9 +155,10 @@ export async function POST(request) {
       const revokedTokens = await store.revokeTokensForBinding(context, { clientId, tokenId });
       const refreshTokensRevoked = oauthStore.revokeAuthorizations(binding, { clientId });
       for (const token of revokedTokens.tokens) cancelDiagramAgentRequestsForToken(token.id);
+      const snapshot = await authorizationSnapshot(store, oauthStore, context);
       return NextResponse.json({
         ok: true,
-        binding,
+        ...snapshot,
         revokedTokens: revokedTokens.tokens,
         refreshTokensRevoked,
       }, { headers: { 'Cache-Control': 'no-store' } });

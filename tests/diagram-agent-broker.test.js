@@ -48,31 +48,17 @@ test('only the active focused browser client claims an unaddressed request', asy
   await promise;
 });
 
-test('a scoped request is only claimable by its exact workspace and browser session', async () => {
+test('a scoped request follows its workspace across browser sessions', async () => {
   const { id, promise } = createDiagramAgentRequest(
     { tool: 'list_diagrams', args: {} },
-    { scope: { workspaceId: 'workspace-a', browserSessionId: 'session-a', tabId: 'tab-a' } },
+    { scope: { workspaceId: 'workspace-a' } },
   );
   assert.deepEqual(claimDiagramAgentRequests('wrong-client', {
     client: { workspaceId: 'workspace-b', browserSessionId: 'session-b', tabId: 'tab-b' },
   }), []);
   const claimed = claimDiagramAgentRequests('right-client', {
-    client: { workspaceId: 'workspace-a', browserSessionId: 'session-a', tabId: 'tab-a' },
+    client: { workspaceId: 'workspace-a', browserSessionId: 'reopened-session', tabId: 'reopened-tab' },
   });
-  assert.equal(claimed[0]?.id, id);
-  resolveDiagramAgentRequest(id, claimed[0].claimToken, { ok: true });
-  await promise;
-});
-
-test('a deferred browser wake request requires its one-time request id', async () => {
-  const { id, promise } = createDiagramAgentRequest(
-    { tool: 'create_diagram', args: { title: 'Wake me' } },
-    { wakeOnly: true },
-  );
-  claimDiagramAgentRequests('already-open-client', { client: { visible: true, focused: true } });
-  assert.deepEqual(claimDiagramAgentRequests('ordinary-client'), []);
-  assert.deepEqual(claimDiagramAgentRequests('wrong-wake-client', { wakeRequestId: 'wrong' }), []);
-  const claimed = claimDiagramAgentRequests('default-browser-client', { wakeRequestId: id });
   assert.equal(claimed[0]?.id, id);
   resolveDiagramAgentRequest(id, claimed[0].claimToken, { ok: true });
   await promise;

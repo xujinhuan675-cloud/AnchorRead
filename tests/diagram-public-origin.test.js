@@ -74,8 +74,8 @@ test('resource links sanitize an unsafe explicit workspace URL and preserve its 
   const result = createMcpToolResult({
     openResource: {
       kind: 'workspace',
-      url: 'https://0.0.0.0:3000/diagrams?diagramWake=request-1',
+      url: 'https://0.0.0.0:3000/diagrams?view=library',
     },
   });
-  assert.equal(result.content[1].uri, `${canonicalWorkspace}?diagramWake=request-1`);
+  assert.equal(result.content[1].uri, `${canonicalWorkspace}?view=library`);
 });

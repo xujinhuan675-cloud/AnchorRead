@@ -9,6 +9,7 @@ import {
   createDiagramAgentSession,
   createDiagramSyncChannel,
   DIAGRAM_AGENT_LEASE_HEARTBEAT_MS,
+  DIAGRAM_AGENT_LONG_POLL_MS,
 } from '@/lib/diagram-agent-session';
 
 export const DIAGRAM_AGENT_DRAWING_EVENT = 'anchor-read:diagram-agent-drawing';
@@ -24,7 +25,6 @@ export default function DiagramAgentBridge() {
   useEffect(() => {
     if (!bridgeEnabled) return undefined;
     const identity = createDiagramAgentIdentity();
-    const wakeRequestId = new URL(window.location.href).searchParams.get('diagramWake') || '';
     clientIdRef.current = identity.clientId;
     let cancelled = false;
     let pollController = null;
@@ -45,7 +45,6 @@ export default function DiagramAgentBridge() {
     const emitConnection = (detail) => {
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_CONNECTION_EVENT, { detail }));
     };
-    const isActiveTab = () => Boolean(wakeRequestId) || document.visibilityState !== 'hidden';
     const disconnectPairing = () => fetch('/api/mcp/pairing', {
       method: 'POST',
       headers: pairingHeaders,
@@ -57,20 +56,9 @@ export default function DiagramAgentBridge() {
       pollController?.abort();
       if (disconnect) disconnectPairing();
     };
-    const refreshSession = () => session.acquire({
-      visible: Boolean(wakeRequestId) || document.visibilityState !== 'hidden',
-      focused: Boolean(wakeRequestId) || typeof document.hasFocus !== 'function' || document.hasFocus(),
-    });
-    let heartbeatVisible = document.visibilityState !== 'hidden';
+    const refreshSession = () => session.acquire();
     const leaseHeartbeat = window.setInterval(() => {
-      if (cancelled || wakeRequestId) return;
-      const visible = document.visibilityState !== 'hidden';
-      if (!visible) {
-        if (heartbeatVisible) releaseSession({ disconnect: true });
-        heartbeatVisible = false;
-        return;
-      }
-      heartbeatVisible = true;
+      if (cancelled) return;
       refreshSession();
     }, DIAGRAM_AGENT_LEASE_HEARTBEAT_MS);
     const respond = async (request, result, error) => {
@@ -82,7 +70,6 @@ export default function DiagramAgentBridge() {
           ...pairingBody(),
           id: request.id,
           claimToken: request.claimToken,
-          ...(wakeRequestId ? { wakeRequestId } : {}),
           ...(error ? { error: String(error?.message || error) } : { result }),
         }),
       }).catch(() => {});
@@ -119,7 +106,7 @@ export default function DiagramAgentBridge() {
     };
     const poll = async () => {
       while (!cancelled) {
-        if (!wakeRequestId && !refreshSession()) {
+        if (!refreshSession()) {
           await new Promise((resolve) => window.setTimeout(resolve, 500));
           continue;
         }
@@ -127,14 +114,13 @@ export default function DiagramAgentBridge() {
         try {
           const presence = new URLSearchParams({
             action: 'poll',
-            waitMs: '20000',
+            waitMs: String(DIAGRAM_AGENT_LONG_POLL_MS),
             clientId,
             tabId,
             workspaceId,
             browserSessionId,
-            visible: String(Boolean(wakeRequestId) || document.visibilityState !== 'hidden'),
-            focused: String(Boolean(wakeRequestId) || typeof document.hasFocus !== 'function' || document.hasFocus()),
-            wakeRequestId,
+            visible: 'true',
+            focused: String(typeof document.hasFocus !== 'function' || document.hasFocus()),
             href: window.location.href,
           });
           const response = await fetch(`/api/diagram-agent?${presence}`, {
@@ -152,10 +138,8 @@ export default function DiagramAgentBridge() {
           const payload = await response.json();
           for (const request of payload.requests || []) {
             if (cancelled) break;
-            // A tab that lost focus after claiming a request must not open or
-            // mutate the user's newly focused tab. Return a retryable error.
-            if (!isActiveTab() || (!wakeRequestId && !session.isOwner())) {
-              await respond(request, undefined, new Error('AnchorRead browser tab is no longer active; retry the diagram command.'));
+            if (!session.isOwner()) {
+              await respond(request, undefined, new Error('AnchorRead browser tab no longer owns the workspace connection; retry the diagram command.'));
               continue;
             }
             try {
@@ -165,13 +149,6 @@ export default function DiagramAgentBridge() {
                 onPresentation: publishPresentation,
               });
               await respond(request, result);
-              if (wakeRequestId && request.id === wakeRequestId && result?.url) {
-                const nextUrl = new URL(result.url, window.location.origin);
-                if (nextUrl.origin === window.location.origin && /^\/diagrams\//u.test(nextUrl.pathname)) {
-                  window.location.replace(nextUrl.href);
-                  return;
-                }
-              }
             } catch (error) {
               await respond(request, undefined, error);
             }
@@ -185,38 +162,14 @@ export default function DiagramAgentBridge() {
         }
       }
     };
-    const handleFocus = () => { refreshSession(); };
-    const handleBlur = () => {
-      // Keep a visible tab available while the user works in another app;
-      // hidden tabs still release immediately through visibilitychange.
-      if (!wakeRequestId && document.visibilityState === 'hidden') {
-        heartbeatVisible = false;
-        releaseSession({ disconnect: true });
-      } else {
-        heartbeatVisible = true;
-        refreshSession();
-      }
-    };
-    const handleVisibility = () => {
-      if (!wakeRequestId && document.visibilityState === 'hidden') {
-        heartbeatVisible = false;
-        releaseSession({ disconnect: true });
-      } else {
-        heartbeatVisible = true;
-        refreshSession();
-      }
-    };
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('visibilitychange', handleVisibility);
     const connect = async () => {
       while (!cancelled) {
         try {
-          if (!wakeRequestId && !refreshSession()) {
+          if (!refreshSession()) {
             await new Promise((resolve) => window.setTimeout(resolve, 500));
             continue;
           }
-          if (!wakeRequestId) await register();
+          await register();
           if (!cancelled) await poll();
           return;
         } catch (error) {
@@ -225,15 +178,15 @@ export default function DiagramAgentBridge() {
         }
       }
     };
+    const handlePageHide = () => releaseSession({ disconnect: true });
+    window.addEventListener('pagehide', handlePageHide);
     connect();
     return () => {
       cancelled = true;
       window.clearInterval(leaseHeartbeat);
       releaseSession({ disconnect: true });
       syncChannel?.close();
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pagehide', handlePageHide);
     };
   }, [bridgeEnabled]);
 

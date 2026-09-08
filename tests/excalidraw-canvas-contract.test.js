@@ -72,6 +72,17 @@ test('stream replay camera animates via rAF interpolation', () => {
   assert.match(componentSource, /prefers-reduced-motion: reduce/u);
 });
 
+test('presentation reveals elements in place and keeps camera movement sparse', () => {
+  assert.match(componentSource, /newlyVisibleIds/u);
+  assert.match(componentSource, /revealAnimFrameRef/u);
+  assert.match(componentSource, /opacity: Math\.round/u);
+  assert.match(componentSource, /presentationViewportReadyRef/u);
+  assert.match(componentSource, /scrollToContent\(convertedElements/u);
+  assert.match(componentSource, /elementsFitSafeViewport\(readableFocusElements, currentState\)/u);
+  assert.match(componentSource, /FOCUS_CAMERA_COOLDOWN_MS = 2400/u);
+  assert.match(componentSource, /!isConnectorElement\(element\)/u);
+});
+
 test('demo end cannot leak filtered elements into persistence', () => {
   // 演示刚结束、完整场景恢复前：onChange 一律拦截，防止过滤后的
   // 演示元素被当作正式场景入库（否则 setElements 引起 canvasKey 重挂载）
@@ -118,11 +129,14 @@ test('presentation auto-advance does not nest setState in an updater', () => {
   // （步进按钮的简洁箭头 updater 是纯的，不在禁止之列）
   assert.doesNotMatch(canvasHostSource, /setPresentationStepIndex\(\(index\) => \{/u);
   assert.match(canvasHostSource, /setPresentationStepIndex\(effectivePresentationStepIndex \+ 1\)/u);
+  assert.match(canvasHostSource, /getPresentationStepPlaybackDuration\(presentationStep, presentationPlaybackRate\)/u);
+  assert.match(canvasHostSource, /PRESENTATION_PLAYBACK_RATES\.map/u);
 });
 
 test('presentation controls remain bounded on narrow canvases', () => {
   assert.match(canvasHostSource, /max-w-\[calc\(100%-1\.5rem\)\]/u);
   assert.match(canvasHostSource, /w-24 max-w-\[12rem\]/u);
+  assert.match(canvasHostSource, /presentationHasNamedSteps && \(/u);
   assert.doesNotMatch(canvasHostSource, /presentationStepLabel/u);
   assert.match(canvasHostSource, /presentationStepIndex \+ 1\}\/\{presentation\.steps\.length\}/u);
 });

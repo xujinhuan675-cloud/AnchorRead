@@ -58,6 +58,10 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /\.app-canvas > \.excalidraw \{ width: 100%; height: 100%; \}/);
   assert.match(resource.text, /api\.scrollToContent\(displayedElements/);
   assert.match(resource.text, /defaultMermaidPresentation/);
+  assert.match(resource.text, /DEFAULT_STEP_DURATION_MS = 1500/);
+  assert.doesNotMatch(resource.text, /MAX_DEFAULT_PLAYBACK_STEPS/);
+  assert.match(resource.text, /return ids\.map\(\(_id, index\) => \(\{/);
+  assert.match(resource.text, /focusElementIds: \[\]/);
   assert.match(resource.text, /element\.type === 'text' && element\.containerId/);
   assert.match(resource.text, /'aria-label': presentationPlaying \? '暂停' : '播放'/);
   assert.match(resource.text, /presentationPlaying \? Pause : Play/);
@@ -66,6 +70,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /presentationStep\.camera/);
   assert.match(resource.text, /presentationStep\.highlightElementIds/);
   assert.match(resource.text, /app-playback-select/);
+  assert.match(resource.text, /presentationHasNamedSteps && React\.createElement\('select'/);
   assert.match(resource.text, /presentationIndex \+ 1\) \+ '\/' \+ presentationSteps\.length/);
   assert.match(resource.text, /@media \(max-width: 520px\)/);
   assert.doesNotMatch(resource.text, /app-playback-title/);
@@ -76,13 +81,18 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /value\.openRequested === true/);
   assert.match(resource.text, /app\.openLink\(\{ url: requestedUrl \}\)/);
   assert.match(resource.text, /presentationTransitionDuration\(presentationStep\)/);
+  assert.match(resource.text, /presentationStepDuration\(presentationStep, playbackRate\)/);
+  assert.match(resource.text, /newlyVisibleIds/);
+  assert.match(resource.text, /elementsFitSafeViewport\(readableFocusElements, currentState\)/);
+  assert.match(resource.text, /FOCUS_CAMERA_COOLDOWN_MS = 2400/);
+  assert.match(resource.text, /'aria-label': '播放速度'/);
   assert.match(resource.text, /React\.createElement\(ChevronLeft/);
   assert.match(resource.text, /React\.createElement\(ChevronRight/);
   assert.match(resource.text, /React\.createElement\(Square/);
   assert.doesNotMatch(resource.text, /presentationPlaying \? '\|\|' : '>'/);
   assert.match(resource.text, /在 AnchorRead 中打开/);
   assert.match(resource.text, /diagramResourceKind/);
-  assert.match(resource.text, /在默认浏览器中打开并进入当前图解/);
+  assert.doesNotMatch(resource.text, /diagramWake/);
   assert.match(resource.text, /打开 AnchorRead 图解工作区/);
   assert.match(resource.text, /\.replace\(\/<script\[\\s\\S\]\*\?<\\\/script>\/gi/);
   assert.equal(resource.text.split('</script>').length - 1, 1);

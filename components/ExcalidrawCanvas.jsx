@@ -265,6 +265,48 @@ function resolvePresentationCameraTarget(camera, currentState) {
 
 const easeInOutQuad = (t) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
 
+const FOCUS_CAMERA_COOLDOWN_MS = 2400;
+const VIEWPORT_SAFE_INSET = 0.12;
+
+function isConnectorElement(element) {
+  return element?.type === 'arrow' || element?.type === 'line';
+}
+
+function elementBounds(element) {
+  const x = Number(element?.x) || 0;
+  const y = Number(element?.y) || 0;
+  const width = Number(element?.width) || 0;
+  const height = Number(element?.height) || 0;
+  return {
+    left: Math.min(x, x + width),
+    top: Math.min(y, y + height),
+    right: Math.max(x, x + width),
+    bottom: Math.max(y, y + height),
+  };
+}
+
+function elementsFitSafeViewport(elements, appState) {
+  if (!elements.length) return true;
+  const zoom = Number(appState?.zoom?.value) || 1;
+  const viewportWidth = (Number(appState?.width) || 0) / zoom;
+  const viewportHeight = (Number(appState?.height) || 0) / zoom;
+  if (viewportWidth <= 0 || viewportHeight <= 0) return false;
+  const left = -(Number(appState?.scrollX) || 0) + viewportWidth * VIEWPORT_SAFE_INSET;
+  const top = -(Number(appState?.scrollY) || 0) + viewportHeight * VIEWPORT_SAFE_INSET;
+  const right = left + viewportWidth * (1 - VIEWPORT_SAFE_INSET * 2);
+  const bottom = top + viewportHeight * (1 - VIEWPORT_SAFE_INSET * 2);
+  return elements.every((element) => {
+    const bounds = elementBounds(element);
+    return bounds.left >= left && bounds.right <= right && bounds.top >= top && bounds.bottom <= bottom;
+  });
+}
+
+function cameraTargetChanged(from, target) {
+  return Math.abs(from.scrollX - target.scrollX) > 1
+    || Math.abs(from.scrollY - target.scrollY) > 1
+    || Math.abs(from.zoom - target.zoom) > 0.005;
+}
+
 export default function ExcalidrawCanvas({
   elements,
   onElementsChange,
@@ -291,6 +333,10 @@ export default function ExcalidrawCanvas({
   const ignoreSceneChangesRef = useRef(false);
   const restoreFullSceneRef = useRef(false);
   const cameraAnimFrameRef = useRef(0);
+  const revealAnimFrameRef = useRef(0);
+  const presentationVisibleIdsRef = useRef(new Set());
+  const presentationViewportReadyRef = useRef(false);
+  const lastFocusCameraAtRef = useRef(0);
   const streamPreviewFittedRef = useRef(false);
   // 画布随全站明暗切换：theme 传给 Excalidraw，并纳入 remount key 保证背景色同步
   const { theme } = useAppTheme();
@@ -409,31 +455,83 @@ export default function ExcalidrawCanvas({
   }, [excalidrawAPI, convertedElements, hasPersistedAppState, presentationActive]);
 
   useEffect(() => {
-    if (!presentationActive) return undefined;
+    if (!presentationActive) {
+      presentationVisibleIdsRef.current = new Set();
+      cancelAnimationFrame(revealAnimFrameRef.current);
+      return undefined;
+    }
     restoreFullSceneRef.current = true;
-    if (!excalidrawAPI || !presentationStep) return undefined;
+    if (!excalidrawAPI || !presentationStep || typeof excalidrawAPI.updateScene !== 'function') return undefined;
     const timer = setTimeout(() => {
       ignoreSceneChangesRef.current = true;
-      if (typeof excalidrawAPI.updateScene === 'function') {
+      const nextVisibleIds = new Set(convertedElements.filter((element) => Number(element?.opacity) !== 0).map((element) => element.id));
+      const newlyVisibleIds = new Set([...nextVisibleIds].filter((id) => !presentationVisibleIdsRef.current.has(id)));
+      presentationVisibleIdsRef.current = nextVisibleIds;
+      const requestedReveal = Number(presentationStep.revealMs);
+      const reducedMotion = typeof window !== 'undefined'
+        && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const revealDuration = reducedMotion
+        ? 0
+        : Math.max(0, Math.min(1200, Number.isFinite(requestedReveal) ? requestedReveal : 360));
+      cancelAnimationFrame(revealAnimFrameRef.current);
+      if (revealDuration === 0 || newlyVisibleIds.size === 0) {
         excalidrawAPI.updateScene({ elements: convertedElements, appState: { viewModeEnabled: true } });
+        return;
       }
+      const revealStart = convertedElements.map((element) => (
+        newlyVisibleIds.has(element.id) ? { ...element, opacity: 0 } : element
+      ));
+      excalidrawAPI.updateScene({ elements: revealStart, appState: { viewModeEnabled: true } });
+      const startedAt = performance.now();
+      const tick = (nowTime) => {
+        const progress = Math.min(1, (nowTime - startedAt) / revealDuration);
+        const k = easeInOutQuad(progress);
+        excalidrawAPI.updateScene({
+          elements: convertedElements.map((element) => (
+            newlyVisibleIds.has(element.id)
+              ? { ...element, opacity: Math.round((Number(element.opacity) || 0) * k) }
+              : element
+          )),
+          appState: { viewModeEnabled: true },
+        });
+        if (progress < 1) revealAnimFrameRef.current = requestAnimationFrame(tick);
+      };
+      revealAnimFrameRef.current = requestAnimationFrame(tick);
+    }, 30);
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(revealAnimFrameRef.current);
+    };
+  }, [excalidrawAPI, convertedElements, presentationActive, presentationStep]);
+
+  useEffect(() => {
+    if (!presentationActive) {
+      presentationViewportReadyRef.current = false;
+      lastFocusCameraAtRef.current = 0;
+      cancelAnimationFrame(cameraAnimFrameRef.current);
+      return undefined;
+    }
+    if (!excalidrawAPI || !presentationStep || convertedElements.length === 0) return undefined;
+    const timer = setTimeout(() => {
+      const currentState = typeof excalidrawAPI.getAppState === 'function'
+        ? excalidrawAPI.getAppState()
+        : null;
+      const requestedTransition = Number(presentationStep.transitionMs);
+      const reducedMotion = typeof window !== 'undefined'
+        && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      const duration = reducedMotion
+        ? 0
+        : Math.max(0, Math.min(1200, Number.isFinite(requestedTransition) ? requestedTransition : 600));
+
       if (presentationStep.camera && typeof excalidrawAPI.updateScene === 'function') {
-        // 平滑相机：rAF 插值到步骤相机目标，流式重放的 cameraUpdate region 在此生效
-        const currentState = typeof excalidrawAPI.getAppState === 'function'
-          ? excalidrawAPI.getAppState()
-          : null;
+        presentationViewportReadyRef.current = true;
         const target = resolvePresentationCameraTarget(presentationStep.camera, currentState);
         const from = {
           scrollX: Number(currentState?.scrollX) || 0,
           scrollY: Number(currentState?.scrollY) || 0,
           zoom: Number(currentState?.zoom?.value) || 1,
         };
-        const requestedTransition = Number(presentationStep.transitionMs);
-        const reducedMotion = typeof window !== 'undefined'
-          && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        const duration = reducedMotion
-          ? 0
-          : Math.max(0, Math.min(1200, Number.isFinite(requestedTransition) ? requestedTransition : 450));
+        if (!cameraTargetChanged(from, target)) return;
         const startedAt = performance.now();
         cancelAnimationFrame(cameraAnimFrameRef.current);
         const tick = (nowTime) => {
@@ -450,18 +548,28 @@ export default function ExcalidrawCanvas({
           if (progress < 1) cameraAnimFrameRef.current = requestAnimationFrame(tick);
         };
         cameraAnimFrameRef.current = requestAnimationFrame(tick);
-      } else if (convertedElements.length > 0 && typeof excalidrawAPI.scrollToContent === 'function') {
-        const focusIds = new Set(presentationStep.focusElementIds || []);
-        const focusElements = focusIds.size > 0
-          ? convertedElements.filter((element) => focusIds.has(element.id))
-          : convertedElements;
-        excalidrawAPI.scrollToContent(focusElements.length > 0 ? focusElements : convertedElements, {
-          fitToContent: true,
-          animate: true,
-          duration: presentationStep.transitionMs,
-        });
+        return;
       }
-      setTimeout(() => { ignoreSceneChangesRef.current = false; }, 0);
+
+      if (typeof excalidrawAPI.scrollToContent !== 'function') return;
+      if (!presentationViewportReadyRef.current) {
+        presentationViewportReadyRef.current = true;
+        lastFocusCameraAtRef.current = performance.now();
+        excalidrawAPI.scrollToContent(convertedElements, { fitToContent: true, animate: true, duration });
+        return;
+      }
+
+      const focusIds = new Set(presentationStep.focusElementIds || []);
+      const focusElements = convertedElements.filter((element) => (
+        focusIds.has(element.id) || (element.containerId && focusIds.has(element.containerId))
+      ));
+      const readableFocusElements = focusElements.filter((element) => !isConnectorElement(element));
+      const nowTime = performance.now();
+      if (readableFocusElements.length === 0
+        || elementsFitSafeViewport(readableFocusElements, currentState)
+        || nowTime - lastFocusCameraAtRef.current < FOCUS_CAMERA_COOLDOWN_MS) return;
+      lastFocusCameraAtRef.current = nowTime;
+      excalidrawAPI.scrollToContent(readableFocusElements, { fitToContent: true, animate: true, duration });
     }, 30);
     return () => {
       clearTimeout(timer);

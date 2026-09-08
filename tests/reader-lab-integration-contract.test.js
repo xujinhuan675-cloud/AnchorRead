@@ -112,9 +112,10 @@ test('diagram library routes are separate from the editor and preserve drawing h
   assert.match(diagramAgentBridge, /setInterval\(\(\) => \{[\s\S]*?refreshSession\(\);[\s\S]*?DIAGRAM_AGENT_LEASE_HEARTBEAT_MS\)/);
   assert.match(diagramAgentBridge, /clearInterval\(leaseHeartbeat\)/);
   assert.match(diagramAgentBridge, /detail: \{ drawing, open: false, openRequested: open \}/);
-  assert.match(diagramAgentBridge, /searchParams\.get\('diagramWake'\)/);
-  assert.match(diagramAgentBridge, /request\.id === wakeRequestId/);
-  assert.match(diagramAgentBridge, /window\.location\.replace\(nextUrl\.href\)/);
+  assert.doesNotMatch(diagramAgentBridge, /diagramWake/);
+  assert.doesNotMatch(diagramAgentBridge, /visibilitychange/);
+  assert.match(diagramAgentBridge, /visible: 'true'/);
+  assert.match(diagramAgentBridge, /addEventListener\('pagehide', handlePageHide\)/);
   assert.match(homePage, /if \(resolution\.reason !== 'not_found'\) router\.replace\('\/diagrams'\)/);
   assert.match(readerLabWorkspace, /diagramResolutionError/);
   assert.match(readerLabWorkspace, /onDiagramResolved\(null, \{ reason: 'not_found', requestedDrawingId \}\)/);
