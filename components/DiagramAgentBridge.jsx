@@ -8,6 +8,7 @@ import {
   createDiagramAgentIdentity,
   createDiagramAgentSession,
   createDiagramSyncChannel,
+  DIAGRAM_AGENT_LEASE_HEARTBEAT_MS,
 } from '@/lib/diagram-agent-session';
 
 export const DIAGRAM_AGENT_DRAWING_EVENT = 'anchor-read:diagram-agent-drawing';
@@ -60,6 +61,18 @@ export default function DiagramAgentBridge() {
       visible: Boolean(wakeRequestId) || document.visibilityState !== 'hidden',
       focused: Boolean(wakeRequestId) || typeof document.hasFocus !== 'function' || document.hasFocus(),
     });
+    let heartbeatVisible = document.visibilityState !== 'hidden';
+    const leaseHeartbeat = window.setInterval(() => {
+      if (cancelled || wakeRequestId) return;
+      const visible = document.visibilityState !== 'hidden';
+      if (!visible) {
+        if (heartbeatVisible) releaseSession({ disconnect: true });
+        heartbeatVisible = false;
+        return;
+      }
+      heartbeatVisible = true;
+      refreshSession();
+    }, DIAGRAM_AGENT_LEASE_HEARTBEAT_MS);
     const respond = async (request, result, error) => {
       await fetch('/api/diagram-agent', {
         method: 'POST',
@@ -176,12 +189,22 @@ export default function DiagramAgentBridge() {
     const handleBlur = () => {
       // Keep a visible tab available while the user works in another app;
       // hidden tabs still release immediately through visibilitychange.
-      if (!wakeRequestId && document.visibilityState === 'hidden') releaseSession({ disconnect: true });
-      else refreshSession();
+      if (!wakeRequestId && document.visibilityState === 'hidden') {
+        heartbeatVisible = false;
+        releaseSession({ disconnect: true });
+      } else {
+        heartbeatVisible = true;
+        refreshSession();
+      }
     };
     const handleVisibility = () => {
-      if (!wakeRequestId && document.visibilityState === 'hidden') releaseSession({ disconnect: true });
-      else refreshSession();
+      if (!wakeRequestId && document.visibilityState === 'hidden') {
+        heartbeatVisible = false;
+        releaseSession({ disconnect: true });
+      } else {
+        heartbeatVisible = true;
+        refreshSession();
+      }
     };
     window.addEventListener('focus', handleFocus);
     window.addEventListener('blur', handleBlur);
@@ -205,6 +228,7 @@ export default function DiagramAgentBridge() {
     connect();
     return () => {
       cancelled = true;
+      window.clearInterval(leaseHeartbeat);
       releaseSession({ disconnect: true });
       syncChannel?.close();
       window.removeEventListener('focus', handleFocus);

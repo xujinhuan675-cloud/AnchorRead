@@ -109,6 +109,8 @@ test('diagram library routes are separate from the editor and preserve drawing h
   // link; it must not steal the user's current tab. A route missing from this
   // profile is rendered as an explicit recovery state instead of a redirect.
   assert.doesNotMatch(diagramAgentBridge, /router\.push\(/);
+  assert.match(diagramAgentBridge, /setInterval\(\(\) => \{[\s\S]*?refreshSession\(\);[\s\S]*?DIAGRAM_AGENT_LEASE_HEARTBEAT_MS\)/);
+  assert.match(diagramAgentBridge, /clearInterval\(leaseHeartbeat\)/);
   assert.match(diagramAgentBridge, /detail: \{ drawing, open: false, openRequested: open \}/);
   assert.match(diagramAgentBridge, /searchParams\.get\('diagramWake'\)/);
   assert.match(diagramAgentBridge, /request\.id === wakeRequestId/);

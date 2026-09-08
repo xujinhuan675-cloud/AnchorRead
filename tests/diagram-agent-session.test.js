@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  DIAGRAM_AGENT_LEASE_HEARTBEAT_MS,
+  DIAGRAM_AGENT_LEASE_MS,
   createDiagramAgentSession,
   createDiagramAgentIdentity,
   isDiagramAgentLeaseActive,
@@ -27,6 +29,11 @@ test('diagram agent lease only belongs to a visible focused tab', () => {
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 1_500 }), false);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: false, focused: true, now: 1_500 }), false);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 2_001 }), true);
+});
+
+test('lease heartbeat renews before the ownership lease expires', () => {
+  assert.ok(DIAGRAM_AGENT_LEASE_HEARTBEAT_MS > 0);
+  assert.ok(DIAGRAM_AGENT_LEASE_HEARTBEAT_MS < DIAGRAM_AGENT_LEASE_MS);
 });
 
 test('session acquire and release are owner-scoped', () => {
