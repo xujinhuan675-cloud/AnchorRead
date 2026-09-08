@@ -23,7 +23,7 @@ test('browser verification reports a successful IndexedDB round trip', async () 
     auth: {
       local: false,
       token: { id: 'token-test' },
-      binding: { workspaceId: 'workspace-test', browserSessionId: 'session-test', tabId: 'tab-test', connected: true },
+      binding: { bindingId: 'binding-test', workspaceId: 'workspace-test', browserSessionId: 'session-test', tabId: 'tab-test', connected: true },
     },
     submitTool: async (name) => {
       assert.equal(name, 'list_diagrams');
@@ -33,7 +33,7 @@ test('browser verification reports a successful IndexedDB round trip', async () 
   assert.equal(result.ok, true);
   assert.equal(result.workspaceUrl, 'https://anchorread.flowguide.cc/diagrams');
   assert.equal(result.diagramCount, 2);
-  assert.deepEqual(Object.values(result.checks).map((item) => item.status), ['PASS', 'PASS', 'PASS', 'PASS', 'PASS']);
+  assert.deepEqual(Object.values(result.checks).map((item) => item.status), ['PASS', 'PASS', 'PASS', 'PASS', 'PASS', 'PASS']);
   assert.equal(result.nextAction, 'none');
 });
 
@@ -44,7 +44,7 @@ test('browser verification explains an offline OAuth workspace without attemptin
     auth: {
       local: false,
       token: { id: 'token-test' },
-      binding: { workspaceId: 'workspace-test', connected: false },
+      binding: { bindingId: 'binding-test', workspaceId: 'workspace-test', connected: false },
     },
     submitTool: async () => { submitted = true; },
   });
@@ -52,9 +52,28 @@ test('browser verification explains an offline OAuth workspace without attemptin
   assert.equal(result.ok, false);
   assert.equal(result.code, 'BROWSER_SESSION_OFFLINE');
   assert.equal(result.checks.mcpOAuth.status, 'PASS');
+  assert.equal(result.checks.browserBinding.status, 'PASS');
   assert.equal(result.checks.browserSessionOnline.status, 'FAIL');
   assert.equal(result.nextAction, 'open_workspace_then_retry');
   assert.equal(result.nextActionDetails.ifStillOffline.command, 'codex mcp login anchorread');
+});
+
+test('browser verification requires a server-issued binding for OAuth tokens', async () => {
+  let submitted = false;
+  const result = await verifyDiagramBrowserConnection({
+    request: new Request('https://anchorread.flowguide.cc/mcp'),
+    auth: {
+      local: false,
+      token: { id: 'token-legacy' },
+      binding: { workspaceId: 'workspace-test', connected: true },
+    },
+    submitTool: async () => { submitted = true; },
+  });
+  assert.equal(submitted, false);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'BROWSER_BINDING_UPGRADE_REQUIRED');
+  assert.equal(result.checks.browserBinding.status, 'FAIL');
+  assert.equal(result.nextAction, 'reauthorize_mcp');
 });
 
 test('Streamable HTTP exposes and executes verify_browser_connection', async () => {

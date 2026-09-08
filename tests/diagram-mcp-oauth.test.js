@@ -35,6 +35,7 @@ test('OAuth dynamic registration and PKCE authorization codes are one-time', () 
     scopes: 'diagrams:read diagrams:write',
   }, 2_000);
   const approved = store.approveTransaction(transaction.id, {
+    bindingId: 'binding-oauth',
     workspaceId: 'workspace-oauth',
     browserSessionId: 'session-oauth',
     tabId: 'tab-oauth',
@@ -50,6 +51,7 @@ test('OAuth dynamic registration and PKCE authorization codes are one-time', () 
     redirectUri: client.redirectUris[0],
     codeVerifier: verifier,
   }, 4_000);
+  assert.equal(consumed.browserContext.bindingId, 'binding-oauth');
   assert.equal(consumed.browserContext.workspaceId, 'workspace-oauth');
   assert.throws(() => store.consumeCode({
     code,
@@ -75,7 +77,11 @@ test('OAuth rejects unregistered redirects and a mismatched PKCE verifier', () =
     codeChallenge: challenge(verifier),
     codeChallengeMethod: 'S256',
   }, 2_000);
-  const approved = store.approveTransaction(transaction.id, { workspaceId: 'workspace-oauth' }, 3_000);
+  assert.throws(
+    () => store.approveTransaction(transaction.id, { workspaceId: 'workspace-oauth' }, 2_500),
+    /server-issued browser binding/u,
+  );
+  const approved = store.approveTransaction(transaction.id, { bindingId: 'binding-oauth', workspaceId: 'workspace-oauth' }, 3_000);
   assert.throws(() => store.consumeCode({
     code: new URL(approved.redirectUrl).searchParams.get('code'),
     clientId: client.clientId,
@@ -138,7 +144,11 @@ test('file OAuth store survives restarts without persisting raw codes or refresh
 
     const second = new FileDiagramMcpOAuthStore({ filePath });
     assert.equal(second.getTransaction(transaction.id, 2_001).clientId, client.clientId);
-    const approved = second.approveTransaction(transaction.id, { workspaceId: 'browser-persistent' }, 3_000);
+    const approved = second.approveTransaction(transaction.id, {
+      bindingId: 'binding-persistent',
+      workspaceId: 'browser-persistent',
+      browserSessionId: 'session-persistent',
+    }, 3_000);
     const code = new URL(approved.redirectUrl).searchParams.get('code');
 
     const third = new FileDiagramMcpOAuthStore({ filePath });
@@ -157,12 +167,39 @@ test('file OAuth store survives restarts without persisting raw codes or refresh
     const fourth = new FileDiagramMcpOAuthStore({ filePath });
     const rotated = fourth.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 5_000);
     assert.match(rotated.refreshToken, /^refresh_/u);
+    assert.equal(rotated.browserContext.bindingId, 'binding-persistent');
+    assert.equal(rotated.browserContext.browserSessionId, 'session-persistent');
     const replayed = fourth.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 5_001);
     assert.equal(replayed.refreshToken, rotated.refreshToken);
     assert.throws(() => fourth.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 65_001), /invalid or expired/u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('OAuth store lists and revokes refresh authorizations by browser binding', () => {
+  const store = new DiagramMcpOAuthStore();
+  const client = store.registerClient({
+    clientName: 'Codex authorization management',
+    redirectUris: ['http://127.0.0.1:43123/callback/authorization-management'],
+  }, 1_000);
+  const browserContext = {
+    bindingId: 'binding-management',
+    workspaceId: 'workspace-management',
+    browserSessionId: 'session-management',
+  };
+  const refreshToken = store.createRefreshToken({
+    clientId: client.clientId,
+    clientName: client.clientName,
+    browserContext,
+    scopes: ['diagrams:read'],
+  }, 2_000);
+  assert.match(refreshToken, /^refresh_/u);
+  assert.equal(store.listAuthorizations(browserContext, 2_001)[0].clientName, client.clientName);
+  assert.equal(store.revokeAuthorizations(browserContext, { clientId: 'another-client', now: 2_002 }), 0);
+  assert.equal(store.revokeAuthorizations(browserContext, { clientId: client.clientId, now: 2_003 }), 1);
+  assert.deepEqual(store.listAuthorizations(browserContext, 2_004), []);
+  assert.throws(() => store.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 2_005), /invalid or expired/u);
 });
 
 test('file OAuth store refreshes state shared by separate route contexts', async () => {
@@ -188,7 +225,9 @@ test('file OAuth store refreshes state shared by separate route contexts', async
 
     const approvalRoute = new FileDiagramMcpOAuthStore({ filePath });
     const approved = approvalRoute.approveTransaction(transaction.id, {
+      bindingId: 'binding-shared',
       workspaceId: 'browser-shared',
+      browserSessionId: 'session-shared',
     }, 3_000);
     const code = new URL(approved.redirectUrl).searchParams.get('code');
 
@@ -200,6 +239,7 @@ test('file OAuth store refreshes state shared by separate route contexts', async
       codeVerifier: verifier,
     }, 4_000);
     assert.equal(record.browserContext.workspaceId, 'browser-shared');
+    assert.equal(record.browserContext.bindingId, 'binding-shared');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -214,8 +254,8 @@ test('OAuth-issued access tokens expire', async () => {
     clientId: 'browser-expiry',
     managementSecret: 'management-expiry',
   };
-  await pairing.registerConnection(context, { now: 1_000 });
-  const issued = await pairing.createTokenForWorkspace(context, { expiresInMs: 100, now: 1_000 });
+  const registered = await pairing.registerConnection(context, { now: 1_000 });
+  const issued = await pairing.createTokenForWorkspace(registered, { expiresInMs: 100, now: 1_000 });
   assert.equal(issued.record.expiresAt, 1_100);
   await assert.rejects(() => pairing.authenticateToken(issued.token, { now: 1_101 }), /expired/u);
 });

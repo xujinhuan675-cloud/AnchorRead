@@ -279,15 +279,15 @@ test('remote MCP requires an OAuth access token, binds the session, and enforces
     managementSecret: 'manage-http-secret',
   };
   try {
-    await store.registerConnection(browser);
-    const created = await store.createTokenForWorkspace(browser, { name: 'OAuth HTTP test', expiresInMs: 60_000 });
+    const registered = await store.registerConnection(browser);
+    const created = await store.createTokenForWorkspace(registered, { name: 'OAuth HTTP test', expiresInMs: 60_000 });
     const reopenedBrowser = {
       ...browser,
-      browserSessionId: 'session-http-reopened',
       tabId: 'tab-http-reopened',
       clientId: 'client-http-reopened',
     };
-    await store.registerConnection(reopenedBrowser, { replace: true });
+    const reconnected = await store.registerConnection(reopenedBrowser, { replace: true });
+    assert.equal(reconnected.bindingId, registered.bindingId);
     const authorization = `Bearer ${created.token}`;
     const denied = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
       jsonrpc: '2.0', id: 1, method: 'initialize', params: {},
@@ -315,7 +315,20 @@ test('remote MCP requires an OAuth access token, binds the session, and enforces
     assert.equal(called.status, 200);
     assert.equal(submittedOptions.binding.workspaceId, browser.workspaceId);
     assert.equal(submittedOptions.binding.browserSessionId, reopenedBrowser.browserSessionId);
+    assert.equal(submittedOptions.binding.bindingId, registered.bindingId);
     assert.equal(submittedOptions.tokenId, created.record.id);
+
+    await store.registerConnection({
+      ...browser,
+      browserSessionId: 'session-http-replaced',
+      tabId: 'tab-http-replaced',
+      clientId: 'client-http-replaced',
+    }, { replace: true });
+    const mismatchedBrowser = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
+      jsonrpc: '2.0', id: 6, method: 'initialize', params: {},
+    }, { Origin: 'https://client.example', Authorization: authorization }));
+    assert.equal(mismatchedBrowser.status, 401);
+    assert.match((await mismatchedBrowser.json()).error.message, /different browser connection/u);
 
     const blockedOrigin = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
       jsonrpc: '2.0', id: 4, method: 'initialize', params: {},

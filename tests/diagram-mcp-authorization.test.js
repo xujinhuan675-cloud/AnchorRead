@@ -64,11 +64,18 @@ test('browser connection surface exposes OAuth only', () => {
   const panel = readFileSync(new URL('../components/McpConnectionPanel.jsx', import.meta.url), 'utf8');
   const topNav = readFileSync(new URL('../components/AppTopNav.jsx', import.meta.url), 'utf8');
   const approvalRoute = readFileSync(new URL('../app/api/mcp/oauth/approve/route.js', import.meta.url), 'utf8');
+  const tokenRoute = readFileSync(new URL('../app/mcp/oauth/token/route.js', import.meta.url), 'utf8');
   assert.doesNotMatch(pairingRoute, /create-token|rotate-token|revoke-token/u);
   assert.doesNotMatch(panel, /ANCHORREAD_MCP_BEARER_TOKEN|bearer_token_env_var|create-token|rotate-token|revoke-token/u);
   assert.match(panel, /OAuth authorization|OAuth 授权/u);
+  assert.match(panel, /View authorization|查看授权/u);
+  assert.match(panel, /Revoke authorization|撤销授权/u);
+  assert.match(pairingRoute, /authorizations/u);
+  assert.match(pairingRoute, /revoke-authorizations/u);
   assert.match(panel, /oauthApprovalInFlightRef/u);
   assert.doesNotMatch(panel, /oauthApprovalStartedRef/u);
   assert.match(topNav, /const closeMcpPanel = \(\) =>/u);
   assert.ok(approvalRoute.indexOf('oauthStore.getTransaction') < approvalRoute.indexOf('registerConnection'));
+  assert.match(approvalRoute, /approveTransaction\(body\?\.transaction, connection\)/u);
+  assert.match(tokenRoute, /BROWSER_BINDING_MISMATCH.+BROWSER_BINDING_UPGRADE_REQUIRED/u);
 });

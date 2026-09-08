@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDiagramAgentTransport } from '@/lib/diagram-agent-transport';
+import { cancelDiagramAgentRequestsForToken } from '@/lib/diagram-agent-broker';
+import { getDiagramMcpOAuthStore } from '@/lib/diagram-mcp-oauth';
 import {
   getDiagramMcpPairingStore,
   getDiagramMcpRuntimeInfo,
@@ -43,6 +45,7 @@ function errorStatus(code) {
   if (['PAIRING_FORBIDDEN', 'SESSION_CONFLICT'].includes(code)) return 403;
   if (code === 'CONNECTION_REPLACED') return 409;
   if (['BROWSER_SESSION_OFFLINE', 'PAIRING_STORE_UNAVAILABLE'].includes(code)) return 503;
+  if (code === 'TOKEN_NOT_FOUND') return 404;
   return 400;
 }
 
@@ -90,6 +93,16 @@ async function testBrowserRoute(store, context) {
   }
 }
 
+async function authorizationSnapshot(pairingStore, oauthStore, context) {
+  const binding = await pairingStore.getBindingInfo(context);
+  const tokenSnapshot = await pairingStore.listTokensForBinding(context);
+  return {
+    binding,
+    authorizations: oauthStore.listAuthorizations(binding),
+    accessTokens: tokenSnapshot.tokens,
+  };
+}
+
 export async function POST(request) {
   if (!sameOriginBrowserRequest(request)) {
     return NextResponse.json({ ok: false, code: 'UNAUTHORIZED', error: 'Pairing is only available to the same-origin AnchorRead browser.' }, { status: 401 });
@@ -103,6 +116,7 @@ export async function POST(request) {
   }
 
   const store = getDiagramMcpPairingStore();
+  const oauthStore = getDiagramMcpOAuthStore();
   const context = contextFrom(request, body);
   const action = String(body?.action || '').trim();
   try {
@@ -129,6 +143,24 @@ export async function POST(request) {
     if (action === 'test') {
       const tested = await testBrowserRoute(store, context);
       return NextResponse.json({ ok: true, testedAt: Date.now(), ...tested });
+    }
+    if (action === 'authorizations') {
+      const snapshot = await authorizationSnapshot(store, oauthStore, context);
+      return NextResponse.json({ ok: true, ...snapshot }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (action === 'revoke-authorizations') {
+      const clientId = String(body?.clientId || '').trim();
+      const tokenId = String(body?.tokenId || '').trim();
+      const binding = await store.getBindingInfo(context);
+      const revokedTokens = await store.revokeTokensForBinding(context, { clientId, tokenId });
+      const refreshTokensRevoked = oauthStore.revokeAuthorizations(binding, { clientId });
+      for (const token of revokedTokens.tokens) cancelDiagramAgentRequestsForToken(token.id);
+      return NextResponse.json({
+        ok: true,
+        binding,
+        revokedTokens: revokedTokens.tokens,
+        refreshTokensRevoked,
+      }, { headers: { 'Cache-Control': 'no-store' } });
     }
     return NextResponse.json({ ok: false, code: 'UNKNOWN_ACTION', error: `Unsupported pairing action: ${action}` }, { status: 400 });
   } catch (error) {

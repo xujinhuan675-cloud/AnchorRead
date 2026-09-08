@@ -39,7 +39,7 @@ export async function POST(request) {
     // Register this browser before issuing the code so later MCP requests are
     // routed back to the page the user explicitly approved.
     const connection = await pairingStore.registerConnection(context, { replace: true });
-    const approved = oauthStore.approveTransaction(body?.transaction, context);
+    const approved = oauthStore.approveTransaction(body?.transaction, connection);
     return NextResponse.json({ ok: true, ...approved, connection }, {
       headers: { 'Cache-Control': 'no-store' },
     });

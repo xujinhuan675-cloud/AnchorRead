@@ -25,6 +25,17 @@ async function parseBody(request) {
   return Object.fromEntries(form.entries());
 }
 
+async function issueBoundAccessToken(pairingStore, browserContext, options) {
+  try {
+    return await pairingStore.createTokenForWorkspace(browserContext, options);
+  } catch (error) {
+    if (['BROWSER_BINDING_MISMATCH', 'BROWSER_BINDING_UPGRADE_REQUIRED'].includes(error?.code)) {
+      throw oauthError('invalid_grant', `${error.message} Restart the MCP browser authorization flow.`);
+    }
+    throw error;
+  }
+}
+
 export async function POST(request) {
   try {
     const body = await parseBody(request);
@@ -45,8 +56,9 @@ export async function POST(request) {
         redirectUri: body?.redirect_uri,
         codeVerifier: body?.code_verifier,
       });
-      const issued = await pairingStore.createTokenForWorkspace(record.browserContext, {
+      const issued = await issueBoundAccessToken(pairingStore, record.browserContext, {
         name: record.clientName,
+        clientId: record.clientId,
         expiresInMs: ACCESS_TOKEN_TTL_MS,
       });
       refreshToken = oauthStore.createRefreshToken(record);
@@ -55,8 +67,9 @@ export async function POST(request) {
     if (grantType === 'refresh_token') {
       const rotated = oauthStore.rotateRefreshToken(body?.refresh_token, { clientId });
       record = rotated;
-      const issued = await pairingStore.createTokenForWorkspace(record.browserContext, {
-        name: 'MCP client',
+      const issued = await issueBoundAccessToken(pairingStore, record.browserContext, {
+        name: record.clientName || 'MCP client',
+        clientId: record.clientId,
         expiresInMs: ACCESS_TOKEN_TTL_MS,
       });
       refreshToken = rotated.refreshToken;

@@ -5,8 +5,10 @@ import {
   Check,
   CircleAlert,
   Clipboard,
+  Eye,
   LoaderCircle,
   PlugZap,
+  ShieldOff,
 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { useLocale } from '@/components/LocaleProvider';
@@ -36,12 +38,13 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
   const [copied, setCopied] = useState(false);
   const [endpoint, setEndpoint] = useState('');
   const [diagramPage, setDiagramPage] = useState(false);
+  const [authorizations, setAuthorizations] = useState(null);
   // OAuth approval is an explicit user action. Keep a local guard because a
   // double click or a delayed browser event must not consume the one-shot
   // transaction twice.
   const oauthApprovalInFlightRef = useRef(false);
 
-  const request = useCallback(async (action) => {
+  const request = useCallback(async (action, extra = {}) => {
     const identity = createDiagramAgentIdentity();
     const response = await fetch('/api/mcp/pairing', {
       method: 'POST',
@@ -57,6 +60,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
         tabId: identity.tabId,
         clientId: identity.clientId,
         href: window.location.href,
+        ...extra,
       }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -86,6 +90,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
     if (!isOpen) {
       setMessage(null);
       setCopied(false);
+      setAuthorizations(null);
       return undefined;
     }
     const onDiagramPage = /^\/diagrams(?:\/|$)/u.test(window.location.pathname);
@@ -130,6 +135,38 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
         : `Connection is ready${count === null ? '' : ` with ${count} diagram(s)`}.`,
     });
     await refresh({ quiet: true });
+  });
+
+  const viewAuthorizations = () => perform('authorizations', async () => {
+    const payload = await request('authorizations');
+    setAuthorizations({
+      binding: payload.binding,
+      grants: Array.isArray(payload.authorizations) ? payload.authorizations : [],
+      accessTokens: Array.isArray(payload.accessTokens) ? payload.accessTokens : [],
+    });
+    setMessage({
+      type: 'success',
+      text: zh ? '已读取当前浏览器绑定的授权。' : 'Authorizations for this browser binding are loaded.',
+    });
+  });
+
+  const revokeAuthorizations = (clientId = '') => perform(`revoke:${clientId || 'all'}`, async () => {
+    const label = clientId || (zh ? '全部授权' : 'all authorizations');
+    if (typeof window !== 'undefined' && !window.confirm(zh ? `确定撤销${label}吗？` : `Revoke ${label}?`)) return;
+    const payload = await request('revoke-authorizations', clientId ? { clientId } : {});
+    setAuthorizations((current) => current ? {
+      ...current,
+      grants: current.grants.filter((grant) => clientId && grant.clientId !== clientId),
+      accessTokens: current.accessTokens.map((token) => (
+        (!clientId || token.clientId === clientId) ? { ...token, status: 'revoked' } : token
+      )),
+    } : current);
+    setMessage({
+      type: 'success',
+      text: zh
+        ? `已撤销 ${payload.revokedTokens?.length || 0} 个访问授权。`
+        : `${payload.revokedTokens?.length || 0} access authorization(s) revoked.`,
+    });
   });
 
   const approveOAuth = useCallback(() => {
@@ -178,6 +215,8 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
 
   const connection = snapshot?.connection;
   const connected = connection?.status === 'connected' && connection?.currentClient !== false;
+  const grants = authorizations?.grants || [];
+  const accessTokens = authorizations?.accessTokens || [];
 
   return (
     <Modal
@@ -233,6 +272,52 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
                 {busy === 'test' ? <LoaderCircle className="size-3.5 animate-spin" /> : <PlugZap className="size-3.5" />}
                 {zh ? '测试' : 'Test'}
               </button>
+            </section>
+
+            <section className="border-t border-stone-200 py-5 dark:border-stone-800">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '浏览器授权' : 'Browser authorizations'}</div>
+                  <p className="mt-1 text-xs leading-5 text-stone-500">
+                    {zh ? '只显示当前浏览器绑定，不会显示访问令牌内容。' : 'Only this browser binding is shown; token contents are never exposed.'}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button type="button" disabled={!connected || Boolean(busy)} onClick={viewAuthorizations} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-300 px-2.5 text-xs font-medium text-stone-700 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-200 dark:hover:bg-white/5">
+                    {busy === 'authorizations' ? <LoaderCircle className="size-3.5 animate-spin" /> : <Eye className="size-3.5" />}
+                    {zh ? '查看授权' : 'View authorization'}
+                  </button>
+                  <button type="button" disabled={!connected || Boolean(busy)} onClick={() => revokeAuthorizations()} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 px-2.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40">
+                    {busy === 'revoke:all' ? <LoaderCircle className="size-3.5 animate-spin" /> : <ShieldOff className="size-3.5" />}
+                    {zh ? '撤销授权' : 'Revoke authorization'}
+                  </button>
+                </div>
+              </div>
+
+              {authorizations ? (
+                <div className="mt-4 space-y-2">
+                  {grants.length === 0 && accessTokens.length === 0 ? (
+                    <p className="rounded-md bg-stone-50 px-3 py-2 text-xs text-stone-500 dark:bg-stone-900/60">{zh ? '当前浏览器没有已保存的 OAuth 授权。' : 'No saved OAuth authorization for this browser.'}</p>
+                  ) : null}
+                  {grants.map((grant) => (
+                    <div key={grant.clientId} className="flex items-center justify-between gap-3 rounded-md border border-stone-200 px-3 py-2 dark:border-stone-800">
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium text-stone-800 dark:text-stone-200">{grant.clientName || grant.clientId}</div>
+                        <div className="mt-1 text-[11px] text-stone-500">{grant.scopes?.join(' · ') || (zh ? '无范围信息' : 'No scope information')}</div>
+                      </div>
+                      <button type="button" disabled={Boolean(busy)} onClick={() => revokeAuthorizations(grant.clientId)} className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-red-200 px-2 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40">
+                        {busy === `revoke:${grant.clientId}` ? <LoaderCircle className="size-3 animate-spin" /> : <ShieldOff className="size-3" />}
+                        {zh ? '撤销' : 'Revoke'}
+                      </button>
+                    </div>
+                  ))}
+                  {accessTokens.length > 0 ? (
+                    <p className="text-[11px] leading-5 text-stone-500">
+                      {zh ? `当前绑定共有 ${accessTokens.filter((token) => token.status === 'active').length} 个有效访问授权。` : `${accessTokens.filter((token) => token.status === 'active').length} active access authorization(s) belong to this binding.`}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
 
             {!oauthTransaction ? (

@@ -43,15 +43,21 @@ public client，打开授权页并让用户点击“允许连接”。原生客�
 
 授权页会把用户带到 `/diagrams?mcp=oauth_approve&transaction=...`，当前图解页用本地浏览器身份完成确认，随后
 回调客户端。客户端用 `code_verifier` 换取短期 access token 和轮换 refresh token；access token 仍使用
-`Authorization: Bearer` 访问 `/mcp`。访问令牌绑定到用户确认的浏览器；浏览器关闭或离线时，MCP 会返回图解页链接，
+`Authorization: Bearer` 访问 `/mcp`。服务器会为用户确认的浏览器会话签发不透明 `bindingId`，access token、授权码和
+refresh token 都沿用这条精确绑定；浏览器关闭或离线时，MCP 会返回图解页链接，
 支持打开 URL 的客户端应使用用户的默认浏览器自动打开，不支持的客户端提示用户手动打开。
 
-`/mcp/authorize` 只保留为 OAuth 连接说明页。手工生成、复制和长期保存的静态 Bearer Token 已弃用；连接面板和
-`/api/mcp/pairing` 不再提供 Token 创建、轮换或撤销接口，旧的非过期 Token 记录也不会被加载或接受。
+`/mcp/authorize` 只保留为 OAuth 连接说明页。手工生成、复制和长期保存的静态 Bearer Token 已弃用；
+`/api/mcp/pairing` 不再提供手工 Token 创建或轮换接口，旧的非过期 Token 记录也不会被加载或接受。
+
+浏览器图解页的“连接 MCP”面板提供两项授权管理动作：`authorizations` 只返回当前
+`workspaceId + browserSessionId + bindingId` 的授权摘要和不含密文的访问授权状态；
+`revoke-authorizations` 会撤销该浏览器绑定下的 access-token 哈希和 OAuth refresh-token，
+并取消仍在队列中的浏览器请求。撤销接口只能由同源图解页携带管理密钥调用，不会暴露或回传任何令牌明文。
 
 OAuth 客户端注册、授权事务、授权码哈希和 refresh token 哈希默认持久化到
 `ANCHORREAD_MCP_OAUTH_STORE_PATH`。授权码和 refresh token 的明文不会写入磁盘；部署重启后，已注册客户端和有效的
-refresh token 可以继续使用。
+refresh token 记录可以继续保留，但实际 MCP 调用仍要求对应的浏览器绑定重新在线。
 
 `/api/mcp` 也提供同一入口作为兼容路径。Codex、Claude Desktop、Cursor 等支持 Streamable HTTP 的客户端可以使用下面的配置：
 
@@ -70,7 +76,9 @@ scopes = ["diagrams:read", "diagrams:write"]
 ANCHORREAD_DIAGRAM_REMOTE_BRIDGE=true
 ```
 
-OAuth 客户端在协议内部通过 `Authorization: Bearer <access-token>` 认证。每次请求解析该浏览器身份当前持有租约的在线图解标签页；浏览器重开后可以自动接回。MCP session 固定绑定 access token，不能在同一个 `MCP-Session-Id` 上切换令牌。若需要浏览器型 MCP 客户端跨域调用，再设置逗号分隔的来源白名单：
+OAuth 客户端在协议内部通过 `Authorization: Bearer <access-token>` 认证。每次请求都会校验 token 的 `bindingId` 是否仍对应
+服务器记录的精确浏览器会话，再解析该绑定当前持有租约的在线图解标签页；MCP session 固定绑定 access token，不能在同一个
+`MCP-Session-Id` 上切换令牌。若需要浏览器型 MCP 客户端跨域调用，再设置逗号分隔的来源白名单：
 
 ```text
 ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
@@ -110,9 +118,10 @@ ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
 
 ## 浏览器会话与多标签页
 
-每个浏览器来源在 `localStorage` 中生成内部浏览器标识和管理密钥，每个浏览器会话在 `sessionStorage` 中生成会话标识，每次页面加载生成页面生命周期唯一的 `tabId` 与 `clientId`。OAuth access token 只绑定该浏览器标识；请求进入队列时再携带当前在线连接的 browser/session/tab 作用域，不能落到其他浏览器或其他未持有租约的标签页。这些标识是内部路由实现，不是面向用户的“工作区”产品概念。
+每个浏览器来源在 `localStorage` 中生成内部浏览器标识和管理密钥，每个浏览器会话在 `sessionStorage` 中生成会话标识，每次页面加载生成页面生命周期唯一的 `tabId` 与 `clientId`。服务器为首次注册的
+`workspaceId + browserSessionId` 签发不透明 `bindingId`；OAuth access token 只接受这条精确浏览器绑定。请求进入队列时再携带当前在线连接的 browser/session/tab 作用域，不能落到其他浏览器或其他未持有租约的标签页。这些标识是内部路由实现，不是面向用户的“工作区”产品概念。
 
-标签页通过本机 `localStorage` 维护短租约。只有当前可见且先取得租约的图解标签页才会注册并轮询 `/api/diagram-agent`。复制标签页虽然会复制 `sessionStorage`，但新的页面级 `tabId` 不会被复制；未持有租约的页面不能接管服务端路由。普通断线、刷新或浏览器重开后，由同一浏览器来源的新 session/tab 重新绑定，客户端可继续使用有效的 OAuth 凭据。
+标签页通过本机 `localStorage` 维护短租约。只有当前可见且先取得租约的图解标签页才会注册并轮询 `/api/diagram-agent`。复制标签页虽然会复制 `sessionStorage`，但新的页面级 `tabId` 不会被复制；未持有租约的页面不能接管服务端路由。刷新或复制标签页（仍是同一 `browserSessionId`）会复用原 `bindingId`；如果后续产生新的 `browserSessionId`，旧 OAuth 凭据不会转移到新会话，必须重新授权。另一浏览器来源也必须重新授权。
 
 图解记录通过 `BroadcastChannel` 在同一浏览器来源的 AnchorRead 标签页之间广播。MCP 创建或修改的记录、用户在画布中的保存以及删除操作都会广播；接收方只合并 revision 更高、或同 revision 但 `updatedAt` 更新的记录，IndexedDB 仍是每个浏览器的持久化真源。浏览器不支持 `BroadcastChannel` 时，MCP 主流程仍可工作，只是不会获得跨标签页即时刷新。
 
