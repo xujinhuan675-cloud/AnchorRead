@@ -73,7 +73,7 @@ function renderConsent(request, oauthRequest, client) {
     <main>
       <h1>授权连接 AnchorRead</h1>
       <p><strong>${clientName}</strong> 请求连接 AnchorRead。</p>
-      <ul><li>客户端可以创建、读取和修改图解。</li><li>后续操作会发送到当前浏览器中的图解页面。</li></ul>
+      <ul><li>客户端可以创建、读取和修改图解。</li><li>授权会保存在当前浏览器中，后续操作会发送到其中在线的图解页面。</li></ul>
       <form method="post" action="${action}">${fields}<input type="hidden" name="approval" value="approve"><button type="submit">授权并绑定此浏览器</button></form>
       <p class="note">授权完成后会返回原 MCP 客户端；若客户端不支持自动打开浏览器，请复制授权地址到浏览器中继续。</p>
     </main>

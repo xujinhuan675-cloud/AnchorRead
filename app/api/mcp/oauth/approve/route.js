@@ -36,9 +36,9 @@ export async function POST(request) {
     // transaction must not replace the browser connection.
     oauthStore.getTransaction(body?.transaction);
     const pairingStore = getDiagramMcpPairingStore();
-    // Register this browser before issuing the code so later MCP requests are
-    // routed back to the page the user explicitly approved.
-    const connection = await pairingStore.registerConnection(context, { replace: true });
+    // Authorization belongs to this browser workspace. Reuse its online
+    // diagram page without letting the temporary OAuth page take ownership.
+    const connection = await pairingStore.ensureBrowserBinding(context);
     const approved = oauthStore.approveTransaction(body?.transaction, connection);
     return NextResponse.json({ ok: true, ...approved, connection }, {
       headers: { 'Cache-Control': 'no-store' },

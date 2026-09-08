@@ -146,7 +146,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
     });
     setMessage({
       type: 'success',
-      text: zh ? '已读取当前浏览器绑定的授权。' : 'Authorizations for this browser binding are loaded.',
+      text: zh ? '已读取当前浏览器保存的授权。' : 'Authorizations saved for this browser are loaded.',
     });
   });
 
@@ -245,7 +245,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
                 <p className="mt-1 text-xs leading-5 text-stone-500">
                   {zh ? '授权成功后会自动返回 MCP 客户端。' : 'After approval, you will return to the MCP client automatically.'}
                 </p>
-                <button type="button" disabled={!connected || Boolean(busy)} onClick={approveOAuth} className="mt-4 inline-flex h-9 items-center justify-center gap-2 rounded-md bg-stone-900 px-4 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900">
+                <button type="button" disabled={Boolean(busy)} onClick={approveOAuth} className="mt-4 inline-flex h-9 items-center justify-center gap-2 rounded-md bg-stone-900 px-4 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900">
                   {busy === 'oauth-approve' ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
                   {zh ? '允许连接' : 'Allow connection'}
                 </button>
@@ -279,15 +279,15 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
                 <div>
                   <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '浏览器授权' : 'Browser authorizations'}</div>
                   <p className="mt-1 text-xs leading-5 text-stone-500">
-                    {zh ? '只显示当前浏览器绑定，不会显示访问令牌内容。' : 'Only this browser binding is shown; token contents are never exposed.'}
+                    {zh ? '同一浏览器中的标签页共享这些授权，不会显示访问令牌内容。' : 'Tabs in this browser share these authorizations; token contents are never exposed.'}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <button type="button" disabled={!connected || Boolean(busy)} onClick={viewAuthorizations} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-300 px-2.5 text-xs font-medium text-stone-700 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-200 dark:hover:bg-white/5">
+                  <button type="button" disabled={Boolean(busy)} onClick={viewAuthorizations} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-stone-300 px-2.5 text-xs font-medium text-stone-700 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-stone-700 dark:text-stone-200 dark:hover:bg-white/5">
                     {busy === 'authorizations' ? <LoaderCircle className="size-3.5 animate-spin" /> : <Eye className="size-3.5" />}
                     {zh ? '查看授权' : 'View authorization'}
                   </button>
-                  <button type="button" disabled={!connected || Boolean(busy)} onClick={() => revokeAuthorizations()} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 px-2.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40">
+                  <button type="button" disabled={Boolean(busy)} onClick={() => revokeAuthorizations()} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 px-2.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40">
                     {busy === 'revoke:all' ? <LoaderCircle className="size-3.5 animate-spin" /> : <ShieldOff className="size-3.5" />}
                     {zh ? '撤销授权' : 'Revoke authorization'}
                   </button>
@@ -313,7 +313,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
                   ))}
                   {accessTokens.length > 0 ? (
                     <p className="text-[11px] leading-5 text-stone-500">
-                      {zh ? `当前绑定共有 ${accessTokens.filter((token) => token.status === 'active').length} 个有效访问授权。` : `${accessTokens.filter((token) => token.status === 'active').length} active access authorization(s) belong to this binding.`}
+                      {zh ? `当前浏览器共有 ${accessTokens.filter((token) => token.status === 'active').length} 个有效访问授权。` : `${accessTokens.filter((token) => token.status === 'active').length} active access authorization(s) belong to this browser.`}
                     </p>
                   ) : null}
                 </div>

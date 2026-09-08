@@ -21,7 +21,7 @@ function context(overrides = {}) {
   };
 }
 
-test('OAuth access tokens keep the approving browser binding and reject another browser session', async () => {
+test('OAuth access tokens follow the browser workspace across tab sessions', async () => {
   const store = new InMemoryDiagramMcpPairingStore();
   assert.equal(typeof store.createToken, 'undefined');
   const registered = await store.registerConnection(context({ bindingId: 'binding-client-controlled' }), { now: 1_000 });
@@ -58,21 +58,41 @@ test('OAuth access tokens keep the approving browser binding and reject another 
   assert.equal(authenticated.binding.browserSessionId, 'session-test');
   assert.equal(authenticated.binding.connected, true);
 
-  await store.registerConnection(context({
+  const replacement = await store.registerConnection(context({
     browserSessionId: 'session-replaced',
     tabId: 'tab-replaced',
     clientId: 'client-replaced',
   }), { replace: true, now: 10_000_002 });
-  await assert.rejects(
-    store.authenticateToken(created.token, { now: 10_000_003 }),
-    { code: 'BROWSER_BINDING_MISMATCH' },
-  );
+  const moved = await store.authenticateToken(created.token, { now: 10_000_003 });
+  assert.equal(moved.binding.browserSessionId, 'session-replaced');
+  assert.equal(moved.binding.bindingId, replacement.bindingId);
+  assert.equal(moved.binding.connected, true);
   const revoked = await store.revokeTokensForBinding(reloadedPage, {
     clientId: 'codex-client',
     now: 10_000_004,
   });
   assert.equal(revoked.tokens.length, 1);
   await assert.rejects(store.authenticateToken(created.token, { now: 10_000_005 }), { code: 'TOKEN_REVOKED' });
+});
+
+test('OAuth approval reuses the online browser connection without registering its temporary tab', async () => {
+  const store = new InMemoryDiagramMcpPairingStore();
+  const online = await store.registerConnection(context(), { now: 12_000 });
+  const approvalPage = context({
+    browserSessionId: 'session-oauth-window',
+    tabId: 'tab-oauth-window',
+    clientId: 'client-oauth-window',
+    href: 'https://anchor.example/diagrams?mcp=oauth_approve',
+  });
+
+  const binding = await store.ensureBrowserBinding(approvalPage, { now: 12_001 });
+
+  assert.equal(binding.bindingId, online.bindingId);
+  assert.equal(binding.browserSessionId, online.browserSessionId);
+  assert.equal(binding.tabId, online.tabId);
+  assert.equal(binding.connected, true);
+  assert.equal(store.workspaces.get('workspace-test').bindings['session-oauth-window'], undefined);
+  assert.equal((await store.getConnectionStatus(context(), { now: 12_002 })).status, 'connected');
 });
 
 test('file pairing store ignores deprecated non-expiring static tokens', async () => {
@@ -206,7 +226,7 @@ test('file pairing store persists OAuth access-token hashes and browser ownershi
   }
 });
 
-test('file pairing store lists and revokes authorizations for the managed browser binding', async () => {
+test('file pairing store lists and revokes authorizations for the managed browser workspace', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'anchorread-pairing-revoke-'));
   const filePath = join(directory, 'pairings.json');
   try {

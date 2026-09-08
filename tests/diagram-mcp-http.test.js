@@ -264,7 +264,7 @@ test('Streamable HTTP keeps an optional SSE session alive and fails expired sess
   assert.match((await expired.json()).error.message, /Re-initialize/);
 });
 
-test('remote MCP requires an OAuth access token, binds the session, and enforces CORS origins', async () => {
+test('remote MCP requires OAuth, follows the active browser tab, and enforces CORS origins', async () => {
   const previousOrigins = process.env.ANCHORREAD_MCP_ALLOWED_ORIGINS;
   const previousStore = process.env.ANCHORREAD_MCP_PAIRING_STORE;
   process.env.ANCHORREAD_MCP_ALLOWED_ORIGINS = 'https://client.example';
@@ -324,11 +324,10 @@ test('remote MCP requires an OAuth access token, binds the session, and enforces
       tabId: 'tab-http-replaced',
       clientId: 'client-http-replaced',
     }, { replace: true });
-    const mismatchedBrowser = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
+    const movedBrowser = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
       jsonrpc: '2.0', id: 6, method: 'initialize', params: {},
     }, { Origin: 'https://client.example', Authorization: authorization }));
-    assert.equal(mismatchedBrowser.status, 401);
-    assert.match((await mismatchedBrowser.json()).error.message, /different browser connection/u);
+    assert.equal(movedBrowser.status, 200);
 
     const blockedOrigin = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
       jsonrpc: '2.0', id: 4, method: 'initialize', params: {},

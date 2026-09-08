@@ -70,12 +70,16 @@ test('browser connection surface exposes OAuth only', () => {
   assert.match(panel, /OAuth authorization|OAuth 授权/u);
   assert.match(panel, /View authorization|查看授权/u);
   assert.match(panel, /Revoke authorization|撤销授权/u);
+  assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{approveOAuth\}/u);
+  assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{viewAuthorizations\}/u);
+  assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{\(\) => revokeAuthorizations\(\)\}/u);
   assert.match(pairingRoute, /authorizations/u);
   assert.match(pairingRoute, /revoke-authorizations/u);
   assert.match(panel, /oauthApprovalInFlightRef/u);
   assert.doesNotMatch(panel, /oauthApprovalStartedRef/u);
   assert.match(topNav, /const closeMcpPanel = \(\) =>/u);
-  assert.ok(approvalRoute.indexOf('oauthStore.getTransaction') < approvalRoute.indexOf('registerConnection'));
+  assert.ok(approvalRoute.indexOf('oauthStore.getTransaction') < approvalRoute.indexOf('ensureBrowserBinding'));
+  assert.doesNotMatch(approvalRoute, /registerConnection\(context, \{ replace: true \}\)/u);
   assert.match(approvalRoute, /approveTransaction\(body\?\.transaction, connection\)/u);
   assert.match(tokenRoute, /BROWSER_BINDING_MISMATCH.+BROWSER_BINDING_UPGRADE_REQUIRED/u);
 });

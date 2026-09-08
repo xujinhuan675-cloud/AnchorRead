@@ -177,7 +177,7 @@ test('file OAuth store survives restarts without persisting raw codes or refresh
   }
 });
 
-test('OAuth store lists and revokes refresh authorizations by browser binding', () => {
+test('OAuth store lists and revokes refresh authorizations across browser tab sessions', () => {
   const store = new DiagramMcpOAuthStore();
   const client = store.registerClient({
     clientName: 'Codex authorization management',
@@ -195,9 +195,14 @@ test('OAuth store lists and revokes refresh authorizations by browser binding', 
     scopes: ['diagrams:read'],
   }, 2_000);
   assert.match(refreshToken, /^refresh_/u);
-  assert.equal(store.listAuthorizations(browserContext, 2_001)[0].clientName, client.clientName);
-  assert.equal(store.revokeAuthorizations(browserContext, { clientId: 'another-client', now: 2_002 }), 0);
-  assert.equal(store.revokeAuthorizations(browserContext, { clientId: client.clientId, now: 2_003 }), 1);
+  const anotherTab = {
+    workspaceId: browserContext.workspaceId,
+    browserSessionId: 'session-another-tab',
+    bindingId: 'binding-another-tab',
+  };
+  assert.equal(store.listAuthorizations(anotherTab, 2_001)[0].clientName, client.clientName);
+  assert.equal(store.revokeAuthorizations(anotherTab, { clientId: 'another-client', now: 2_002 }), 0);
+  assert.equal(store.revokeAuthorizations(anotherTab, { clientId: client.clientId, now: 2_003 }), 1);
   assert.deepEqual(store.listAuthorizations(browserContext, 2_004), []);
   assert.throws(() => store.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 2_005), /invalid or expired/u);
 });
