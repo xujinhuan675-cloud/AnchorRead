@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import {
+  mergeCanvasAppStateForPersistence,
+  normalizePersistedExcalidrawAppState,
+} from '../lib/excalidraw-app-state.js';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const componentSource = fs.readFileSync(
@@ -205,10 +209,37 @@ test('identical Excalidraw scene changes do not create persistence revisions', (
   // 否则每次回调都不同，无变化场景也会反复入库产生修订风暴
   assert.match(diagramHookSource, /stableElementsEqual\(normalized\.elements, current\.elements\)/u);
   assert.match(diagramHookSource, /ELEMENT_RUNTIME_FIELDS = \['versionNonce', 'updated', 'seed'\]/u);
-  assert.match(diagramHookSource, /JSON\.stringify\(sanitizedAppState\) === JSON\.stringify\(current\.appState\)/u);
+  assert.match(diagramHookSource, /mergeCanvasAppStateForPersistence\(currentAppState, normalized\.appState\)/u);
+  assert.match(diagramHookSource, /JSON\.stringify\(persistedAppState\) === JSON\.stringify\(currentAppState\)/u);
   assert.match(diagramHookSource, /JSON\.stringify\(normalized\.files\) === JSON\.stringify\(current\.files\)/u);
   // 运行时容器尺寸字段（width/height/offsetLeft/offsetTop）不得入库，避免倍增循环
-  assert.match(diagramHookSource, /delete sanitizedAppState\[key\]/u);
+  assert.match(diagramHookSource, /const isOwnPersistenceEcho/u);
+});
+
+test('canvas runtime state cannot overwrite an explicitly saved viewport', () => {
+  const savedAppState = normalizePersistedExcalidrawAppState({
+    scrollX: 180,
+    scrollY: -72,
+    zoom: { value: 1.4 },
+    viewBackgroundColor: '#ffffff',
+    activeTool: { type: 'selection' },
+  });
+  const afterPan = mergeCanvasAppStateForPersistence(savedAppState, {
+    scrollX: 420,
+    scrollY: 96,
+    zoom: { value: 0.75 },
+    viewBackgroundColor: '#1c1c1c',
+    selectedElementIds: { shape: true },
+    width: 1024,
+    height: 768,
+  });
+
+  assert.deepEqual(afterPan, {
+    scrollX: 180,
+    scrollY: -72,
+    zoom: { value: 1.4 },
+    viewBackgroundColor: '#1c1c1c',
+  });
 });
 
 test('Excalidraw import reuses the native main menu and switches to the persisted scene engine', () => {

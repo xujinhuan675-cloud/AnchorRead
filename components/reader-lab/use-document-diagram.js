@@ -15,6 +15,10 @@ import {
   parseExcalidrawScene,
 } from '@/lib/excalidraw-scene';
 import {
+  mergeCanvasAppStateForPersistence,
+  normalizePersistedExcalidrawAppState,
+} from '@/lib/excalidraw-app-state';
+import {
   commitDiagramScene,
   createDiagramRevision,
   getDiagramRevision,
@@ -57,7 +61,7 @@ export function useDocumentDiagram({
   const [elements, setElements] = useState(() => {
     return initialExcalidrawScene.elements;
   });
-  const [appState, setAppState] = useState(() => initialExcalidrawScene.appState);
+  const [appState, setAppState] = useState(() => normalizePersistedExcalidrawAppState(initialExcalidrawScene.appState));
   const [files, setFiles] = useState(() => initialExcalidrawScene.files);
   const [revisionHistory, setRevisionHistory] = useState(() => (
     Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []
@@ -72,6 +76,11 @@ export function useDocumentDiagram({
   const mermaidConversionSeqRef = useRef(0);
 
   useEffect(() => {
+    const isOwnPersistenceEcho = activeDrawing?.id
+      && activeDrawing.id === draftDrawingRef.current?.id
+      && activeDrawing.updatedAt === draftDrawingRef.current?.updatedAt
+      && getDiagramRevision(activeDrawing) === getDiagramRevision(draftDrawingRef.current);
+    if (isOwnPersistenceEcho) return;
     mermaidConversionSeqRef.current += 1;
     setIsConvertingMermaid(false);
     draftDrawingRef.current = activeDrawing;
@@ -86,7 +95,7 @@ export function useDocumentDiagram({
       })()
       : normalizeExcalidrawScene([]);
     setElements(nextScene.elements);
-    setAppState(nextScene.appState);
+    setAppState(normalizePersistedExcalidrawAppState(nextScene.appState));
     setFiles(nextScene.files);
     setRevisionHistory(Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []);
     setPresentation(activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
@@ -100,6 +109,8 @@ export function useDocumentDiagram({
   const persistCurrent = useCallback((changes = {}) => {
     if (!activeDrawing) return;
     const recordChanges = { ...changes };
+    const requestedVariants = recordChanges.variants;
+    delete recordChanges.variants;
     delete recordChanges.elements;
     delete recordChanges.appState;
     delete recordChanges.files;
@@ -110,7 +121,7 @@ export function useDocumentDiagram({
     const nextEngine = changes.engine || engine;
     const nextSource = changes.source ?? code;
     const nextElements = changes.elements ?? elements;
-    const nextAppState = changes.appState ?? appState;
+    const nextAppState = normalizePersistedExcalidrawAppState(changes.appState ?? appState);
     const nextFiles = changes.files ?? files;
     const nextScene = nextEngine === 'excalidraw'
       ? normalizeExcalidrawScene({
@@ -144,6 +155,15 @@ export function useDocumentDiagram({
         ...metadataChanges,
         updatedAt: now,
       };
+      if (requestedVariants && typeof requestedVariants === 'object') {
+        next.variants = Object.entries(requestedVariants).reduce(
+          (merged, [renderer, variant]) => ({
+            ...merged,
+            [renderer]: { ...(merged[renderer] || {}), ...(variant || {}) },
+          }),
+          next.variants || {},
+        );
+      }
     } else {
       next = {
         ...baseDrawing,
@@ -163,6 +183,15 @@ export function useDocumentDiagram({
         ...recordChanges,
         updatedAt: now,
       };
+      if (requestedVariants && typeof requestedVariants === 'object') {
+        next.variants = Object.entries(requestedVariants).reduce(
+          (merged, [renderer, variant]) => ({
+            ...merged,
+            [renderer]: { ...(merged[renderer] || {}), ...(variant || {}) },
+          }),
+          next.variants || {},
+        );
+      }
     }
     draftDrawingRef.current = next;
     setRevisionHistory(Array.isArray(next.revisionHistory) ? next.revisionHistory : []);
@@ -287,7 +316,7 @@ export function useDocumentDiagram({
       };
       setCode(finalCode);
       setElements(nextElements);
-      setAppState(nextScene?.appState || {});
+      setAppState(normalizePersistedExcalidrawAppState(nextScene?.appState));
       setFiles(nextScene?.files || {});
       setRevisionHistory(generatedRevision ? [generatedRevision] : []);
       await onCreateDrawing(drawing);
@@ -347,6 +376,7 @@ export function useDocumentDiagram({
       drawing: draftDrawingRef.current || activeDrawing,
       currentRenderer: engine,
       currentSource: code,
+      currentScene: engine === 'excalidraw' ? { elements, appState, files } : null,
       currentChartType: chartType,
       nextRenderer: nextEngine,
     });
@@ -366,6 +396,10 @@ export function useDocumentDiagram({
       } catch {
         nextElements = [];
       }
+    }
+    if (nextVariant.engine === 'excalidraw' && nextElements.length > 0) {
+      // 场景是 Excalidraw 变体的事实来源；旧记录可能只有 scene 没有 source。
+      nextSource = JSON.stringify(nextElements, null, 2);
     }
     // A Mermaid variant has no Excalidraw JSON until the user first switches
     // renderers. Convert it with the official browser converter instead of
@@ -390,6 +424,11 @@ export function useDocumentDiagram({
       } catch (caughtError) {
         if (mermaidConversionSeqRef.current !== conversionSequence) return;
         setError(caughtError?.message || 'Mermaid 转 Excalidraw 失败。');
+        // 转换失败时保留原 Mermaid 视图，避免把空场景写入目标变体。
+        setEngine(engine);
+        setChartType(chartType);
+        setCode(code);
+        return;
       } finally {
         if (mermaidConversionSeqRef.current === conversionSequence) setIsConvertingMermaid(false);
       }
@@ -397,15 +436,29 @@ export function useDocumentDiagram({
     if (mermaidConversionSeqRef.current !== conversionSequence) return;
     setCode(nextSource);
     setElements(nextElements);
-    setAppState(nextAppState);
+    const persistedAppState = normalizePersistedExcalidrawAppState(nextAppState);
+    setAppState(persistedAppState);
     setFiles(nextFiles);
+    const nextVariants = {
+      ...nextVariant.variants,
+      [nextVariant.engine]: {
+        ...(nextVariant.variants?.[nextVariant.engine] || {}),
+        source: nextSource,
+        chartType: nextVariant.chartType,
+        updatedAt: Date.now(),
+        ...(nextVariant.engine === 'excalidraw'
+          ? { scene: { elements: nextElements, appState: persistedAppState, files: nextFiles } }
+          : {}),
+      },
+    };
     persistCurrent({
       engine: nextVariant.engine,
       source: nextSource,
       chartType: nextVariant.chartType,
       elements: nextElements,
-      appState: nextAppState,
+      appState: persistedAppState,
       files: nextFiles,
+      variants: nextVariants,
     });
   };
 
@@ -422,7 +475,7 @@ export function useDocumentDiagram({
   const clearCode = () => {
     setCode('');
     setElements([]);
-    setAppState(normalizeExcalidrawScene([]).appState);
+    setAppState(normalizePersistedExcalidrawAppState(normalizeExcalidrawScene([]).appState));
     setFiles({});
     persistCurrent({ source: '', elements: [], appState: normalizeExcalidrawScene([]).appState, files: {} });
   };
@@ -454,23 +507,22 @@ export function useDocumentDiagram({
 
   const changeScene = (nextScene) => {
     const normalized = normalizeExcalidrawScene(nextScene);
-    // Excalidraw 运行时的画布容器尺寸字段（width/height/offsetLeft/offsetTop）由
-    // Excalidraw 自管：入库后再回传会与真实容器尺寸叠加形成倍增循环，需先剔除。
-    const sanitizedAppState = { ...normalized.appState };
-    for (const key of ['width', 'height', 'offsetLeft', 'offsetTop']) delete sanitizedAppState[key];
+    // Runtime interaction state must not turn a pan or selection into a persisted update.
     const current = normalizeExcalidrawScene({ elements, appState, files });
+    const currentAppState = normalizePersistedExcalidrawAppState(current.appState);
+    const persistedAppState = mergeCanvasAppStateForPersistence(currentAppState, normalized.appState);
     if (stableElementsEqual(normalized.elements, current.elements)
-      && JSON.stringify(sanitizedAppState) === JSON.stringify(current.appState)
+      && JSON.stringify(persistedAppState) === JSON.stringify(currentAppState)
       && JSON.stringify(normalized.files) === JSON.stringify(current.files)) return;
     const source = JSON.stringify(normalized.elements, null, 2);
     setElements(normalized.elements);
-    setAppState(sanitizedAppState);
+    setAppState(persistedAppState);
     setFiles(normalized.files);
     setCode(source);
     persistCurrent({
       source,
       elements: normalized.elements,
-      appState: sanitizedAppState,
+      appState: persistedAppState,
       files: normalized.files,
     });
   };
@@ -479,12 +531,11 @@ export function useDocumentDiagram({
   // Excalidraw 引擎并提交完整场景，避免把自由图解元素误写进 Mermaid 记录。
   const importExcalidrawScene = (value) => {
     const normalized = normalizeExcalidrawScene(value);
-    const sanitizedAppState = { ...normalized.appState };
-    for (const key of ['width', 'height', 'offsetLeft', 'offsetTop']) delete sanitizedAppState[key];
+    const persistedAppState = normalizePersistedExcalidrawAppState(normalized.appState);
     const source = JSON.stringify(normalized.elements, null, 2);
     setEngine('excalidraw');
     setElements(normalized.elements);
-    setAppState(sanitizedAppState);
+    setAppState(persistedAppState);
     setFiles(normalized.files);
     setCode(source);
     setError('');
@@ -493,7 +544,7 @@ export function useDocumentDiagram({
       renderer: 'excalidraw',
       source,
       elements: normalized.elements,
-      appState: sanitizedAppState,
+      appState: persistedAppState,
       files: normalized.files,
       reason: 'import',
     });
@@ -510,7 +561,7 @@ export function useDocumentDiagram({
       });
       draftDrawingRef.current = next;
       setElements(next.scene.elements);
-      setAppState(next.scene.appState);
+      setAppState(normalizePersistedExcalidrawAppState(next.scene.appState));
       setFiles(next.scene.files);
       setCode(next.source);
       setRevisionHistory(next.revisionHistory || []);

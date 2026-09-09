@@ -91,3 +91,35 @@ test('image generation instructions follow the selected renderer', () => {
   assert.match(generateImagePrompt('flowchart', 'excalidraw'), /起点节点.*终点节点.*箭头及其关系文字/s);
   assert.match(generateImagePrompt('flowchart', 'mermaid'), /Mermaid/);
 });
+
+test('renderer switching snapshots the current Excalidraw scene before returning to Mermaid', () => {
+  const scene = { elements: [{ id: 'edited', type: 'rectangle' }], appState: {}, files: {} };
+  const next = switchDiagramVariant({
+    drawing: { variants: { mermaid: { source: 'graph TD\nA-->B' } } },
+    currentRenderer: 'excalidraw',
+    currentSource: JSON.stringify(scene.elements),
+    currentScene: scene,
+    currentChartType: 'flowchart',
+    nextRenderer: 'mermaid',
+    now: 42,
+  });
+  assert.deepEqual(next.variants.excalidraw.scene, scene);
+  assert.equal(next.variants.mermaid.source, 'graph TD\nA-->B');
+  assert.equal(next.source, 'graph TD\nA-->B');
+});
+
+test('renderer switching keeps legacy Mermaid records usable without variants', () => {
+  const next = switchDiagramVariant({
+    drawing: { engine: 'mermaid', source: 'graph TD\nA-->B', chartType: 'flowchart' },
+    currentRenderer: 'mermaid',
+    currentSource: 'graph TD\nA-->B',
+    currentChartType: 'flowchart',
+    nextRenderer: 'excalidraw',
+    now: 42,
+  });
+
+  assert.equal(next.source, '');
+  assert.equal(next.variants.mermaid.source, 'graph TD\nA-->B');
+  assert.equal(next.variants.mermaid.chartType, 'flowchart');
+  assert.equal(next.variants.mermaid.updatedAt, 42);
+});
