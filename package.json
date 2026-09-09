@@ -34,7 +34,8 @@
     "test:configs": "node --experimental-default-type=module --test tests/config-manager.test.js",
     "test:sentry": "node --experimental-default-type=module --test tests/sentry-config.test.js",
     "test:i18n": "node --experimental-default-type=module --test tests/i18n.test.js",
-    "test:all": "npm run test:llm && npm run test:document && npm run test:explain && npm run test:workspace && npm run test:reader-lab && npm run test:diagrams && npm run test:analysis && npm run test:mermaid && npm run test:import && npm run test:api && npm run test:actions && npm run test:sync && npm run test:inbox && npm run test:configs && npm run test:sentry && npm run test:i18n"
+    "test:all": "npm run test:llm && npm run test:document && npm run test:explain && npm run test:workspace && npm run test:reader-lab && npm run test:diagrams && npm run test:analysis && npm run test:mermaid && npm run test:import && npm run test:api && npm run test:actions && npm run test:sync && npm run test:inbox && npm run test:configs && npm run test:sentry && npm run test:i18n",
+    "prepare": "husky"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.0",
@@ -71,9 +72,12 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
+    "husky": "^9.1.7",
     "tailwindcss": "^4"
   }
 }
