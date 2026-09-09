@@ -475,6 +475,30 @@ export function useDocumentDiagram({
     });
   };
 
+  // 本地 .excalidraw 导入从 Excalidraw 原生主菜单触发。导入后切换到
+  // Excalidraw 引擎并提交完整场景，避免把自由图解元素误写进 Mermaid 记录。
+  const importExcalidrawScene = (value) => {
+    const normalized = normalizeExcalidrawScene(value);
+    const sanitizedAppState = { ...normalized.appState };
+    for (const key of ['width', 'height', 'offsetLeft', 'offsetTop']) delete sanitizedAppState[key];
+    const source = JSON.stringify(normalized.elements, null, 2);
+    setEngine('excalidraw');
+    setElements(normalized.elements);
+    setAppState(sanitizedAppState);
+    setFiles(normalized.files);
+    setCode(source);
+    setError('');
+    persistCurrent({
+      engine: 'excalidraw',
+      renderer: 'excalidraw',
+      source,
+      elements: normalized.elements,
+      appState: sanitizedAppState,
+      files: normalized.files,
+      reason: 'import',
+    });
+  };
+
   const restoreRevision = useCallback((revisionOrId) => {
     const baseDrawing = draftDrawingRef.current || activeDrawing;
     if (!baseDrawing || engine !== 'excalidraw') return;
@@ -524,6 +548,7 @@ export function useDocumentDiagram({
     clearCode,
     changeElements,
     changeScene,
+    importExcalidrawScene,
     restoreRevision,
   };
 }

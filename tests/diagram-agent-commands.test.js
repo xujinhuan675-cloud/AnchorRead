@@ -103,6 +103,22 @@ test('content diagrams receive a default presentation and play when opened', asy
   ]);
   assert.equal(relationship.presentation.steps.at(-1).title, '请求 —触发→ 处理');
 
+  const authored = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Authored presentation',
+      engine: 'excalidraw',
+      elements: relationship.scene.elements,
+      presentation: {
+        title: 'AI 讲解顺序',
+        steps: [{ id: 'authored', title: '先看关系结果', visibleElementIds: ['source', 'target', 'edge'] }],
+      },
+      open: false,
+    },
+  }, { repository: workspace, now: 103.75 });
+  assert.equal(authored.presentation.title, 'AI 讲解顺序');
+  assert.deepEqual(authored.presentation.steps[0].visibleElementIds, ['source', 'target', 'edge']);
+
   // A legacy record without a stored script still exposes the same playback contract.
   const legacy = { ...created };
   delete legacy.presentation;

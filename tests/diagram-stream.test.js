@@ -196,6 +196,19 @@ test('relationship playback supports Excalidraw bindings and keeps bound labels 
   assert.equal(timeline.length, 3);
 });
 
+test('relationship playback interleaves connectors when scene render order lists nodes first', () => {
+  const timeline = buildRelationshipPlaybackTimeline([
+    { type: 'rectangle', id: 'a', label: { text: 'A' } },
+    { type: 'rectangle', id: 'b', label: { text: 'B' } },
+    { type: 'rectangle', id: 'c', label: { text: 'C' } },
+    { type: 'arrow', id: 'ab', startElementId: 'a', endElementId: 'b', label: { text: '到达' } },
+    { type: 'arrow', id: 'bc', startElementId: 'b', endElementId: 'c', label: { text: '继续' } },
+  ]);
+  assert.deepEqual(timeline.map((frame) => frame.currentId), ['a', 'b', 'ab', 'c', 'bc']);
+  assert.equal(timeline[2].title, 'A —到达→ B');
+  assert.equal(timeline[4].title, 'B —继续→ C');
+});
+
 test('playback timing preserves a readable hold and supports speed choices', () => {
   const legacyFastStep = { durationMs: 500, transitionMs: 450, revealMs: 360, holdMs: 900, focusElementIds: ['a'] };
   assert.equal(getPresentationStepPlaybackDuration(legacyFastStep), 1350);

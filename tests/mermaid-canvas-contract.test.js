@@ -74,7 +74,7 @@ test('keeps Mermaid zoom controls fixed to the canvas viewport', () => {
   assert.match(componentSource, /<section\s+className=\{`relative flex h-full/u);
   assert.match(componentSource, /缩放条挂在画布外层/u);
   assert.match(componentSource, /<CanvasZoomControls/u);
-  assert.match(componentSource, /className="absolute bottom-3 left-3 z-50"/u);
+  assert.match(componentSource, /className="absolute bottom-4 left-4 z-50"/u);
   assert.match(componentSource, /顶部操作同样挂在视口层/u);
   assert.match(componentSource, /overflow-auto bg-white dark:bg-stone-900/u);
 });

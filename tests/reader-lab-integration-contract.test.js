@@ -219,15 +219,19 @@ test('home keeps app navigation while diagrams live inside the shared document w
   assert.match(documentDiagramCanvas, /<CodeEditor\b/);
   assert.match(documentDiagramCanvas, /<MermaidCanvas\b/);
   assert.match(documentDiagramCanvas, /<ExcalidrawCanvas\b/);
-  // 源码开关位置：mermaid 下提到画布头部放大按钮右侧（headerActions 插槽）
+  // 源码开关位置：Mermaid 与 Excalidraw 都放进左侧画布菜单；右上角只承接面板切换
   assert.match(mermaidCanvas, /headerActions = null/);
   assert.match(mermaidCanvas, /\{headerActions\}/);
+  assert.match(mermaidCanvas, /mainMenuItems = null/);
+  assert.match(mermaidCanvas, /<CanvasMainMenu\b/);
   // 空态副标题替代「等待源码」：自由图解下传达创建入口语义
   assert.match(mermaidCanvas, /subtitle = null/);
   assert.match(mermaidCanvas, /resolvedEmptyMessage = emptyMessage \?\? t\('diagram\.mermaidDefaultEmpty'\)/);
   assert.match(documentDiagramCanvas, /title=\{standalone \? t\('diagram\.freeTitle'\) : t\('diagram\.docTitle'\)\}/);
   assert.match(documentDiagramCanvas, /t\('diagram\.freeSubtitle'\)/);
-  assert.match(documentDiagramCanvas, /headerActions=\{\(canToggleCode \|\| onOpenChat \|\| onCloseChat\) \? \(/);
+  assert.match(documentDiagramCanvas, /mainMenuItems=\{sourceMenuItems\}/);
+  assert.match(documentDiagramCanvas, /headerActions=\{\(onOpenChat \|\| onCloseChat\) \? \(/);
+  assert.doesNotMatch(documentDiagramCanvas, /headerActions=\{\(canToggleCode/);
   // excalidraw 源码开关收进画布左上角主菜单（onToggleSourceCode），不再悬浮右下角
   assert.match(documentDiagramCanvas, /onToggleSourceCode=\{canToggleCode \? toggleCode : null\}/);
   assert.doesNotMatch(documentDiagramCanvas, /sourceCodeButton\(['"]float['"]\)/);

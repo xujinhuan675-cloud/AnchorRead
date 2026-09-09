@@ -29,6 +29,6 @@ test('concept view uses the shared strict config and SVG sanitizer', () => {
   assert.match(component, /<CanvasZoomControls/);
   assert.match(component, /containerRef: zoomContainerRef/);
   assert.doesNotMatch(component, /onWheel=\{handleWheel\}/);
-  assert.match(component, /className="absolute bottom-3 left-3 z-50"/);
+  assert.match(component, /className="absolute bottom-4 left-4 z-50"/);
   assert.doesNotMatch(component, /function sanitizeSvg/);
 });

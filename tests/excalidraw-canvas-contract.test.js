@@ -17,6 +17,10 @@ const canvasHostSource = fs.readFileSync(
   path.join(testDirectory, '..', 'components', 'reader-lab', 'DocumentDiagramCanvas.jsx'),
   'utf8',
 );
+const globalStylesSource = fs.readFileSync(
+  path.join(testDirectory, '..', 'app', 'globals.css'),
+  'utf8',
+);
 
 test('ExcalidrawCanvas accepts a complete persisted scene without breaking the legacy element callback', () => {
   assert.match(componentSource, /appState,\s*\n\s*files,\s*\n\s*onSceneChange,/u);
@@ -40,6 +44,53 @@ test('Excalidraw toolbar and menu props remain referentially stable', () => {
   assert.match(componentSource, /excalidrawAPI=\{handleExcalidrawAPI\}/u);
   assert.match(componentSource, /renderTopRightUI=\{renderTopRightUI\}/u);
   assert.match(componentSource, /\{mainMenu\}/u);
+});
+
+test('Mermaid and Excalidraw canvas controls share the global toolbar primitives', () => {
+  const mermaidCanvasSource = fs.readFileSync(
+    path.join(testDirectory, '..', 'components', 'MermaidCanvas.jsx'),
+    'utf8',
+  );
+  const toolbarSource = fs.readFileSync(
+    path.join(testDirectory, '..', 'components', 'CanvasToolbar.jsx'),
+    'utf8',
+  );
+  const toolbarButtonSource = fs.readFileSync(
+    path.join(testDirectory, '..', 'components', 'CanvasToolbarButton.jsx'),
+    'utf8',
+  );
+  const canvasMainMenuSource = fs.readFileSync(
+    path.join(testDirectory, '..', 'components', 'CanvasMainMenu.jsx'),
+    'utf8',
+  );
+
+  assert.match(componentSource, /import CanvasToolbar from '\.\/CanvasToolbar';/u);
+  assert.match(componentSource, /<CanvasToolbar className="ar-toolbar-container !p-0"/u);
+  assert.match(mermaidCanvasSource, /import CanvasToolbar from '\.\/CanvasToolbar';/u);
+  assert.match(mermaidCanvasSource, /import CanvasMainMenu from '\.\/CanvasMainMenu';/u);
+  assert.match(mermaidCanvasSource, /<CanvasMainMenu\b/u);
+  assert.match(mermaidCanvasSource, /<CanvasToolbar className="absolute top-4 right-4 z-10 !p-0">/u);
+  assert.match(mermaidCanvasSource, /className="absolute bottom-4 left-4 z-50"/u);
+  assert.doesNotMatch(componentSource, /size="large"/u);
+  assert.match(toolbarButtonSource, /h-8 w-8/u);
+  assert.doesNotMatch(toolbarButtonSource, /sizeClass/u);
+  assert.doesNotMatch(toolbarButtonSource, /h-9 w-9 p-0/u);
+  assert.match(componentSource, /className="size-4"/u);
+  assert.doesNotMatch(componentSource, /size-\[var\(--lg-icon-size,1rem\)\]/u);
+  assert.match(toolbarSource, /bg-\[#ececf4\]/u);
+  assert.match(toolbarSource, /rounded-lg/u);
+  assert.match(toolbarButtonSource, /rounded-lg/u);
+  assert.doesNotMatch(canvasHostSource, /size="large"/u);
+  assert.match(canvasHostSource, /<CanvasToolbarButton[\s\S]*?<PanelRightOpen size=\{16\} className="size-4"/u);
+  assert.match(canvasHostSource, /<PanelRightClose size=\{16\} className="size-4"/u);
+  assert.match(canvasMainMenuSource, /<Menu size=\{16\}/u);
+  assert.match(canvasMainMenuSource, /hover:bg-\[#f1f0ff\]/u);
+  assert.match(canvasMainMenuSource, /dark:hover:bg-\[#363541\]/u);
+  assert.match(globalStylesSource, /\.anchor-read-excalidraw \.sidebar-trigger\.default-sidebar-trigger \{/u);
+  assert.match(globalStylesSource, /width: 2rem;/u);
+  assert.match(globalStylesSource, /height: 2rem;/u);
+  assert.match(globalStylesSource, /\.anchor-read-excalidraw \.default-sidebar-trigger \.sidebar-trigger__label \{\s*display: none !important;/u);
+  assert.match(globalStylesSource, /\.anchor-read-excalidraw \.sidebar-trigger\.default-sidebar-trigger svg \{/u);
 });
 
 test('presentation steps update one stable Excalidraw instance', () => {
@@ -134,7 +185,10 @@ test('presentation auto-advance does not nest setState in an updater', () => {
 });
 
 test('presentation controls remain bounded on narrow canvases', () => {
-  assert.match(canvasHostSource, /max-w-\[calc\(100%-1\.5rem\)\]/u);
+  assert.match(canvasHostSource, /max-w-\[calc\(100%-2rem\)\]/u);
+  assert.match(canvasHostSource, /<CanvasToolbar floating/u);
+  assert.match(canvasHostSource, /<CanvasToolbarButton/u);
+  assert.doesNotMatch(canvasHostSource, /ar-overlay-tool/u);
   assert.match(canvasHostSource, /w-24 max-w-\[12rem\]/u);
   assert.match(canvasHostSource, /presentationHasNamedSteps && \(/u);
   assert.doesNotMatch(canvasHostSource, /presentationStepLabel/u);
@@ -155,4 +209,29 @@ test('identical Excalidraw scene changes do not create persistence revisions', (
   assert.match(diagramHookSource, /JSON\.stringify\(normalized\.files\) === JSON\.stringify\(current\.files\)/u);
   // 运行时容器尺寸字段（width/height/offsetLeft/offsetTop）不得入库，避免倍增循环
   assert.match(diagramHookSource, /delete sanitizedAppState\[key\]/u);
+});
+
+test('Excalidraw import reuses the native main menu and switches to the persisted scene engine', () => {
+  assert.match(componentSource, /import \{ FileCode2, PanelRightClose, PanelRightOpen, Upload \}/u);
+  assert.match(componentSource, /if \(!MainMenu \|\| \(!onToggleSourceCode && !onImport\)\)/u);
+  assert.match(componentSource, /const NATIVE_MENU_ICON_SIZE = 16;/u);
+  assert.match(componentSource, /const NATIVE_MENU_ICON_STROKE_WIDTH = 1\.5;/u);
+  assert.match(componentSource, /icon=\{<FileCode2 size=\{NATIVE_MENU_ICON_SIZE\} strokeWidth=\{NATIVE_MENU_ICON_STROKE_WIDTH\} \/>\}/u);
+  assert.match(componentSource, /icon=\{<Upload size=\{NATIVE_MENU_ICON_SIZE\} strokeWidth=\{NATIVE_MENU_ICON_STROKE_WIDTH\} \/>\}/u);
+  assert.match(componentSource, /\{importLabel\}/u);
+
+  const sourceItemIndex = componentSource.indexOf('{onToggleSourceCode && (');
+  const importItemIndex = componentSource.indexOf('{onImport && (');
+  assert.ok(sourceItemIndex >= 0 && importItemIndex > sourceItemIndex);
+
+  assert.match(canvasHostSource, /onImport=\{canToggleCode \? openImport : null\}/u);
+  assert.match(canvasHostSource, /accept="\.excalidraw,application\/json"/u);
+  assert.match(diagramHookSource, /const importExcalidrawScene = \(value\) =>/u);
+  assert.match(diagramHookSource, /engine: 'excalidraw',[\s\S]*?reason: 'import'/u);
+});
+
+test('Excalidraw native menu follows the global application locale', () => {
+  assert.match(componentSource, /import \{ useLocale \} from '@\/components\/LocaleProvider';/u);
+  assert.match(componentSource, /const \{ locale \} = useLocale\(\);/u);
+  assert.match(componentSource, /langCode=\{locale === 'zh-CN' \? 'zh-CN' : 'en'\}/u);
 });

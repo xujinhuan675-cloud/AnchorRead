@@ -87,4 +87,7 @@ test('image generation instructions follow the selected renderer', () => {
   assert.match(generateImagePrompt('flowchart', 'mermaid'), /Mermaid图表/);
   assert.doesNotMatch(generateImagePrompt('flowchart', 'mermaid'), /Excalidraw图表/);
   assert.match(generateImagePrompt('swimlane', 'excalidraw'), /Excalidraw图表/);
+  assert.match(generateImagePrompt('flowchart', 'excalidraw'), /startElementId/);
+  assert.match(generateImagePrompt('flowchart', 'excalidraw'), /起点节点.*终点节点.*箭头及其关系文字/s);
+  assert.match(generateImagePrompt('flowchart', 'mermaid'), /Mermaid/);
 });
