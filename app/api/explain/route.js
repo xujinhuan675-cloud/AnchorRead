@@ -8,6 +8,7 @@ import {
   normalizeExplainRequest,
   normalizeExplainResponse,
 } from '@/lib/explain-contract';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/explain
@@ -15,7 +16,7 @@ import {
  * glossary 为用户自维护术语表，作为背景交代给 AI（已有定义的术语不再从零解释）
  * 出参：{ plainExplanation, terms: [{ source, explanation }], context }
  */
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -31,7 +32,6 @@ export async function POST(request) {
     const result = await callLLMForJson(config, messages);
     return NextResponse.json(normalizeExplainResponse(result, source));
   } catch (error) {
-    console.error('Error explaining selected text:', error);
     const status =
       error instanceof ExplainRequestError
         ? 400
@@ -41,9 +41,8 @@ export async function POST(request) {
             ? error.status
             : 500;
 
-    return NextResponse.json(
-      { error: error.message || '原文解释失败' },
-      { status }
-    );
+    return apiErrorResponse({ request, operation: 'ai.explain', error, status, message: error.message || '原文解释失败' });
   }
 }
+
+export const POST = withApiObservability('ai.explain', handlePOST);

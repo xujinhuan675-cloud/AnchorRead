@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
 import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildFlashcardsPrompt } from '@/lib/article-prompts';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/flashcards
@@ -9,7 +10,7 @@ import { buildFlashcardsPrompt } from '@/lib/article-prompts';
  * 入参：{ config, article, highlights? }
  * 出参：{ cards: [{ front, back, source }] }
  */
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -58,11 +59,9 @@ export async function POST(request) {
 
     return NextResponse.json({ cards });
   } catch (error) {
-    console.error('Error generating flashcards:', error);
     const status = error instanceof ApiError ? error.status : 500;
-    return NextResponse.json(
-      { error: error.message || '记忆卡片生成失败' },
-      { status }
-    );
+    return apiErrorResponse({ request, operation: 'ai.flashcards', error, status, message: error.message || '记忆卡片生成失败' });
   }
 }
+
+export const POST = withApiObservability('ai.flashcards', handlePOST);

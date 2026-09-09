@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
 import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildParsePrompt, HIGHLIGHT_LEVELS } from '@/lib/article-prompts';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/parse
@@ -9,7 +10,7 @@ import { buildParsePrompt, HIGHLIGHT_LEVELS } from '@/lib/article-prompts';
  * 入参：{ config, article }
  * 出参：{ summary, highlights: [{ text, level, reason }] }
  */
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -49,11 +50,9 @@ export async function POST(request) {
       highlights,
     });
   } catch (error) {
-    console.error('Error parsing article:', error);
     const status = error instanceof ApiError ? error.status : 500;
-    return NextResponse.json(
-      { error: error.message || '文章解析失败' },
-      { status }
-    );
+    return apiErrorResponse({ request, operation: 'ai.parse', error, status, message: error.message || '文章解析失败' });
   }
 }
+
+export const POST = withApiObservability('ai.parse', handlePOST);

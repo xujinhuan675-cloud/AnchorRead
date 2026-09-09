@@ -5,7 +5,14 @@ import { useEffect } from 'react';
 
 export default function GlobalError({ error, reset }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    Sentry.withScope((scope) => {
+      scope.setTag('operation', 'ui.global_error');
+      scope.setContext('ui', {
+        component: 'GlobalError',
+        route: window.location.pathname,
+      });
+      Sentry.captureException(error);
+    });
   }, [error]);
 
   return (

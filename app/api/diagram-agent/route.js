@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDiagramAgentTransport } from '@/lib/diagram-agent-transport';
 import { getDiagramMcpPairingStore } from '@/lib/diagram-mcp-pairing-store';
+import { withApiObservability } from '@/lib/api-observability';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,7 +74,7 @@ function pairingError(error) {
   return jsonError(String(error?.message || error), status, code);
 }
 
-export async function GET(request) {
+async function handleGET(request) {
   const url = new URL(request.url);
   const action = url.searchParams.get('action') || 'poll';
   if (!authorized(request, action)) return jsonError('Diagram bridge authorization failed.', 401, 'UNAUTHORIZED');
@@ -120,7 +121,7 @@ export async function GET(request) {
   return NextResponse.json({ ok: true, requests });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   let body;
   try {
     body = await request.json();
@@ -171,3 +172,6 @@ export async function POST(request) {
   }
   return jsonError(`Unsupported diagram bridge action: ${action}`);
 }
+
+export const GET = withApiObservability('diagram.bridge.get', handleGET);
+export const POST = withApiObservability('diagram.bridge.post', handlePOST);

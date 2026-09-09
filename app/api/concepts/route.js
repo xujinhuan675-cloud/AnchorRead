@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
 import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildConceptsPrompt } from '@/lib/article-prompts';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/concepts
@@ -9,7 +10,7 @@ import { buildConceptsPrompt } from '@/lib/article-prompts';
  * 入参：{ config, article }
  * 出参：{ concepts: [{ name, description }], relations: [{ from, to, type, label }] }
  */
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -70,11 +71,9 @@ export async function POST(request) {
 
     return NextResponse.json({ concepts, relations });
   } catch (error) {
-    console.error('Error extracting concepts:', error);
     const status = error instanceof ApiError ? error.status : 500;
-    return NextResponse.json(
-      { error: error.message || '概念抽取失败' },
-      { status }
-    );
+    return apiErrorResponse({ request, operation: 'ai.concepts', error, status, message: error.message || '概念抽取失败' });
   }
 }
+
+export const POST = withApiObservability('ai.concepts', handlePOST);

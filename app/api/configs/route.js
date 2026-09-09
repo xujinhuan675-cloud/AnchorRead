@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { testConnection } from '@/lib/llm-client';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * GET /api/configs/test-connection
  * Test connection to a provider API
  */
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const { config } = await request.json();
 
@@ -20,13 +21,8 @@ export async function POST(request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Error testing connection:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        message: error.message || '连接测试失败'
-      },
-      { status: 500 }
-    );
+    return apiErrorResponse({ request, operation: 'llm.test_connection', error, status: 500, message: error.message || '连接测试失败' });
   }
 }
+
+export const POST = withApiObservability('llm.test_connection', handlePOST);

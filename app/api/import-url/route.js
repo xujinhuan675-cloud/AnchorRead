@@ -3,6 +3,7 @@ import { parseHTML } from 'linkedom';
 import { Readability } from '@mozilla/readability';
 import { htmlToMarkdown } from '@/lib/html-to-markdown';
 import { authorizeApiRequest } from '@/lib/api-auth';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/import-url
@@ -26,7 +27,7 @@ function isBlockedHost(hostname) {
   return false;
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -113,7 +114,8 @@ export async function POST(request) {
       excerpt: typeof article.excerpt === 'string' ? article.excerpt : '',
     });
   } catch (error) {
-    console.error('Error importing url:', error);
-    return NextResponse.json({ error: error.message || '网址导入失败' }, { status: 500 });
+    return apiErrorResponse({ request, operation: 'document.import_url', error, status: 500, message: error.message || '网址导入失败' });
   }
 }
+
+export const POST = withApiObservability('document.import_url', handlePOST);

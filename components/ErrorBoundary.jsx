@@ -1,6 +1,8 @@
 'use client';
 
 import { Component } from 'react';
+import * as Sentry from '@sentry/nextjs';
+import { normalizeSentryRoute } from '@/lib/sentry-config';
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -14,6 +16,16 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    Sentry.withScope((scope) => {
+      const route = normalizeSentryRoute(window.location.pathname);
+      scope.setTag('operation', 'ui.error_boundary');
+      scope.setTag('api_route', route);
+      scope.setContext('ui', {
+        component: 'ErrorBoundary',
+        route,
+      });
+      Sentry.captureException(error);
+    });
   }
 
   render() {

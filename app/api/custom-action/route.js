@@ -3,6 +3,7 @@ import { callLLM } from '@/lib/llm-client';
 import { ApiError, resolveLLMConfig } from '@/lib/server-llm';
 import { authorizeApiRequest } from '@/lib/api-auth';
 import { createCustomAction, renderCustomActionPrompt } from '@/lib/custom-actions';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/custom-action
@@ -10,7 +11,7 @@ import { createCustomAction, renderCustomActionPrompt } from '@/lib/custom-actio
  * 入参：{ config, action: { name, promptTemplate }, selection, context? }
  * 出参：{ result }
  */
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -40,10 +41,8 @@ export async function POST(request) {
     return NextResponse.json({ result: result.trim() });
   } catch (error) {
     const status = error instanceof ApiError ? error.status : 500;
-    if (status >= 500) console.error('Error running custom action:', error);
-    return NextResponse.json(
-      { error: error.message || '自定义动作执行失败' },
-      { status }
-    );
+    return apiErrorResponse({ request, operation: 'ai.custom_action', error, status, message: error.message || '自定义动作执行失败' });
   }
 }
+
+export const POST = withApiObservability('ai.custom_action', handlePOST);

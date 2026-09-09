@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { fetchModels } from '@/lib/llm-client';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * GET /api/models
  * Fetch available models from the configured provider
  */
-export async function GET(request) {
+async function handleGET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
@@ -23,11 +24,9 @@ export async function GET(request) {
 
     return NextResponse.json({ models });
   } catch (error) {
-    console.error('Error fetching models:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to fetch models' },
-      { status: 500 }
-    );
+    return apiErrorResponse({ request, operation: 'llm.models', error, status: 500, message: error.message || 'Failed to fetch models' });
   }
 }
+
+export const GET = withApiObservability('llm.models', handleGET);
 

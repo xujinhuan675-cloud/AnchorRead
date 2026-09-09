@@ -5,12 +5,14 @@ import {
   MERMAID_SYSTEM_PROMPT,
   buildMermaidUserPrompt,
 } from '@/lib/mermaid-prompts';
+import { apiErrorResponse, createErrorId, reportApiError, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/generate
  * Generate Excalidraw code based on user input
  */
-export async function POST(request) {
+async function handlePOST(request) {
+  const errorId = createErrorId();
   try {
     const { config, userInput, chartType, engine = 'excalidraw' } = await request.json();
     const accessPassword = request.headers.get('x-access-password');
@@ -108,8 +110,15 @@ export async function POST(request) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         } catch (error) {
-          console.error('Error in stream:', error);
-          const errorData = `data: ${JSON.stringify({ error: error.message })}\n\n`;
+          reportApiError({
+            request,
+            operation: 'ai.generate.stream',
+            error,
+            errorId,
+            status: 502,
+            context: { engine },
+          });
+          const errorData = `data: ${JSON.stringify({ error: error.message, errorId })}\n\n`;
           controller.enqueue(encoder.encode(errorData));
           controller.close();
         }
@@ -124,11 +133,9 @@ export async function POST(request) {
       },
     });
   } catch (error) {
-    console.error('Error generating code:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to generate code' },
-      { status: 500 }
-    );
+    return apiErrorResponse({ request, operation: 'ai.generate', error, errorId, status: 500, message: error.message || 'Failed to generate code' });
   }
 }
+
+export const POST = withApiObservability('ai.generate', handlePOST);
 

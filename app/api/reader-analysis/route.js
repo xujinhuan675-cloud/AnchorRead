@@ -8,6 +8,7 @@ import {
   normalizeReaderAnalysisRequest,
   normalizeReaderAnalysisResponse,
 } from '@/lib/reader-analysis';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 
 /**
  * POST /api/reader-analysis
@@ -16,7 +17,7 @@ import {
  * Missing LLM configuration remains a 400; the client surfaces the error
  * and asks the user to configure a model first (no local demo fallback).
  */
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -28,7 +29,6 @@ export async function POST(request) {
 
     return NextResponse.json(normalizeReaderAnalysisResponse(result, source));
   } catch (error) {
-    console.error('Error analyzing reader document:', error);
     const status =
       error instanceof SyntaxError || error instanceof ReaderAnalysisRequestError
         ? 400
@@ -37,13 +37,14 @@ export async function POST(request) {
           : error instanceof ApiError
             ? error.status
             : 500;
-    return NextResponse.json(
-      {
-        error: error instanceof SyntaxError
-          ? '请求体不是有效的 JSON'
-          : error.message || '全文阅读分析失败',
-      },
-      { status }
-    );
+    return apiErrorResponse({
+      request,
+      operation: 'ai.reader_analysis',
+      error,
+      status,
+      message: error instanceof SyntaxError ? '请求体不是有效的 JSON' : error.message || '全文阅读分析失败',
+    });
   }
 }
+
+export const POST = withApiObservability('ai.reader_analysis', handlePOST);

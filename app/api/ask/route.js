@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { resolveLLMConfig, callLLMForJson, ApiError } from '@/lib/server-llm';
 import { authorizeApiRequest } from '@/lib/api-auth';
 import { buildAskPrompt } from '@/lib/article-prompts';
+import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
 import {
   AskRequestError,
   AskResponseError,
@@ -15,7 +16,7 @@ import {
  * 划词提问：内置提问提示词，选区即触发；
  * 出参：{ answer, context, candidates }，candidates 为待用户审阅的候选词条
  */
-export async function POST(request) {
+async function handlePOST(request) {
   const denied = authorizeApiRequest(request);
   if (denied) return denied;
   try {
@@ -31,7 +32,6 @@ export async function POST(request) {
     const result = await callLLMForJson(config, messages);
     return NextResponse.json(normalizeAskResponse(result, source));
   } catch (error) {
-    console.error('Error answering selection question:', error);
     const status =
       error instanceof AskRequestError
         ? 400
@@ -41,9 +41,8 @@ export async function POST(request) {
             ? error.status
             : 500;
 
-    return NextResponse.json(
-      { error: error.message || '划词提问失败' },
-      { status }
-    );
+    return apiErrorResponse({ request, operation: 'ai.ask', error, status, message: error.message || '划词提问失败' });
   }
 }
+
+export const POST = withApiObservability('ai.ask', handlePOST);
