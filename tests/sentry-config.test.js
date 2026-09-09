@@ -105,3 +105,35 @@ test('stays disabled when no DSN is configured', () => {
   assert.equal(options.sendDefaultPii, false);
   assert.equal(options.maxBreadcrumbs, 0);
 });
+
+test('keeps only safe correlation tags and API context', () => {
+  const event = sanitizeSentryEvent({
+    tags: {
+      error_id: 'err-123',
+      operation: 'ai.parse',
+      api_route: 'POST https://reader.example/diagrams/private-id?token=secret',
+      private_prompt: 'should-not-be-kept',
+    },
+    contexts: {
+      api: {
+        error_id: 'err-123',
+        operation: 'ai.parse',
+        route: 'POST /diagrams/private-id?token=secret',
+        status: 502,
+        private_prompt: 'should-not-be-kept',
+      },
+    },
+  });
+
+  assert.deepEqual(event.tags, {
+    error_id: 'err-123',
+    operation: 'ai.parse',
+    api_route: 'POST /diagrams/:drawingId',
+  });
+  assert.deepEqual(event.contexts.api, {
+    error_id: 'err-123',
+    operation: 'ai.parse',
+    route: 'POST /diagrams/:drawingId',
+    status: 502,
+  });
+});

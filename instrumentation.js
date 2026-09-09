@@ -9,4 +9,13 @@ export async function register() {
   }
 }
 
-export const onRequestError = Sentry.captureRequestError;
+export function onRequestError(error, request, context) {
+  Sentry.withScope((scope) => {
+    scope.setTag('operation', 'request.error');
+    scope.setContext('request', {
+      method: request?.method,
+      route: request?.path || request?.url,
+    });
+    Sentry.captureRequestError(error, request, context);
+  });
+}
