@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { FileCode2, Pause, Play, PanelRightClose, PanelRightOpen, SkipBack, SkipForward, Square } from 'lucide-react';
 import CodeEditor from '@/components/CodeEditor';
@@ -9,27 +9,22 @@ import { useLocale } from '@/components/LocaleProvider';
 import { DIAGRAM_AGENT_PENDING_PRESENTATION_KEY, DIAGRAM_AGENT_PRESENTATION_EVENT } from '@/components/DiagramAgentBridge';
 import { getPresentationStepPlaybackDuration, normalizePresentationSpec, PRESENTATION_PLAYBACK_RATES } from '@/lib/diagram-presentation';
 import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation, reconcilePresentationSpec } from '@/lib/diagram-stream';
-import { useAppTheme } from '@/lib/theme';
-import './diagram-overlay.css';
+import CanvasToolbar from '@/components/CanvasToolbar';
 import CanvasToolbarButton from '@/components/CanvasToolbarButton';
 
 const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), { ssr: false });
 
 // 左侧主区域：图表画布 + 生成代码编辑区，与右侧对话区共享同一份 diagram 状态
-// 源码编辑区默认收起：mermaid 下源码开关在画布头部放大按钮右侧；
-// excalidraw 下收进画布左上角主菜单作为选项；内联卡片传入 showCode 时按外部控制为准
+// 源码编辑区默认收起：两种画布都把源码入口放进左上角主菜单；
+// 内联卡片传入 showCode 时按外部控制为准
 export default function DocumentDiagramCanvas({ diagram, showCode, standalone = false, onOpenChat = null, onCloseChat = null }) {
   const { t } = useLocale();
-  // 悬浮控件的 Excalidraw 原生风格由 diagram-overlay.css 的 ar-overlay-* 类承担
-  // （透明底 / hover 官方淡紫，色值摘自 0.18 主题）；暗色只需在容器上挂 theme--dark，
-  // 不能再挂 .excalidraw 类，它自带的画布容器布局规则会撑坏按钮定位
-  const { theme: appTheme } = useAppTheme();
-  const excalidrawThemeClass = appTheme === 'dark' ? ' theme--dark' : '';
   const [codeOpen, setCodeOpen] = useState(false);
   const [presentationActive, setPresentationActive] = useState(false);
   const [presentationPlaying, setPresentationPlaying] = useState(false);
   const [presentationStepIndex, setPresentationStepIndex] = useState(0);
   const [presentationPlaybackRate, setPresentationPlaybackRate] = useState(1);
+  const fileInputRef = useRef(null);
   const isCodeVisible = typeof showCode === 'boolean' ? showCode : codeOpen;
   const {
     engine,
@@ -47,6 +42,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     changeCode,
     clearCode,
     changeScene,
+    importExcalidrawScene,
     presentation: rawPresentation,
     presentationDisabled,
     streamElements,
@@ -115,18 +111,30 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     return () => window.clearTimeout(timer);
   }, [effectivePresentationPlaying, effectivePresentationStepIndex, presentationStep, presentation, presentationPlaybackRate]);
 
-  // 源码开关：自管模式下才可切换；mermaid 挂在画布头部，excalidraw 收进主菜单
+  const openImport = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleImport = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      await importExcalidrawScene(await file.text());
+    } catch (caughtError) {
+      setError(caughtError.message || t('diagram.importFailed'));
+    }
+  }, [importExcalidrawScene, setError, t]);
+
+  // 源码开关：自管模式下才可切换；Excalidraw 交给原生主菜单
   const canToggleCode = typeof showCode !== 'boolean';
-  const sourceCodeButton = (
-    <CanvasToolbarButton
-      onClick={toggleCode}
-      aria-label={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
-      title={codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource')}
-      active={codeOpen}
-    >
-      <FileCode2 size={15} aria-hidden="true" />
-    </CanvasToolbarButton>
-  );
+  const sourceMenuItems = canToggleCode ? [{
+    id: 'toggle-source-code',
+    icon: <FileCode2 size={18} />,
+    label: codeOpen ? t('diagram.collapseSource') : t('diagram.expandSource'),
+    selected: codeOpen,
+    onSelect: toggleCode,
+  }] : [];
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-stone-50 dark:bg-white/5" aria-label={t('diagram.canvasAria')}>
@@ -142,10 +150,12 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
               presentationActive={effectivePresentationActive}
               presentationStepIndex={effectivePresentationStepIndex}
               presentationStepCount={presentation?.steps.length || 0}
-              // 独立图解和文档绑定形态都有展开源码和切换面板的按钮
-              headerActions={(canToggleCode || onOpenChat || onCloseChat) ? (
+              mainMenuItems={sourceMenuItems}
+              mainMenuOpenLabel={t('diagram.openCanvasMenu')}
+              mainMenuCloseLabel={t('diagram.closeCanvasMenu')}
+              // Mermaid 和 Excalidraw 都把源码开关放进左侧菜单；右上角只保留面板切换
+              headerActions={(onOpenChat || onCloseChat) ? (
                 <>
-                  {canToggleCode && sourceCodeButton}
                   {onOpenChat && (
                     // 收起面板/打开抽屉入口：与右侧 PanelRightClose 对称
                     <CanvasToolbarButton
@@ -153,7 +163,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
                       aria-label={t('diagram.openChat')}
                       title={t('diagram.openChat')}
                     >
-                      <PanelRightOpen size={16} aria-hidden="true" />
+                      <PanelRightOpen size={16} className="size-4" aria-hidden="true" />
                     </CanvasToolbarButton>
                   )}
                   {onCloseChat && (
@@ -163,7 +173,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
                       aria-label={t('workspace.collapseRightPanel')}
                       title={t('workspace.collapseRightPanel')}
                     >
-                      <PanelRightClose size={16} aria-hidden="true" />
+                      <PanelRightClose size={16} className="size-4" aria-hidden="true" />
                     </CanvasToolbarButton>
                   )}
                 </>
@@ -186,24 +196,31 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             sourceCodeOpen={isCodeVisible}
             sourceExpandLabel={t('diagram.expandSource')}
             sourceCollapseLabel={t('diagram.collapseSource')}
+            onImport={canToggleCode ? openImport : null}
+            importLabel={t('common.import')}
           />}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".excalidraw,application/json"
+          className="hidden"
+          onChange={handleImport}
+        />
         {presentation && (
           /* 播放条靠右下角：左下角是 Excalidraw 原生缩放控件的位置，避免与其重叠；
              源码开关已收进主菜单，右下角只剩播放条 */
-          <div className={`ar-overlay-island${excalidrawThemeClass} absolute bottom-3 right-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-1 p-0.5`}>
-            <button
-              type="button"
+          <CanvasToolbar floating className="absolute bottom-4 right-4 z-10 max-w-[calc(100%-2rem)]">
+            <CanvasToolbarButton
               onClick={() => {
                 setPresentationActive(true);
                 setPresentationPlaying((playing) => !playing);
               }}
               aria-label={effectivePresentationPlaying ? t('diagram.presentation.pause') : t('diagram.presentation.play')}
               title={effectivePresentationPlaying ? t('diagram.presentation.pause') : t('diagram.presentation.play')}
-              className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"
             >
               {effectivePresentationPlaying ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
-            </button>
-            <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.max(0, index - 1)); }} aria-label={t('diagram.presentation.previous')} title={t('diagram.presentation.previous')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><SkipBack size={15} aria-hidden="true" /></button>
+            </CanvasToolbarButton>
+            <CanvasToolbarButton onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.max(0, index - 1)); }} aria-label={t('diagram.presentation.previous')} title={t('diagram.presentation.previous')}><SkipBack size={15} aria-hidden="true" /></CanvasToolbarButton>
             {presentationHasNamedSteps && (
               <select
                 value={effectivePresentationStepIndex}
@@ -232,9 +249,9 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
               {PRESENTATION_PLAYBACK_RATES.map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
             </select>
             <span className="min-w-6 px-1 text-center text-[14px] tabular-nums" aria-live="polite">{presentationStepIndex + 1}/{presentation.steps.length}</span>
-            <button type="button" onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }} aria-label={t('diagram.presentation.next')} title={t('diagram.presentation.next')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><SkipForward size={15} aria-hidden="true" /></button>
-            {effectivePresentationActive && <button type="button" onClick={() => { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }} aria-label={t('diagram.presentation.stop')} title={t('diagram.presentation.stop')} className="ar-overlay-tool flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none"><Square size={14} aria-hidden="true" /></button>}
-          </div>
+            <CanvasToolbarButton onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }} aria-label={t('diagram.presentation.next')} title={t('diagram.presentation.next')}><SkipForward size={15} aria-hidden="true" /></CanvasToolbarButton>
+            {effectivePresentationActive && <CanvasToolbarButton onClick={() => { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }} aria-label={t('diagram.presentation.stop')} title={t('diagram.presentation.stop')}><Square size={14} aria-hidden="true" /></CanvasToolbarButton>}
+          </CanvasToolbar>
         )}
       </div>
       {isCodeVisible && (

@@ -1,6 +1,7 @@
 'use client';
 
 import { Minus, Plus } from 'lucide-react';
+import CanvasToolbar from './CanvasToolbar';
 import CanvasToolbarButton from './CanvasToolbarButton';
 
 /** Shared Excalidraw-style viewport controls for non-Excalidraw renderers. */
@@ -19,8 +20,9 @@ export default function CanvasZoomControls({
   className = '',
 }) {
   return (
-    <div
-      className={`pointer-events-auto flex items-center gap-0 rounded-lg bg-[#ececf4] p-0.5 shadow-[0_0_0_1px_#fff] backdrop-blur dark:bg-[hsl(240,8%,15%)] dark:shadow-[0_0_0_1px_hsl(0,0%,7%)] ${className}`.trim()}
+    <CanvasToolbar
+      floating
+      className={`pointer-events-auto !gap-0 !p-0 rounded-lg ${className}`.trim()}
       aria-label={ariaLabel}
     >
       <CanvasToolbarButton
@@ -47,6 +49,6 @@ export default function CanvasZoomControls({
       >
         <Plus aria-hidden="true" className="h-4 w-4" />
       </CanvasToolbarButton>
-    </div>
+    </CanvasToolbar>
   );
 }

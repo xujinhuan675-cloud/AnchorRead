@@ -3,9 +3,14 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import '@excalidraw/excalidraw/index.css';
-import { FileCode2, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { FileCode2, PanelRightClose, PanelRightOpen, Upload } from 'lucide-react';
+import { useLocale } from '@/components/LocaleProvider';
 import { useAppTheme } from '@/lib/theme';
+import CanvasToolbar from './CanvasToolbar';
 import CanvasToolbarButton from './CanvasToolbarButton';
+
+const NATIVE_MENU_ICON_SIZE = 16;
+const NATIVE_MENU_ICON_STROKE_WIDTH = 1.5;
 
 // Dynamically import Excalidraw with no SSR
 const Excalidraw = dynamic(
@@ -324,7 +329,10 @@ export default function ExcalidrawCanvas({
   sourceCodeOpen = false,
   sourceExpandLabel = '',
   sourceCollapseLabel = '',
+  onImport = null,
+  importLabel = '',
 }) {
+  const { locale } = useLocale();
   const [convertToExcalidrawElements, setConvertFunction] = useState(null);
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   // MainMenu 与 Excalidraw 同包，动态 import 就绪后才能作为 children 渲染；
@@ -363,22 +371,22 @@ export default function ExcalidrawCanvas({
   // rebuild its toolbar and menu tunnels synchronously.
   const handleExcalidrawAPI = useCallback((api) => setExcalidrawAPI(api), []);
   const renderTopRightUI = useCallback(() => {
-    // 自定义面板触发器挂在原生 renderTopRightUI 槽位：与 Library 触发器
-    // 同一 flex 行并排（CSS 里 order: 99 排到它右侧）；风格用 ar-overlay-*
-    // 类，暗色模式由 Excalidraw 根部的 theme--dark 类自动接管。
+    // 面板触发器挂在原生 renderTopRightUI 槽位：与 Library 触发器
+    // 同一 flex 行并排（CSS 里 order: 99 排到它右侧）；外壳和按钮
+    // 直接复用公共 CanvasToolbar / CanvasToolbarButton。
     if (!onExpandPanel && !onCollapsePanel) return null;
     const togglePanel = onExpandPanel || onCollapsePanel;
     const toggleTitle = onExpandPanel ? expandPanelTitle : collapsePanelTitle;
     return (
-      <div className="ar-toolbar-container flex items-center gap-1 rounded bg-[#ececf4] dark:bg-hsl(240,8%,15%) p-0.5" style={{ order: 99 }}>
+      <CanvasToolbar className="ar-toolbar-container !p-0" style={{ order: 99 }}>
         <CanvasToolbarButton
           onClick={togglePanel}
           title={toggleTitle}
           aria-label={toggleTitle}
         >
-          {onExpandPanel ? <PanelRightOpen size={16} aria-hidden="true" /> : <PanelRightClose size={16} aria-hidden="true" />}
+          {onExpandPanel ? <PanelRightOpen size={16} className="size-4" aria-hidden="true" /> : <PanelRightClose size={16} className="size-4" aria-hidden="true" />}
         </CanvasToolbarButton>
-      </div>
+      </CanvasToolbar>
     );
   }, [collapsePanelTitle, expandPanelTitle, onCollapsePanel, onExpandPanel]);
 
@@ -667,16 +675,26 @@ export default function ExcalidrawCanvas({
   }), [convertedElements, files, hasPersistedAppState, initialAppState]);
 
   const mainMenu = useMemo(() => {
-    if (!MainMenu || !onToggleSourceCode) return null;
+    if (!MainMenu || (!onToggleSourceCode && !onImport)) return null;
     return (
       <MainMenu>
-        <MainMenu.Item
-          icon={<FileCode2 />}
-          selected={sourceCodeOpen}
-          onSelect={() => onToggleSourceCode()}
-        >
-          {sourceCodeOpen ? sourceCollapseLabel : sourceExpandLabel}
-        </MainMenu.Item>
+        {onToggleSourceCode && (
+          <MainMenu.Item
+            icon={<FileCode2 size={NATIVE_MENU_ICON_SIZE} strokeWidth={NATIVE_MENU_ICON_STROKE_WIDTH} />}
+            selected={sourceCodeOpen}
+            onSelect={() => onToggleSourceCode()}
+          >
+            {sourceCodeOpen ? sourceCollapseLabel : sourceExpandLabel}
+          </MainMenu.Item>
+        )}
+        {onImport && (
+          <MainMenu.Item
+            icon={<Upload size={NATIVE_MENU_ICON_SIZE} strokeWidth={NATIVE_MENU_ICON_STROKE_WIDTH} />}
+            onSelect={() => onImport()}
+          >
+            {importLabel}
+          </MainMenu.Item>
+        )}
         <MainMenu.Separator />
         <MainMenu.DefaultItems.ChangeCanvasBackground />
         <MainMenu.DefaultItems.Export />
@@ -685,7 +703,7 @@ export default function ExcalidrawCanvas({
         <MainMenu.DefaultItems.Help />
       </MainMenu>
     );
-  }, [MainMenu, onToggleSourceCode, sourceCodeOpen, sourceCollapseLabel, sourceExpandLabel]);
+  }, [MainMenu, importLabel, onImport, onToggleSourceCode, sourceCodeOpen, sourceCollapseLabel, sourceExpandLabel]);
 
   // Remount 后 Excalidraw 在 initialData 应用前会触发一次瞬态空 onChange 回调。
   // 记录本实例挂载时的初始元素数：只要初始场景非空，任何空回调都视为瞬态，
@@ -704,6 +722,7 @@ export default function ExcalidrawCanvas({
         key={canvasKey}
         excalidrawAPI={handleExcalidrawAPI}
         theme={isDark ? 'dark' : 'light'}
+        langCode={locale === 'zh-CN' ? 'zh-CN' : 'en'}
         renderTopRightUI={renderTopRightUI}
         initialData={initialData}
         onChange={(nextElements, nextAppState, nextFiles) => {

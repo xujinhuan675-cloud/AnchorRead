@@ -29,9 +29,11 @@ export default function CanvasToolbarButton({
       title={title || resolvedLabel}
       disabled={disabled}
       aria-pressed={active}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded outline-none transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 ${
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-stone-400 ${
         theme === 'dark' ? 'text-stone-100' : 'text-[#1b1b1f]'
-      } ${
+      } ${active
+        ? 'bg-[#e0dfff] text-[#030064] hover:!bg-[#e0dfff] hover:!text-[#030064] dark:bg-[#403e6a] dark:text-[#e0dfff] dark:hover:!bg-[#403e6a] dark:hover:!text-[#e0dfff]'
+        : ''} ${
         disabled
           ? 'opacity-35 cursor-not-allowed bg-transparent'
           : 'hover:bg-[#f1f0ff] hover:text-stone-900 dark:hover:bg-[hsl(245,10%,21%)] dark:hover:text-stone-100'

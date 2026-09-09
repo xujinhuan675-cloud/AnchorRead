@@ -13,6 +13,8 @@ import {
   sanitizeMermaidSvg,
   validateMermaidSource,
 } from '@/lib/mermaid-render';
+import CanvasMainMenu from './CanvasMainMenu';
+import CanvasToolbar from './CanvasToolbar';
 import CanvasZoomControls from './CanvasZoomControls';
 import useCanvasZoom from './useCanvasZoom';
 
@@ -136,8 +138,12 @@ export default function MermaidCanvas({
   title = null,
   // 空态副标题：替代默认的「等待源码」状态文案，用来传达创建入口语义（如自由图解工作区）
   subtitle = null,
-  // 宿主可注入的头部动作（渲染在放大按钮右侧），如画布级的源码开关
+  // 宿主可注入的头部动作（渲染在画布右上角），如面板切换
   headerActions = null,
+  // Mermaid 没有 Excalidraw 内部 UI context，菜单壳由全局 CanvasMainMenu 承接
+  mainMenuItems = null,
+  mainMenuOpenLabel = 'Open canvas menu',
+  mainMenuCloseLabel = 'Close canvas menu',
   emptyMessage = null,
   className = '',
   initialZoom = MERMAID_ZOOM.initial,
@@ -344,11 +350,16 @@ export default function MermaidCanvas({
       aria-label={resolvedTitle}
       ref={zoomContainerRef}
     >
+      <CanvasMainMenu
+        items={mainMenuItems || []}
+        openLabel={mainMenuOpenLabel}
+        closeLabel={mainMenuCloseLabel}
+      />
       {/* 顶部操作同样挂在视口层，避免滚动画布内容把它带走。 */}
       {headerActions && (
-        <div className="absolute top-3 right-3 z-10 flex items-center gap-1 bg-[#ececf4] dark:bg-hsl(240,8%,15%) rounded">
+        <CanvasToolbar className="absolute top-4 right-4 z-10 !p-0">
           {headerActions}
-        </div>
+        </CanvasToolbar>
       )}
 
       {/* 画布区铺满：去掉外边距与卡片描边/阴影，绘图区直接贴边；暗色下铺深色底衬托 SVG */}
@@ -409,7 +420,7 @@ export default function MermaidCanvas({
         onZoomOut={zoomOut}
         onReset={resetZoom}
         onZoomIn={zoomIn}
-        className="absolute bottom-3 left-3 z-50"
+        className="absolute bottom-4 left-4 z-50"
       />
     </section>
   );

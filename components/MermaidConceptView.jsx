@@ -172,7 +172,7 @@ export default function MermaidConceptView({
         onZoomOut={zoomOut}
         onReset={resetZoom}
         onZoomIn={zoomIn}
-        className="absolute bottom-3 left-3 z-50"
+        className="absolute bottom-4 left-4 z-50"
       />
     </div>
   );
