@@ -45,14 +45,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # 组装 Dockerfile 期望的 sentry_env secret 文件（KEY=value 行）。
-      # 密钥经 env 传入而非 ${{ }} 内联，避免脚本注入；未配置时值为空，
-      # next.config.mjs 会自动禁用 sourcemap 上传，构建仍成功（优雅降级）。
+      # 密钥经 env 传入而非 ${{ }} 内联，避免脚本注入。
       - name: 生成 Sentry 构建 secret
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: |
+          test -n "$SENTRY_AUTH_TOKEN" || { echo "SENTRY_AUTH_TOKEN 未配置" >&2; exit 1; }
+          test -n "$SENTRY_ORG" || { echo "SENTRY_ORG 未配置" >&2; exit 1; }
+          test -n "$SENTRY_PROJECT" || { echo "SENTRY_PROJECT 未配置" >&2; exit 1; }
           {
             printf 'SENTRY_AUTH_TOKEN=%s\n' "$SENTRY_AUTH_TOKEN"
             printf 'SENTRY_ORG=%s\n' "$SENTRY_ORG"
@@ -85,6 +87,7 @@ jobs:
             NEXT_PUBLIC_SENTRY_ENVIRONMENT=${{ env.ARG_SENTRY_ENVIRONMENT }}
             NEXT_PUBLIC_SENTRY_RELEASE=anchor-read@${{ steps.vars.outputs.short_commit }}
             NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${{ env.ARG_SENTRY_SAMPLE_RATE }}
+            SENTRY_SOURCEMAPS_REQUIRED=true
           secret-files: sentry_env=sentry_env.txt
           cache-from: type=gha
           cache-to: type=gha,mode=max
