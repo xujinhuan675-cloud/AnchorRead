@@ -6,12 +6,12 @@
 type(scope): 中文摘要
 
 [分组标题]
-1. [具体改动点]
-2. [具体改动点]
+  1. [具体改动点]
+  2. [具体改动点]
 
 [另一个分组标题]
-1. [具体改动点]
-2. [具体改动点]
+  1. [具体改动点]
+  2. [具体改动点]
 ```
 
 ## 关键要点
@@ -20,7 +20,7 @@ type(scope): 中文摘要
 
 2. **分组标题**：空一行后使用中文分组标题（如"新功能"、"重构"、"优化"、"测试"、"构建/杂项"）
 
-3. **编号列表**：每个分组标题下使用有序编号列表 (1. 2. 3. ...)，不使用无序列表 (-)
+3. **编号列表**：每个分组标题下使用有序编号列表 (1. 2. 3. ...)，推荐在编号前保留两个空格；这是排版建议，不作为强制门禁
 
 4. **按产品视角组织**：分组按产品能力维度划分，不是按技术模块罗列；同一文件若涉及多个分组，归入其主要功能所在的提交
 
@@ -47,19 +47,19 @@ type(scope): 中文摘要
 fix(mcp): 结果通道保留结构化内容以正确 hydrate 内嵌图解画布
 
 新功能
-1. createMcpToolResult 在未显式提供 structuredContent 时保留对象结果，使仅接收 result 通道的 MCP Apps 也能 hydrate 同一份图解场景
-2. MCP App 资源按钮文案按 openResource.kind 与 diagramWake 区分“打开当前图解/工作区/默认浏览器”
+  1. createMcpToolResult 在未显式提供 structuredContent 时保留对象结果，使仅接收 result 通道的 MCP Apps 也能 hydrate 同一份图解场景
+  2. MCP App 资源按钮文案按 openResource.kind 与 diagramWake 区分“打开当前图解/工作区/默认浏览器”
 
 重构
-1. diagram-mcp-http 的 textResult 复用 createMcpToolResult，移除重复的 structuredContent 兜底逻辑
+  1. diagram-mcp-http 的 textResult 复用 createMcpToolResult，移除重复的 structuredContent 兜底逻辑
 
 测试
-1. 更新 links、app-resource、anchor-read-diagram 用例，校验结构化结果与打开按钮文案
+  1. 更新 links、app-resource、anchor-read-diagram 用例，校验结构化结果与打开按钮文案
 ```
 
 ---
 # 记住：
 # ✅ 分组标题就是简单的一句话（如"新功能"、"重构"）
-# ✅ 编号列表紧跟在分组标题下一行开始，不需要在分组标题前加编号
+# ✅ 编号列表紧跟在分组标题下一行开始，推荐在编号前保留两个空格
 # ❌ 不要在分组标题前加"1. "等编号
 # ❌ 不要只用 `- `无编号的无序列表
