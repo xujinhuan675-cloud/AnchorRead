@@ -3,9 +3,14 @@ import {
 } from '@/lib/diagram-mcp-authorization';
 import { getDiagramMcpOAuthRuntimeInfo } from '@/lib/diagram-mcp-oauth';
 import { getDiagramMcpRuntimeInfo } from '@/lib/diagram-mcp-pairing-store';
+import { getDiagramAgentTransport } from '@/lib/diagram-agent-transport';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+function brokerUnavailable(error) {
+  return ['BROKER_BUSY', 'BROKER_CONFIG_ERROR', 'BROKER_UNAVAILABLE'].includes(String(error?.code || ''));
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -17,9 +22,31 @@ function escapeHtml(value) {
 }
 
 export async function GET(request) {
+  let transportRuntime;
+  try {
+    const transport = getDiagramAgentTransport();
+    await transport.assertReady?.();
+    transportRuntime = transport.runtimeInfo || {};
+    if (transportRuntime.requestBroker === 'redis' && !String(process.env.ANCHORREAD_REDIS_URL || '').trim()) {
+      const error = new Error('ANCHORREAD_REDIS_URL is required when ANCHORREAD_DIAGRAM_BROKER=redis.');
+      error.code = 'BROKER_CONFIG_ERROR';
+      throw error;
+    }
+  } catch (error) {
+    if (!brokerUnavailable(error)) throw error;
+    return new Response(JSON.stringify({ ok: false, code: error.code, error: error.message }), {
+      status: 503,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-AnchorRead-Request-Broker': 'redis',
+      },
+    });
+  }
   const info = getDiagramMcpAuthorizationInfo(request, {
     ...getDiagramMcpRuntimeInfo(),
     ...getDiagramMcpOAuthRuntimeInfo(),
+    ...transportRuntime,
   });
   const endpoint = escapeHtml(info.mcpEndpoint);
   const diagramsUrl = escapeHtml(info.diagramsUrl);
@@ -59,6 +86,8 @@ export async function GET(request) {
       'Content-Type': 'text/html; charset=utf-8',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline';",
+      'X-AnchorRead-Instance-Id': transportRuntime.instanceId || 'unknown',
+      'X-AnchorRead-Request-Broker': transportRuntime.requestBroker || 'memory',
     },
   });
 }

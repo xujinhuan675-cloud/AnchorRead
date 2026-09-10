@@ -58,6 +58,26 @@ test('browser verification explains an offline OAuth workspace without attemptin
   assert.equal(result.nextActionDetails.ifStillOffline.command, 'codex mcp login anchorread');
 });
 
+test('shared broker verifies by round trip when process-local pairing presence is stale', async () => {
+  let submitted = false;
+  const result = await verifyDiagramBrowserConnection({
+    request: new Request('https://anchorread.flowguide.cc/mcp'),
+    auth: {
+      local: false,
+      token: { id: 'token-shared' },
+      binding: { bindingId: 'binding-shared', workspaceId: 'workspace-shared', connected: false },
+    },
+    transportRuntime: { sharedRequestBroker: true },
+    submitTool: async () => {
+      submitted = true;
+      return [];
+    },
+  });
+  assert.equal(submitted, true);
+  assert.equal(result.ok, true);
+  assert.equal(result.checks.browserSessionOnline.status, 'PASS');
+});
+
 test('browser verification requires a server-issued binding for OAuth tokens', async () => {
   let submitted = false;
   const result = await verifyDiagramBrowserConnection({

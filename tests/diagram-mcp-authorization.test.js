@@ -21,6 +21,11 @@ test('authorization metadata stays same-origin and contains no secret material',
     oauthStore: 'file',
     persistentOAuth: true,
     multiInstance: false,
+    requestBroker: 'redis',
+    sharedRequestBroker: true,
+    requestRoutingMultiInstance: true,
+    mcpSessionAffinityRequired: true,
+    instanceId: 'anchorread-test-1',
   });
 
   assert.equal(info.type, 'anchorread-oauth');
@@ -36,6 +41,12 @@ test('authorization metadata stays same-origin and contains no secret material',
   assert.equal(info.runtime.persistentAccessTokens, true);
   assert.equal(info.runtime.persistentOAuth, true);
   assert.equal(info.runtime.oauthStore, 'file');
+  assert.equal(info.runtime.multiInstance, false);
+  assert.equal(info.runtime.requestBroker, 'redis');
+  assert.equal(info.runtime.sharedRequestBroker, true);
+  assert.equal(info.runtime.requestRoutingMultiInstance, true);
+  assert.equal(info.runtime.mcpSessionAffinityRequired, true);
+  assert.equal(info.runtime.instanceId, 'anchorread-test-1');
   assert.equal(JSON.stringify(info).includes('armcp_'), false);
   assert.equal(JSON.stringify(info).includes('managementSecret'), false);
   assert.equal(JSON.stringify(info).includes('tokenEnvironmentVariable'), false);

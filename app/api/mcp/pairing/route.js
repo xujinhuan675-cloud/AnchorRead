@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getDiagramAgentTransport } from '@/lib/diagram-agent-transport';
-import { cancelDiagramAgentRequestsForToken } from '@/lib/diagram-agent-broker';
 import { getDiagramMcpOAuthStore } from '@/lib/diagram-mcp-oauth';
 import {
   getDiagramMcpPairingStore,
@@ -41,10 +40,16 @@ function contextFrom(request, body) {
   };
 }
 
+async function freshBindingInfo(store, context) {
+  await store.settle?.();
+  await store.refreshIfChanged?.();
+  return store.getBindingInfo(context);
+}
+
 function errorStatus(code) {
   if (['PAIRING_FORBIDDEN', 'SESSION_CONFLICT'].includes(code)) return 403;
   if (code === 'CONNECTION_REPLACED') return 409;
-  if (['BROWSER_SESSION_OFFLINE', 'PAIRING_STORE_UNAVAILABLE'].includes(code)) return 503;
+  if (['BROWSER_SESSION_OFFLINE', 'PAIRING_STORE_UNAVAILABLE', 'BROKER_BUSY', 'BROKER_CONFIG_ERROR', 'BROKER_UNAVAILABLE'].includes(code)) return 503;
   if (code === 'TOKEN_NOT_FOUND') return 404;
   return 400;
 }
@@ -59,15 +64,18 @@ function jsonError(error) {
 }
 
 async function testBrowserRoute(store, context) {
-  const connection = await store.assertConnectionOwner(context);
-  const timeoutMs = 8_000;
   const transport = getDiagramAgentTransport();
+  const connection = transport.runtimeInfo?.sharedRequestBroker
+    ? await freshBindingInfo(store, context)
+    : await store.assertConnectionOwner(context);
+  const timeoutMs = 8_000;
   const { id, promise } = await transport.createRequest(
     { tool: 'list_diagrams', args: {} },
     {
       ttlMs: timeoutMs,
       scope: {
         workspaceId: connection.workspaceId,
+        bindingId: connection.bindingId,
         browserSessionId: connection.browserSessionId,
         tabId: connection.tabId,
       },
@@ -81,7 +89,7 @@ async function testBrowserRoute(store, context) {
         timer = setTimeout(() => {
           const error = new Error('The paired browser did not answer the connection test.');
           error.code = 'BRIDGE_TIMEOUT';
-          transport.cancelRequest(id, error);
+          Promise.resolve(transport.cancelRequest(id, error)).catch(() => {});
           reject(error);
         }, timeoutMs);
         timer.unref?.();
@@ -94,12 +102,39 @@ async function testBrowserRoute(store, context) {
 }
 
 async function authorizationSnapshot(pairingStore, oauthStore, context) {
-  const binding = await pairingStore.getBindingInfo(context);
+  const binding = await freshBindingInfo(pairingStore, context);
   const tokenSnapshot = await pairingStore.listTokensForBinding(context);
   return {
     binding,
     authorizations: oauthStore.listAuthorizations(binding),
     accessTokens: tokenSnapshot.tokens.filter((token) => token.status === 'active'),
+  };
+}
+
+async function sharedConnectionSnapshot(store, transport, context) {
+  if (!transport.runtimeInfo?.sharedRequestBroker || typeof transport.getPresence !== 'function') {
+    return store.snapshot(context);
+  }
+  const binding = await freshBindingInfo(store, context);
+  const presence = await transport.getPresence({
+    workspaceId: binding.workspaceId,
+    bindingId: binding.bindingId,
+  });
+  return {
+    connection: presence ? {
+      bindingId: binding.bindingId,
+      workspaceId: binding.workspaceId,
+      ...presence,
+      currentClient: !context.clientId || presence.clientId === context.clientId,
+    } : {
+      bindingId: binding.bindingId,
+      workspaceId: binding.workspaceId,
+      browserSessionId: binding.browserSessionId,
+      connected: false,
+      currentClient: false,
+      status: 'disconnected',
+    },
+    runtime: store.runtimeInfo,
   };
 }
 
@@ -121,11 +156,13 @@ export async function POST(request) {
   const action = String(body?.action || '').trim();
   try {
     if (action === 'register') {
+      const transport = getDiagramAgentTransport();
+      await transport.assertReady?.();
       const connection = await store.registerConnection(context, { replace: body?.replace === true });
       return NextResponse.json({
         ok: true,
         connection,
-        runtime: { ...getDiagramMcpRuntimeInfo(), ...getDiagramAgentTransport().runtimeInfo },
+        runtime: { ...getDiagramMcpRuntimeInfo(), ...transport.runtimeInfo },
       });
     }
     if (action === 'disconnect') {
@@ -133,11 +170,12 @@ export async function POST(request) {
       return NextResponse.json({ ok: true, disconnected });
     }
     if (action === 'status') {
-      const snapshot = await store.snapshot(context);
+      const transport = getDiagramAgentTransport();
+      const snapshot = await sharedConnectionSnapshot(store, transport, context);
       return NextResponse.json({
         ok: true,
         ...snapshot,
-        runtime: { ...snapshot.runtime, ...getDiagramAgentTransport().runtimeInfo },
+        runtime: { ...snapshot.runtime, ...transport.runtimeInfo },
       });
     }
     if (action === 'test') {
@@ -151,10 +189,11 @@ export async function POST(request) {
     if (action === 'revoke-authorizations') {
       const clientId = String(body?.clientId || '').trim();
       const tokenId = String(body?.tokenId || '').trim();
-      const binding = await store.getBindingInfo(context);
+      const binding = await freshBindingInfo(store, context);
       const revokedTokens = await store.revokeTokensForBinding(context, { clientId, tokenId });
       const refreshTokensRevoked = oauthStore.revokeAuthorizations(binding, { clientId });
-      for (const token of revokedTokens.tokens) cancelDiagramAgentRequestsForToken(token.id);
+      const transport = getDiagramAgentTransport();
+      for (const token of revokedTokens.tokens) await transport.cancelRequestsForToken(token.id);
       const snapshot = await authorizationSnapshot(store, oauthStore, context);
       return NextResponse.json({
         ok: true,

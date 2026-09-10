@@ -68,10 +68,48 @@ function pairingContext(request, values = {}) {
   };
 }
 
+async function freshBindingInfo(store, context) {
+  await store.settle?.();
+  await store.refreshIfChanged?.();
+  return store.getBindingInfo(context);
+}
+
 function pairingError(error) {
   const code = String(error?.code || 'PAIRING_ERROR');
-  const status = code === 'CONNECTION_REPLACED' ? 409 : (code === 'BROWSER_SESSION_OFFLINE' ? 503 : 403);
+  const unavailable = ['BROWSER_SESSION_OFFLINE', 'BROKER_BUSY', 'BROKER_CONFIG_ERROR', 'BROKER_UNAVAILABLE'].includes(code);
+  const status = code === 'CONNECTION_REPLACED' ? 409 : (unavailable ? 503 : 403);
   return jsonError(String(error?.message || error), status, code);
+}
+
+function isBrokerError(error) {
+  return ['BROKER_BUSY', 'BROKER_CONFIG_ERROR', 'BROKER_UNAVAILABLE'].includes(String(error?.code || ''));
+}
+
+function withRoutingHeaders(handler) {
+  return async function routedDiagramAgentHandler(request) {
+    let response;
+    try {
+      response = await handler(request);
+    } catch (error) {
+      if (!isBrokerError(error)) throw error;
+      response = pairingError(error);
+    }
+    let runtime = {};
+    try {
+      runtime = getDiagramAgentTransport().runtimeInfo || {};
+    } catch (error) {
+      if (!isBrokerError(error)) throw error;
+      if (!response || response.status < 400) response = pairingError(error);
+      runtime = {
+        instanceId: process.env.ANCHORREAD_INSTANCE_ID || 'unknown',
+        requestBroker: String(process.env.ANCHORREAD_DIAGRAM_BROKER || 'memory'),
+      };
+    }
+    response.headers.set('X-AnchorRead-Instance-Id', runtime.instanceId || 'unknown');
+    response.headers.set('X-AnchorRead-Request-Broker', runtime.requestBroker || 'memory');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  };
 }
 
 async function handleGET(request) {
@@ -94,7 +132,7 @@ async function handleGET(request) {
       return NextResponse.json({
         ok: true,
         connection,
-        client: await transport.registerClient(clientId, { tabId, workspaceId, browserSessionId, visible, focused, href }),
+        client: await transport.registerClient(clientId, { tabId, workspaceId, bindingId: connection.bindingId, browserSessionId, visible, focused, href }),
       });
     } catch (error) {
       return pairingError(error);
@@ -102,22 +140,39 @@ async function handleGET(request) {
   }
   if (action === 'unregister') {
     try {
-      const disconnected = await store.disconnectConnection(context);
-      return NextResponse.json({ ok: true, disconnected, removed: await transport.unregisterClient(clientId) });
+      let disconnected = false;
+      let bindingId = '';
+      if (transport.runtimeInfo?.sharedRequestBroker) {
+        const binding = await freshBindingInfo(store, context);
+        bindingId = binding.bindingId;
+        disconnected = await store.disconnectConnection(context).catch((error) => {
+          if (error?.code === 'BROWSER_SESSION_OFFLINE') return false;
+          throw error;
+        });
+      } else {
+        disconnected = await store.disconnectConnection(context);
+      }
+      return NextResponse.json({
+        ok: true,
+        disconnected,
+        removed: await transport.unregisterClient(clientId, { ...context, bindingId }),
+      });
     } catch (error) {
       return pairingError(error);
     }
   }
   if (action !== 'poll') return jsonError(`Unsupported diagram bridge GET action: ${action}`);
+  let connection;
   try {
-    await store.registerConnection(context, { replace: false });
+    connection = await store.registerConnection(context, { replace: false });
   } catch (error) {
     return pairingError(error);
   }
   const waitMs = Math.max(0, Math.min(Number(url.searchParams.get('waitMs')) || 0, 25_000));
+  const client = { tabId, workspaceId, bindingId: connection.bindingId, browserSessionId, visible, focused, href };
   const requests = waitMs
-    ? await transport.waitForRequests(clientId, { waitMs, client: { tabId, workspaceId, browserSessionId, visible, focused, href } })
-    : await transport.claimRequests(clientId, { client: { tabId, workspaceId, browserSessionId, visible, focused, href } });
+    ? await transport.waitForRequests(clientId, { waitMs, client })
+    : await transport.claimRequests(clientId, { client });
   return NextResponse.json({ ok: true, requests });
 }
 
@@ -137,13 +192,13 @@ async function handlePOST(request) {
     }
     try {
       const transport = getDiagramAgentTransport();
-      const { id, promise } = await transport.createRequest(command, { ttlMs: body?.ttlMs });
+      const { id, promise } = await transport.createRequest(command, { ttlMs: body?.ttlMs, scope: body?.scope });
       const timeoutMs = Math.max(1_000, Math.min(Number(body?.timeoutMs) || 45_000, 120_000));
       const timeout = new Promise((_, reject) => {
         const timer = setTimeout(() => {
           const error = new Error('No open AnchorRead browser claimed the diagram request before timeout.');
           error.code = 'BRIDGE_TIMEOUT';
-          transport.cancelRequest(id, error);
+          Promise.resolve(transport.cancelRequest(id, error)).catch(() => {});
           reject(error);
         }, timeoutMs);
         timer.unref?.();
@@ -156,16 +211,25 @@ async function handlePOST(request) {
     }
   }
   if (action === 'resolve') {
+    const context = pairingContext(request, body);
+    const transport = getDiagramAgentTransport();
+    let bindingId = '';
     try {
-      await getDiagramMcpPairingStore().assertConnectionOwner(pairingContext(request, body));
+      if (transport.runtimeInfo?.sharedRequestBroker) {
+        const pairingStore = getDiagramMcpPairingStore();
+        bindingId = (await freshBindingInfo(pairingStore, context)).bindingId;
+      } else {
+        await getDiagramMcpPairingStore().assertConnectionOwner(context);
+      }
     } catch (error) {
       return pairingError(error);
     }
-    const accepted = await getDiagramAgentTransport().resolveRequest(
+    const accepted = await transport.resolveRequest(
       body?.id,
       body?.claimToken,
       body?.error ? undefined : body?.result,
       body?.error,
+      { client: { ...context, bindingId } },
     );
     if (!accepted) return jsonError('Unknown or already resolved diagram bridge request.', 409, 'STALE_REQUEST');
     return NextResponse.json({ ok: true });
@@ -173,5 +237,5 @@ async function handlePOST(request) {
   return jsonError(`Unsupported diagram bridge action: ${action}`);
 }
 
-export const GET = withApiObservability('diagram.bridge.get', handleGET);
-export const POST = withApiObservability('diagram.bridge.post', handlePOST);
+export const GET = withApiObservability('diagram.bridge.get', withRoutingHeaders(handleGET));
+export const POST = withApiObservability('diagram.bridge.post', withRoutingHeaders(handlePOST));

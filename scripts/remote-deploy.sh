@@ -17,6 +17,7 @@
 #   HOST_PORT        线上本机端口（默认 3001）
 #   CANDIDATE_PORT   候选本机端口（默认 3002，需不同于 HOST_PORT）
 #   PUBLIC_URL       线上地址（默认 https://anchorread.flowguide.cc）
+#   DOCKER_NETWORK   可选 Docker 网络；启用 Redis/多实例时应加入与 Redis 相同的网络
 #   SHORT_COMMIT     短提交，用于 SENTRY_RELEASE 与候选/回滚容器命名（默认 latest）
 #   COMMIT           完整提交，仅用于结果记录（默认取 SHORT_COMMIT）
 
@@ -30,6 +31,7 @@ DATA_VOLUME="${DATA_VOLUME:-anchorread-data}"
 HOST_PORT="${HOST_PORT:-3001}"
 CANDIDATE_PORT="${CANDIDATE_PORT:-3002}"
 PUBLIC_URL="${PUBLIC_URL:-https://anchorread.flowguide.cc}"
+DOCKER_NETWORK="${DOCKER_NETWORK:-}"
 SHORT_COMMIT="${SHORT_COMMIT:-latest}"
 COMMIT="${COMMIT:-$SHORT_COMMIT}"
 
@@ -70,6 +72,21 @@ env_value() {
   awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$env_file"
 }
 
+if [ -z "$DOCKER_NETWORK" ]; then
+  DOCKER_NETWORK="$(env_value DOCKER_NETWORK)"
+fi
+
+diagram_broker="$(env_value ANCHORREAD_DIAGRAM_BROKER)"
+if [ "$diagram_broker" = "redis" ] && [ -z "$(env_value ANCHORREAD_REDIS_URL)" ]; then
+  echo "ANCHORREAD_REDIS_URL is required when ANCHORREAD_DIAGRAM_BROKER=redis" >&2
+  exit 2
+fi
+
+docker_network_args=()
+if [ -n "$DOCKER_NETWORK" ]; then
+  docker_network_args=(--network "$DOCKER_NETWORK")
+fi
+
 # 登录 GHCR 并拉取目标镜像（凭证仅存在于服务器本地 .env）
 ghcr_user="$(env_value GHCR_USER)"
 ghcr_pat="$(env_value GHCR_PAT)"
@@ -95,7 +112,7 @@ check_url() {
 
 # 候选容器：临时端口起新镜像并做本机健康检查，通过后才切换线上
 docker rm -f "$candidate_container" >/dev/null 2>&1 || true
-docker run -d --name "$candidate_container" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=$PUBLIC_URL" --env "SENTRY_RELEASE=anchor-read@$SHORT_COMMIT" --mount type=volume,src="$DATA_VOLUME",dst=/data --restart no -p "127.0.0.1:${CANDIDATE_PORT}:3000" "$IMAGE_REF" >/dev/null
+docker run -d --name "$candidate_container" "${docker_network_args[@]}" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=$PUBLIC_URL" --env "SENTRY_RELEASE=anchor-read@$SHORT_COMMIT" --mount type=volume,src="$DATA_VOLUME",dst=/data --restart no -p "127.0.0.1:${CANDIDATE_PORT}:3000" "$IMAGE_REF" >/dev/null
 check_url "http://127.0.0.1:${CANDIDATE_PORT}/"
 docker rm -f "$candidate_container" >/dev/null
 
@@ -119,7 +136,7 @@ restore_rollback() {
 }
 
 # 启动新线上容器；起不来或健康检查不过则自动回滚
-if ! docker run -d --name "$old_container" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=$PUBLIC_URL" --env "SENTRY_RELEASE=anchor-read@$SHORT_COMMIT" --mount type=volume,src="$DATA_VOLUME",dst=/data --restart unless-stopped -p "127.0.0.1:${HOST_PORT}:3000" "$IMAGE_REF" >/dev/null; then
+if ! docker run -d --name "$old_container" "${docker_network_args[@]}" --env-file "$runtime_env_file" --env "ANCHORREAD_PUBLIC_URL=$PUBLIC_URL" --env "SENTRY_RELEASE=anchor-read@$SHORT_COMMIT" --mount type=volume,src="$DATA_VOLUME",dst=/data --restart unless-stopped -p "127.0.0.1:${HOST_PORT}:3000" "$IMAGE_REF" >/dev/null; then
   restore_rollback
   exit 1
 fi

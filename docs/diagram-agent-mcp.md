@@ -88,9 +88,22 @@ ANCHORREAD_MCP_ALLOWED_ORIGINS=https://chat.example.com,https://app.example.com
 
 浏览器不能访问或修改用户机器上的 `.codex/config.toml`。面板只显示可复制的 MCP 地址，客户端负责保存 OAuth 凭据。
 
-默认 pairing store 会把浏览器管理哈希和短期 access-token 哈希持久化到 `ANCHORREAD_MCP_PAIRING_STORE_PATH`；OAuth store 会把客户端、授权事务、授权码哈希和 refresh-token 哈希持久化到 `ANCHORREAD_MCP_OAUTH_STORE_PATH`。未配置时分别使用项目目录下的 `.anchorread-data/diagram-mcp-pairings.json` 和 `.anchorread-data/diagram-mcp-oauth.json`。Docker 镜像默认写入 `/data`，部署脚本把它挂载到 `anchorread-data` 命名卷。浏览器在线状态、MCP session 和请求队列仍在单个 Node 进程内存中，重启后浏览器和客户端需要重新建立在线连接。
+默认 pairing store 会把浏览器管理哈希和短期 access-token 哈希持久化到 `ANCHORREAD_MCP_PAIRING_STORE_PATH`；OAuth store 会把客户端、授权事务、授权码哈希和 refresh-token 哈希持久化到 `ANCHORREAD_MCP_OAUTH_STORE_PATH`。未配置时分别使用项目目录下的 `.anchorread-data/diagram-mcp-pairings.json` 和 `.anchorread-data/diagram-mcp-oauth.json`。Docker 镜像默认写入 `/data`，部署脚本把它挂载到 `anchorread-data` 命名卷。浏览器在线状态、MCP session 和请求队列在进程重启后都需要重新建立。
 
-当前仍只支持单实例部署。多实例负载均衡会把 MCP 与浏览器轮询分到不同进程；生产多实例需要接入共享 Redis/数据库、跨实例队列和 WebSocket 或等价的可靠推送层。
+图解请求 broker 默认是进程内 memory，适合本地开发和单实例运行。生产多实例应配置共享 Redis：
+
+```dotenv
+ANCHORREAD_DIAGRAM_BROKER=redis
+ANCHORREAD_REDIS_URL=redis://redis.internal:6379
+# 可选：多个 AnchorRead 环境共用 Redis 时设置隔离前缀
+ANCHORREAD_DIAGRAM_REDIS_PREFIX=anchorread:diagram-agent
+# 可选：由容器编排系统注入稳定且唯一的实例标识
+ANCHORREAD_INSTANCE_ID=anchorread-1
+```
+
+Redis broker 按 `workspaceId + bindingId` 分片（无 workspace 或旧请求使用兼容的 workspace/unscoped 分片），并共享请求创建、领取、结果、取消、在线 presence 与 claim fencing；因此 MCP 请求和浏览器轮询落到不同 Node 进程时仍能相遇。请求和客户端记录带 TTL，claim/resolve 会校验 `bindingId`、browser/session/tab/client 上下文，避免错误实例或旧页面提交结果。Redis 不可用或配置缺失时会 fail-closed 返回 `503`，不会静默退回进程内队列。
+
+这只解决图解请求路由；MCP session、OAuth/pairing 元数据仍分别保存在进程内和文件 store 中。多实例入口必须对同一个 `MCP-Session-Id` 保持 sticky routing，并让所有实例访问同一 `/data` 持久卷（或后续迁移到共享 session/OAuth store）。响应会带 `X-AnchorRead-Instance-Id`、`X-AnchorRead-Request-Broker`，便于按实例确认请求是否跨进程完成；`runtime.requestRoutingMultiInstance=true` 表示请求 broker 已共享，`runtime.multiInstance` 仍不会宣称整个 MCP endpoint 已具备无状态多实例能力。
 
 远程端点实现 MCP 的 JSON-RPC `initialize`、`tools/list`、`tools/call`、`resources/list`、`resources/read`、`ping`、会话 `DELETE` 和 CORS `OPTIONS`。普通调用使用 Streamable HTTP 的 POST 请求/响应模式；客户端如果请求 `Accept: text/event-stream`，也可以通过同一 `MCP-Session-Id` 建立可选的 SSE 保活连接，服务端每 15 秒发送一次注释心跳，避免长时间空闲连接被中间代理回收。会话过期或进程重启时，端点立即返回 `404` 和 `Retry-After: 0`，客户端应重新 `initialize`；无会话的只读 `create_view` 仍可直接走无状态快速通道，不等待浏览器或工作区。
 
