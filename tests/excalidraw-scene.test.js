@@ -5,9 +5,30 @@ import {
   getExcalidrawSceneElements,
   isExcalidrawScene,
   normalizeExcalidrawScene,
+  normalizeExcalidrawSceneForPersistence,
   parseExcalidrawScene,
   serializeExcalidrawScene,
 } from '../lib/excalidraw-scene.js';
+
+test('live scene persistence drops non-cloneable Excalidraw UI state', () => {
+  const scene = normalizeExcalidrawSceneForPersistence({
+    elements: [],
+    appState: {
+      viewBackgroundColor: '#ffffff',
+      contextMenu: {
+        icon: { $$typeof: Symbol.for('react.transitional.element') },
+      },
+    },
+    files: {},
+  });
+
+  assert.deepEqual(scene.appState, {
+    viewBackgroundColor: '#ffffff',
+    gridSize: null,
+    exportBackground: true,
+  });
+  assert.equal('contextMenu' in scene.appState, false);
+});
 
 const elements = [
   { id: 'text-1', type: 'text', x: 10, y: 20, text: 'Anchor Read' },

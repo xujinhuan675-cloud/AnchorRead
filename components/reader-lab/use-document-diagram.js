@@ -12,6 +12,7 @@ import {
 } from '@/lib/diagram-generation';
 import {
   normalizeExcalidrawScene,
+  normalizeExcalidrawSceneForPersistence,
   parseExcalidrawScene,
 } from '@/lib/excalidraw-scene';
 import {
@@ -506,7 +507,7 @@ export function useDocumentDiagram({
   );
 
   const changeScene = (nextScene) => {
-    const normalized = normalizeExcalidrawScene(nextScene);
+    const normalized = normalizeExcalidrawSceneForPersistence(nextScene);
     // Runtime interaction state must not turn a pan or selection into a persisted update.
     const current = normalizeExcalidrawScene({ elements, appState, files });
     const currentAppState = normalizePersistedExcalidrawAppState(current.appState);
