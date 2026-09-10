@@ -2,6 +2,7 @@
 
 import { Component } from 'react';
 import * as Sentry from '@sentry/nextjs';
+import { isChunkLoadError, recoverChunkLoadError } from '@/lib/chunk-load-recovery';
 import { normalizeSentryRoute } from '@/lib/sentry-config';
 
 export default class ErrorBoundary extends Component {
@@ -26,6 +27,12 @@ export default class ErrorBoundary extends Component {
       });
       Sentry.captureException(error);
     });
+    if (isChunkLoadError(error)) {
+      void Sentry.flush(1_000).then(
+        () => recoverChunkLoadError(error),
+        () => recoverChunkLoadError(error)
+      );
+    }
   }
 
   render() {
