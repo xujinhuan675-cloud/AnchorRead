@@ -8,7 +8,11 @@ import {
   normalizeReaderAnalysisRequest,
   normalizeReaderAnalysisResponse,
 } from '@/lib/reader-analysis';
-import { apiErrorResponse, withApiObservability } from '@/lib/api-observability';
+import {
+  apiErrorResponse,
+  normalizeApiErrorStatus,
+  withApiObservability,
+} from '@/lib/api-observability';
 
 /**
  * POST /api/reader-analysis
@@ -36,7 +40,7 @@ async function handlePOST(request) {
           ? 502
           : error instanceof ApiError
             ? error.status
-            : 500;
+            : normalizeApiErrorStatus(error?.status);
     return apiErrorResponse({
       request,
       operation: 'ai.reader_analysis',

@@ -37,6 +37,7 @@ import {
   STANDALONE_DIAGRAM_DOCUMENT_ID,
 } from '@/lib/diagram-generation';
 import { readerRoleLayer } from '@/lib/reader-analysis';
+import { getOrCreateAnonymousTelemetryUserId } from '@/lib/sentry-config';
 import {
   createReaderDocumentFromFile,
   createReaderDocumentFromPaste,
@@ -1215,6 +1216,10 @@ export default function ReaderLabWorkspace({
     }
 
     const headers = { 'Content-Type': 'application/json' };
+    const anonymousTelemetryUserId = getOrCreateAnonymousTelemetryUserId();
+    if (anonymousTelemetryUserId) {
+      headers['x-anchorread-telemetry-user'] = anonymousTelemetryUserId;
+    }
     if (usePassword) {
       headers['x-access-password'] = localStorage.getItem('smart-excalidraw-access-password');
     }

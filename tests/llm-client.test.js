@@ -3,8 +3,10 @@ import { createServer } from 'node:http';
 import test from 'node:test';
 import {
   callLLM,
+  classifyLLMFailure,
   extractResponseDelta,
   extractResponseText,
+  LLMProviderError,
   processOpenAIStream,
 } from '../lib/llm-client.js';
 
@@ -132,8 +134,54 @@ test('surfaces upstream errors instead of reporting empty content', async () => 
     'data: {"error":{"message":"model unavailable"}}\n\n',
   ]);
 
-  await assert.rejects(
-    () => processOpenAIStream(body),
-    /OpenAI API error: model unavailable/
-  );
+  await assert.rejects(() => processOpenAIStream(body), (error) => {
+    assert.equal(error instanceof LLMProviderError, true);
+    assert.equal(error.failureKind, 'upstream_error');
+    assert.doesNotMatch(error.message, /model unavailable/u);
+    return true;
+  });
+});
+
+test('classifies provider failures without retaining upstream response content', async (context) => {
+  const server = createServer(async (request, response) => {
+    for await (const _chunk of request) {
+      // Drain the request before returning the provider failure.
+    }
+    response.writeHead(429, {
+      'Content-Type': 'application/json',
+      'x-request-id': 'req-safe-123',
+    });
+    response.end(JSON.stringify({
+      error: {
+        code: 'insufficient_quota',
+        message: 'private provider detail must not enter telemetry',
+      },
+    }));
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+
+  await assert.rejects(() => callLLM({
+    type: 'openai',
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    apiKey: 'test-key',
+    model: 'gpt-test',
+  }, [{ role: 'user', content: 'private prompt' }]), (error) => {
+    assert.equal(error instanceof LLMProviderError, true);
+    assert.equal(error.failureKind, 'quota');
+    assert.equal(error.upstreamStatus, 429);
+    assert.equal(error.providerRequestId, 'req-safe-123');
+    assert.equal(error.upstreamCode, 'insufficient_quota');
+    assert.equal(error.status, 429);
+    assert.doesNotMatch(error.message, /private provider detail/u);
+    return true;
+  });
+});
+
+test('classifies authentication, timeout, and upstream availability', () => {
+  assert.equal(classifyLLMFailure({ status: 401 }), 'authentication');
+  assert.equal(classifyLLMFailure({ status: 504 }), 'timeout');
+  assert.equal(classifyLLMFailure({ status: 503 }), 'upstream_unavailable');
 });

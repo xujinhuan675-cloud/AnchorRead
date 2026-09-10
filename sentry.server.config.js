@@ -5,5 +5,6 @@ Sentry.init(createSentryOptions({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.SENTRY_ENVIRONMENT,
   release: process.env.SENTRY_RELEASE,
+  service: 'anchorread-api',
   tracesSampleRate: process.env.SENTRY_TRACES_SAMPLE_RATE,
 }));
