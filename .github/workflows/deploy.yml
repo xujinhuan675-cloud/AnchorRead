@@ -26,9 +26,13 @@ jobs:
   build-push:
     name: 构建并推送镜像
     runs-on: ubuntu-latest
+    outputs:
+      short_commit: ${{ steps.vars.outputs.short_commit }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: 计算提交变量
         id: vars
@@ -86,11 +90,24 @@ jobs:
             NEXT_PUBLIC_SENTRY_DSN=${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
             NEXT_PUBLIC_SENTRY_ENVIRONMENT=${{ env.ARG_SENTRY_ENVIRONMENT }}
             NEXT_PUBLIC_SENTRY_RELEASE=anchor-read@${{ steps.vars.outputs.short_commit }}
+            SENTRY_RELEASE=anchor-read@${{ steps.vars.outputs.short_commit }}
             NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE=${{ env.ARG_SENTRY_SAMPLE_RATE }}
             SENTRY_SOURCEMAPS_REQUIRED=true
           secret-files: sentry_env=sentry_env.txt
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: 关联 Sentry release commit
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_RELEASE: anchor-read@${{ steps.vars.outputs.short_commit }}
+        run: |
+          set -eu
+          npm install --global @sentry/cli@2.58.6
+          sentry-cli releases set-commits "$SENTRY_RELEASE" --auto --ignore-missing
+          sentry-cli releases info "$SENTRY_RELEASE" --show-projects --show-commits
 
   deploy:
     name: 部署到生产
@@ -126,3 +143,20 @@ jobs:
               "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
               "IMAGE_REF='$IMAGE_REF' SHORT_COMMIT='$short_commit' COMMIT='$COMMIT' bash -s" \
               < scripts/remote-deploy.sh
+
+      - name: 记录 Sentry 生产部署
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_RELEASE: anchor-read@${{ needs.build-push.outputs.short_commit }}
+        run: |
+          set -eu
+          deploy_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          npm install --global @sentry/cli@2.58.6
+          sentry-cli releases deploys new \
+            --release "$SENTRY_RELEASE" \
+            --env production \
+            --name "github-actions-$GITHUB_RUN_ID" \
+            --url "$deploy_url" \
+            --finished "$(date +%s)"
