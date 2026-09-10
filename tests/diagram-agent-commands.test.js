@@ -8,6 +8,22 @@ function repository() {
   return createWorkspaceRepository(createMemoryWorkspaceAdapter());
 }
 
+test('design guide is available before a browser workspace is initialized', async () => {
+  const result = await executeDiagramAgentCommand({ tool: 'read_diagram_guide', args: {} });
+  assert.equal(result.source.commit, '713706e967ed21db1d9264748fa01c6af961c792');
+  assert.deepEqual(result.workflow, [
+    'read_diagram_guide',
+    'create_or_update',
+    'describe_scene',
+    'align_or_distribute',
+    'get_canvas_screenshot',
+    'fix_and_repeat_until_quality_passes',
+  ]);
+  assert.match(result.guide, /Minimum shape size/i);
+  assert.match(result.guide, /4:3 camera region/i);
+  assert.match(result.guide, /screenshot again/i);
+});
+
 test('creates and reads a diagram in the browser workspace without a file round-trip', async () => {
   const workspace = repository();
   let opened = null;
@@ -279,6 +295,60 @@ test('migrated canvas tools operate on the browser workspace and retain named sn
   const restored = await executeDiagramAgentCommand({ tool: 'restore_snapshot', args: { id: created.id, name: 'grouped', expectedRevision: 4 } }, { repository: workspace, now: 150 });
   assert.equal(restored.revision, 5);
   assert.deepEqual(restored.scene.elements.find((item) => item.id === 'a').groupIds, ['g1']);
+});
+
+test('mcp_excalidraw aliases preserve revision locking and Mermaid persistence', async () => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Layout aliases',
+      engine: 'excalidraw',
+      scene: { elements: [
+        { id: 'a', type: 'rectangle', x: 0, y: 10, width: 20, height: 10 },
+        { id: 'b', type: 'rectangle', x: 50, y: 40, width: 10, height: 10 },
+        { id: 'c', type: 'rectangle', x: 140, y: 80, width: 20, height: 10 },
+      ] },
+    },
+  }, { repository: workspace, now: 100 });
+
+  const aligned = await executeDiagramAgentCommand({
+    tool: 'align_elements',
+    args: { id: created.id, elementIds: ['a', 'b', 'c'], alignment: 'top', expectedRevision: 1 },
+  }, { repository: workspace, now: 110 });
+  assert.equal(aligned.revision, 2);
+  assert.deepEqual(aligned.scene.elements.map((element) => element.y), [10, 10, 10]);
+  assert.equal(aligned.nextAction, 'describe_scene_then_get_canvas_screenshot');
+
+  const distributed = await executeDiagramAgentCommand({
+    tool: 'distribute_elements',
+    args: { id: created.id, elementIds: ['a', 'b', 'c'], direction: 'horizontal', expectedRevision: 2 },
+  }, { repository: workspace, now: 120 });
+  assert.equal(distributed.revision, 3);
+  assert.deepEqual(distributed.scene.elements.map((element) => element.x), [0, 75, 140]);
+
+  await assert.rejects(
+    executeDiagramAgentCommand({
+      tool: 'align_elements',
+      args: { id: created.id, elementIds: ['a', 'b'], alignment: 'left', expectedRevision: 2 },
+    }, { repository: workspace, now: 130 }),
+    (error) => error.code === 'REVISION_CONFLICT',
+  );
+
+  const mermaid = await executeDiagramAgentCommand({
+    tool: 'create_from_mermaid',
+    args: { title: 'Mermaid alias', mermaidDiagram: 'flowchart LR\nA-->B', open: false },
+  }, { repository: workspace, now: 140 });
+  assert.equal(mermaid.engine, 'mermaid');
+  assert.equal(mermaid.source, 'flowchart LR\nA-->B');
+  assert.equal(mermaid.openRequested, false);
+  assert.equal((await workspace.drawings.list()).length, 2);
+
+  const description = await executeDiagramAgentCommand({
+    tool: 'describe_scene',
+    args: { id: created.id },
+  }, { repository: workspace });
+  assert.match(description, /Total elements: 3/);
 });
 
 test('persists presentation steps separately from scene revisions and emits playback controls', async () => {

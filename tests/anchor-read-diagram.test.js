@@ -178,6 +178,37 @@ test('offline stdio supports diagram-scoped element CRUD without global canvas s
   }
 });
 
+test('offline stdio persists the migrated create_from_mermaid workflow', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anchor-read-mermaid-create-'));
+  const workspacePath = join(directory, 'workspace.anchorread');
+  await writeFile(workspacePath, JSON.stringify(createWorkspaceFilePayload({ drawings: [] })), 'utf8');
+  try {
+    const responses = await callServer(workspacePath, [
+      { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        name: 'read_diagram_guide', arguments: {},
+      } },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+        name: 'create_from_mermaid', arguments: {
+          title: 'Offline Mermaid',
+          mermaidDiagram: 'flowchart TD\n  A[Source] -->|calls| B[Target]',
+          open: false,
+        },
+      } },
+    ], true);
+    assert.match(responses[0].result.content[0].text, /Required workflow/);
+    assert.equal(responses[1].result.structuredContent.engine, 'mermaid');
+    assert.equal(responses[1].result.structuredContent.openRequested, false);
+    assert.match(responses[1].result.structuredContent.url, /\/diagrams\//);
+    const stored = JSON.parse(await readFile(workspacePath, 'utf8'));
+    assert.equal(stored.data.drawings.length, 1);
+    assert.equal(stored.data.drawings[0].source, 'flowchart TD\n  A[Source] -->|calls| B[Target]');
+    assert.equal(stored.data.drawings[0].revision, undefined);
+    assert.equal(stored.data.drawings[0].presentation.steps.length > 0, true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('live mode exposes create_diagram and forwards it to the browser bridge', async () => {
   let received = null;
   let receivedToken = '';

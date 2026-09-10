@@ -51,6 +51,18 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     assert.match(createViewTool.description, /起点节点.*终点节点.*连线及关系文字/);
     assert.equal(createTool._meta.ui.resourceUri, DIAGRAM_MCP_APP_RESOURCE_URI);
     assert.equal(tools.some((tool) => tool.name === 'export_excalidraw'), false);
+    assert.ok(tools.some((tool) => tool.name === 'read_diagram_guide'));
+    assert.ok(tools.some((tool) => tool.name === 'describe_scene'));
+    const guide = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 19, method: 'tools/call', params: {
+        name: 'read_diagram_guide', arguments: {},
+      },
+    }, { 'MCP-Session-Id': sessionId }), {
+      submitTool: async () => { throw new Error('read_diagram_guide must not wait for the browser bridge'); },
+    });
+    const guideResult = await guide.json();
+    assert.equal(guideResult.result.isError, undefined);
+    assert.match(guideResult.result.content[0].text, /Required workflow/);
 
     const resources = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 20, method: 'resources/list', params: {},

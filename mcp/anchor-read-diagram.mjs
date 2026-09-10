@@ -49,6 +49,7 @@ import {
 import { createWorkspaceFilePayload, parseWorkspaceFile } from '../lib/workspace-file.js';
 import { getPresentationSpec, normalizePresentationSpec } from '../lib/diagram-presentation.js';
 import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation, isDefaultPresentation } from '../lib/diagram-stream.js';
+import { makeDrawing } from '../lib/diagram-agent-commands.js';
 import {
   buildDiagramUrl,
   buildDiagramWorkspaceUrl,
@@ -57,9 +58,11 @@ import {
   createInlineViewToolResult,
 } from '../lib/diagram-mcp-links.js';
 import {
+  DIAGRAM_MCP_SERVER_INFO,
   DIAGRAM_MCP_INSTRUCTIONS,
   DIAGRAM_MCP_READ_ME,
 } from '../lib/diagram-agent-mcp-contract.js';
+import { getDiagramDesignGuide } from '../lib/diagram-design-guide.js';
 import {
   DIAGRAM_MCP_APP_RESOURCE_URI,
   diagramMcpAppResourceListing,
@@ -68,7 +71,7 @@ import {
 import { createSentryOptions, safeTelemetryIdentifier } from '../lib/sentry-config.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
-const SERVER_INFO = { name: 'anchor-read-diagram', title: 'AnchorRead Diagram', version: '1.3.0' };
+const SERVER_INFO = DIAGRAM_MCP_SERVER_INFO;
 const SERVER_INSTRUCTIONS = DIAGRAM_MCP_INSTRUCTIONS;
 const sentryEnabled = Boolean(String(process.env.SENTRY_DSN || '').trim());
 if (sentryEnabled) {
@@ -268,6 +271,12 @@ const BASE_TOOLS = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'read_diagram_guide',
+    description: '返回从 mcp_excalidraw 迁移并适配 AnchorRead 的完整制图指南。创建或大幅修改图解前必须先调用。',
+    annotations: { readOnlyHint: true },
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'open_diagram_workspace',
     description: '返回 AnchorRead 图解工作区的可打开链接。具备浏览器或打开 URL 能力的 AI 客户端应立即打开该链接；不具备该能力的客户端应把链接展示给用户。该工具不要求已有配对浏览器在线。',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -285,6 +294,17 @@ const BASE_TOOLS = [
   {
     name: 'describe_diagram',
     description: '生成适合 Agent 理解的图解结构描述，包括元素、边界、箭头连接和分组。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, maxElements: { type: 'number' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'describe_scene',
+    description: '兼容 mcp_excalidraw 的场景读取入口；返回指定图解的元素、位置、标签、连接、分组和边界。',
+    annotations: { readOnlyHint: true },
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' }, maxElements: { type: 'number' } },
@@ -396,6 +416,21 @@ const CREATE_VIEW_TOOL = {
 };
 
 const WRITE_TOOLS = [
+  {
+    name: 'align_elements',
+    description: '按 mcp_excalidraw 语义对齐指定元素，并以 expectedRevision 保护提交。完成后应进行场景读取和截图复检。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, elementIds: { type: 'array', items: { type: 'string' }, minItems: 2 }, alignment: { type: 'string', enum: ['left', 'center', 'right', 'top', 'middle', 'bottom'] }, expectedRevision: { type: 'number' }, author: { type: 'string' } }, required: ['id', 'elementIds', 'alignment'], additionalProperties: false },
+  },
+  {
+    name: 'distribute_elements',
+    description: '按 mcp_excalidraw 语义均匀分布至少三个元素，并以 expectedRevision 保护提交。完成后应截图复检。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, elementIds: { type: 'array', items: { type: 'string' }, minItems: 3 }, direction: { type: 'string', enum: ['horizontal', 'vertical'] }, expectedRevision: { type: 'number' }, author: { type: 'string' } }, required: ['id', 'elementIds', 'direction'], additionalProperties: false },
+  },
+  {
+    name: 'create_from_mermaid',
+    description: '将 Mermaid 源保存为新的 AnchorRead Mermaid 图解。创建后必须截图检查自动布局。',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, documentId: { type: 'string' }, mermaidSyntax: { type: 'string' }, mermaidDiagram: { type: 'string', description: 'Upstream mcp_excalidraw alias for Mermaid source.' }, source: { type: 'string' }, config: { type: 'object', additionalProperties: true, description: 'Optional upstream Mermaid configuration; AnchorRead keeps rendering under its strict safe configuration.' }, open: { type: 'boolean' }, prompt: { type: 'string' }, scope: { type: 'string' }, intent: { type: 'string' } }, required: ['title'], anyOf: [{ required: ['mermaidSyntax'] }, { required: ['mermaidDiagram'] }, { required: ['source'] }], additionalProperties: false },
+  },
   {
     name: 'create_element',
     description: '在指定 AnchorRead 图解中增量创建一个 Excalidraw 元素。',
@@ -588,6 +623,7 @@ function enqueueWrite(task) {
 
 async function callToolImpl(name, args = {}) {
   if (name === 'read_me') return textResult({ name: 'anchor-read-diagram', instructions: DIAGRAM_MCP_READ_ME });
+  if (name === 'read_diagram_guide') return textResult(getDiagramDesignGuide());
   if (name === 'open_diagram_workspace') {
     return textResult({
       url: buildDiagramWorkspaceUrl(),
@@ -619,6 +655,7 @@ async function callToolImpl(name, args = {}) {
       return textResult({ ...drawing, scene: getDrawingScene(drawing) });
     }
     case 'describe_diagram':
+    case 'describe_scene':
       return textResult(describeScene(getDrawingScene(getDrawing(payload, args.id)), {
         maxElements: Number.isInteger(args.maxElements) ? args.maxElements : Infinity,
       }));
@@ -642,6 +679,57 @@ async function callToolImpl(name, args = {}) {
     case 'get_presentation': {
       const drawing = getDrawing(payload, args.id);
       return textResult({ id: drawing.id, routeId: drawing.routeId, presentation: getEffectivePresentation(drawing) });
+    }
+    case 'align_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = alignScene(getDrawingScene(drawing), { ids: args.elementIds, alignment: args.alignment });
+      const nextDrawing = commitDiagramScene(drawing, scene, { ...args, author: args.author || 'agent', reason: 'align-elements' });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, elementIds: args.elementIds, alignment: args.alignment, scene: nextDrawing.scene, nextAction: 'describe_scene_then_get_canvas_screenshot' });
+    }
+    case 'distribute_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const scene = distributeScene(getDrawingScene(drawing), { ids: args.elementIds, direction: args.direction });
+      const nextDrawing = commitDiagramScene(drawing, scene, { ...args, author: args.author || 'agent', reason: 'distribute-elements' });
+      await writeWorkspace(writeDrawing(payload, nextDrawing));
+      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, elementIds: args.elementIds, direction: args.direction, scene: nextDrawing.scene, nextAction: 'describe_scene_then_get_canvas_screenshot' });
+    }
+    case 'create_from_mermaid': {
+      if (!writeEnabled) {
+        const error = new Error('Diagram MCP is read-only. Start it with --write to create a Mermaid diagram.');
+        error.code = 'WRITE_DISABLED';
+        throw error;
+      }
+      const source = args.mermaidSyntax ?? args.mermaidDiagram ?? args.source;
+      if (!String(source || '').trim()) throw new TypeError('create_from_mermaid requires mermaidSyntax, mermaidDiagram, or source');
+      const drawing = makeDrawing({
+        ...args,
+        engine: 'mermaid',
+        source,
+      }, {
+        now: Date.now(),
+        existingDrawings: Array.isArray(payload.data?.drawings) ? payload.data.drawings : [],
+      });
+      const nextPayload = {
+        ...payload,
+        data: {
+          ...payload.data,
+          drawings: [...(Array.isArray(payload.data?.drawings) ? payload.data.drawings : []), drawing],
+        },
+      };
+      await writeWorkspace(nextPayload);
+      const url = buildDiagramUrl(drawing.routeId);
+      const openRequested = args.open !== false;
+      return textResult({
+        ...drawing,
+        scene: null,
+        url,
+        openRequested,
+        openAction: openRequested ? 'open_url_if_supported' : 'none',
+        ...(openRequested ? { openTarget: 'default_browser' } : {}),
+        openResource: { kind: 'diagram', routeId: drawing.routeId, title: drawing.title, url },
+        presentationAutoPlayed: false,
+      });
     }
     case 'export_excalidraw':
       return textResult(serializeExcalidrawScene(getDrawingScene(getDrawing(payload, args.id))));

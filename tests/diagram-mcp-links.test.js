@@ -68,6 +68,18 @@ test('inline view tool results expose a structured Excalidraw payload', () => {
   assert.equal(result.structuredContent.scene.elements[0].id, 'structured-rect');
 });
 
+test('inline view reports the upstream 4:3 camera constraint without rewriting input', () => {
+  const result = createInlineViewResult({
+    elements: JSON.stringify([
+      { type: 'cameraUpdate', width: 900, height: 300, x: 0, y: 0 },
+      { id: 'shape', type: 'rectangle', x: 20, y: 20, width: 160, height: 80 },
+    ]),
+  });
+  assert.equal(result.qualityWarnings[0].code, 'CAMERA_ASPECT_RATIO');
+  assert.match(result.qualityWarnings[0].message, /4:3/);
+  assert.equal(result.scene.elements[0].width, 900);
+});
+
 test('inline view defaults preserve relationship playback semantics', () => {
   const result = createInlineViewResult({
     elements: JSON.stringify([
