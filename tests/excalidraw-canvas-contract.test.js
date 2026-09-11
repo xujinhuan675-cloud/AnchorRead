@@ -7,6 +7,10 @@ import {
   mergeCanvasAppStateForPersistence,
   normalizePersistedExcalidrawAppState,
 } from '../lib/excalidraw-app-state.js';
+import {
+  persistedViewportSyncKey,
+  shouldApplyPersistedViewport,
+} from '../lib/excalidraw-viewport.js';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const componentSource = fs.readFileSync(
@@ -32,7 +36,7 @@ test('ExcalidrawCanvas accepts a complete persisted scene without breaking the l
   assert.match(componentSource, /appState:\s*initialAppState/u);
   assert.match(componentSource, /const hasPersistedAppState = Boolean\(appState &&/u);
   assert.match(componentSource, /scrollToContent:\s*!hasPersistedAppState/u);
-  assert.match(componentSource, /convertedElements\.length > 0 && !hasPersistedAppState/u);
+  assert.match(componentSource, /convertedElements\.length === 0 \|\| hasPersistedAppState \|\| presentationActive/u);
   assert.match(componentSource, /\.\.\.\(files === undefined \? \{\} : \{ files \}\)/u);
   assert.match(componentSource, /onChange=\{\(nextElements,\s*nextAppState,\s*nextFiles\)\s*=>/u);
   assert.match(componentSource, /onElementsChange\?\.\(nextElements\)/u);
@@ -176,7 +180,45 @@ test('browser conversion preserves bindings and media element fields', () => {
 
 test('auto zoom yields to the presentation camera', () => {
   // 播放期间自动 fit-zoom 会与步骤相机动画抢视口：每步覆盖相机目标
-  assert.match(componentSource, /!hasPersistedAppState && !presentationActive/u);
+  assert.match(componentSource, /hasPersistedAppState \|\| presentationActive/u);
+  assert.match(componentSource, /autoZoomApiRef\.current === excalidrawAPI/u);
+  assert.match(componentSource, /autoZoomTimerRef/u);
+});
+
+test('element edits do not reapply an unchanged persisted viewport', () => {
+  const savedViewport = persistedViewportSyncKey({
+    scrollX: 180,
+    scrollY: -72,
+    zoom: { value: 0.75 },
+  });
+  const changedViewport = persistedViewportSyncKey({
+    scrollX: 180,
+    scrollY: -72,
+    zoom: { value: 1.25 },
+  });
+
+  assert.equal(shouldApplyPersistedViewport({
+    apiChanged: true,
+    previousKey: null,
+    nextKey: savedViewport,
+  }), true);
+  // Excalidraw can report a live camera while the parent still owns the same
+  // saved key after an element drag. That must not trigger hydration.
+  assert.equal(shouldApplyPersistedViewport({
+    apiChanged: false,
+    previousKey: savedViewport,
+    nextKey: savedViewport,
+  }), false);
+  assert.equal(shouldApplyPersistedViewport({
+    apiChanged: false,
+    previousKey: savedViewport,
+    nextKey: changedViewport,
+  }), true);
+  assert.equal(shouldApplyPersistedViewport({
+    apiChanged: true,
+    previousKey: savedViewport,
+    nextKey: savedViewport,
+  }), true);
 });
 
 test('presentation auto-advance does not nest setState in an updater', () => {

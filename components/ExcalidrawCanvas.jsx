@@ -6,6 +6,7 @@ import '@excalidraw/excalidraw/index.css';
 import { FileCode2, PanelRightClose, PanelRightOpen, Upload } from 'lucide-react';
 import { useLocale } from '@/components/LocaleProvider';
 import { useAppTheme } from '@/lib/theme';
+import { persistedViewportSyncKey, shouldApplyPersistedViewport } from '@/lib/excalidraw-viewport';
 import CanvasToolbar from './CanvasToolbar';
 import CanvasToolbarButton from './CanvasToolbarButton';
 
@@ -346,6 +347,10 @@ export default function ExcalidrawCanvas({
   const presentationViewportReadyRef = useRef(false);
   const lastFocusCameraAtRef = useRef(0);
   const streamPreviewFittedRef = useRef(false);
+  const autoZoomApiRef = useRef(null);
+  const autoZoomTimerRef = useRef(null);
+  const persistedViewportApiRef = useRef(null);
+  const persistedViewportKeyRef = useRef(null);
   // 画布随全站明暗切换：theme 传给 Excalidraw，并纳入 remount key 保证背景色同步
   const { theme } = useAppTheme();
   const isDark = theme === 'dark';
@@ -365,6 +370,10 @@ export default function ExcalidrawCanvas({
     ...withoutRuntimeContainerFields(appState),
     ...(presentationActive ? { viewModeEnabled: true } : {}),
   }), [appState, isDark, presentationActive]);
+  const persistedViewportKey = useMemo(
+    () => persistedViewportSyncKey(initialAppState),
+    [initialAppState],
+  );
 
   // Excalidraw renders these callbacks from its own store. Keep their
   // identities stable so a parent state update does not make the canvas
@@ -447,19 +456,32 @@ export default function ExcalidrawCanvas({
     }
   }, [presentationElements, convertToExcalidrawElements]);
 
-  // Auto zoom to fit content when API is ready and elements change
+  // Auto zoom to fit content once per canvas instance. Element edits must not
+  // refit the camera, otherwise dragging at a reduced zoom snaps back to fit.
   useEffect(() => {
     // 播放期间视口由步骤相机动画驱动：自动 zoom 每步都会覆盖相机目标
-    if (excalidrawAPI && convertedElements.length > 0 && !hasPersistedAppState && !presentationActive) {
-      // Small delay to ensure elements are rendered
-      setTimeout(() => {
+    if (!excalidrawAPI || convertedElements.length === 0 || hasPersistedAppState || presentationActive) {
+      return undefined;
+    }
+    if (autoZoomApiRef.current === excalidrawAPI || autoZoomTimerRef.current) return undefined;
+    // Small delay to ensure elements are rendered.
+    autoZoomTimerRef.current = setTimeout(() => {
+      autoZoomTimerRef.current = null;
+      autoZoomApiRef.current = excalidrawAPI;
+      if (typeof excalidrawAPI.scrollToContent === 'function') {
         excalidrawAPI.scrollToContent(convertedElements, {
           fitToContent: true,
           animate: true,
           duration: 300,
         });
-      }, 100);
-    }
+      }
+    }, 100);
+    return () => {
+      if (autoZoomTimerRef.current) {
+        clearTimeout(autoZoomTimerRef.current);
+        autoZoomTimerRef.current = null;
+      }
+    };
   }, [excalidrawAPI, convertedElements, hasPersistedAppState, presentationActive]);
 
   useEffect(() => {
@@ -643,17 +665,31 @@ export default function ExcalidrawCanvas({
   }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, initialAppState, presentationActive]);
 
   // Apply a persisted viewport to an already-mounted Excalidraw instance.
-  // Remounting on every appState change would interrupt normal pan/zoom input,
-  // so only update the camera when the incoming values differ from the API.
+  // Runtime camera changes are deliberately not persisted by the parent. Only
+  // a new API instance or a changed incoming viewport should hydrate the API;
+  // otherwise dragging an element would reapply the previous saved zoom.
   useEffect(() => {
-    if (!excalidrawAPI || !hasPersistedAppState || typeof excalidrawAPI.updateScene !== 'function') return;
+    if (!hasPersistedAppState) {
+      persistedViewportApiRef.current = null;
+      persistedViewportKeyRef.current = null;
+      return;
+    }
+    if (!excalidrawAPI || typeof excalidrawAPI.updateScene !== 'function') return;
+    const shouldApply = shouldApplyPersistedViewport({
+      apiChanged: persistedViewportApiRef.current !== excalidrawAPI,
+      previousKey: persistedViewportKeyRef.current,
+      nextKey: persistedViewportKey,
+    });
+    persistedViewportApiRef.current = excalidrawAPI;
+    persistedViewportKeyRef.current = persistedViewportKey;
+    if (!shouldApply) return;
     const current = typeof excalidrawAPI.getAppState === 'function'
       ? excalidrawAPI.getAppState()
       : null;
     if (viewportValueChanged(current, initialAppState)) {
       excalidrawAPI.updateScene({ appState: initialAppState });
     }
-  }, [excalidrawAPI, hasPersistedAppState, initialAppState]);
+  }, [excalidrawAPI, hasPersistedAppState, initialAppState, persistedViewportKey]);
 
   // Keep the Excalidraw instance stable while presentation steps reveal subsets.
   const canvasKey = useMemo(() => {
