@@ -78,6 +78,30 @@ test('persists the compact elements input used by the official Excalidraw contra
   assert.equal(created.scene.elements[0].label.text, '节点');
 });
 
+test('renders a screenshot from the requested drawing instead of an arbitrary DOM canvas', async () => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: { title: 'Screenshot target', engine: 'excalidraw', elements: [{ id: 'node', type: 'rectangle', x: 0, y: 0, width: 100, height: 50 }] },
+  }, { repository: workspace, now: 102 });
+  let capturedDrawing = null;
+  const expected = { content: [{ type: 'image', data: 'png', mimeType: 'image/png' }] };
+
+  const result = await executeDiagramAgentCommand({
+    tool: 'get_canvas_screenshot',
+    args: { id: created.id },
+  }, {
+    repository: workspace,
+    screenshot: async (drawing) => {
+      capturedDrawing = drawing;
+      return expected;
+    },
+  });
+
+  assert.equal(capturedDrawing.id, created.id);
+  assert.deepEqual(result, expected);
+});
+
 test('content diagrams receive a default presentation and play when opened', async () => {
   const workspace = repository();
   const events = [];

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { executeDiagramAgentCommand } from '@/lib/diagram-agent-commands';
+import { getDrawingScene } from '@/lib/diagram-scene-record';
 import { workspaceRepository } from '@/lib/local-workspace-db';
 import {
   createDiagramAgentIdentity,
@@ -16,6 +17,37 @@ export const DIAGRAM_AGENT_DRAWING_EVENT = 'anchor-read:diagram-agent-drawing';
 export const DIAGRAM_AGENT_PRESENTATION_EVENT = 'anchor-read:diagram-agent-presentation';
 export const DIAGRAM_AGENT_PENDING_PRESENTATION_KEY = 'anchor-read:pending-diagram-presentation';
 export const DIAGRAM_AGENT_CONNECTION_EVENT = 'anchor-read:diagram-agent-connection';
+
+export async function captureDrawingScreenshot(drawing) {
+  const scene = getDrawingScene(drawing);
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+  const { convertToExcalidrawElements, exportToCanvas, restoreElements } = await import('@excalidraw/excalidraw');
+  const converted = scene.elements.every((element) => Number.isFinite(element?.version))
+    ? scene.elements
+    : convertToExcalidrawElements(scene.elements, { regenerateIds: false });
+  const elements = restoreElements(converted, null, {
+    refreshDimensions: true,
+    repairBindings: true,
+  });
+  const canvas = await exportToCanvas({
+    elements: elements.filter((element) => !element.isDeleted),
+    appState: { ...scene.appState, exportBackground: true },
+    files: scene.files || {},
+    maxWidthOrHeight: 4096,
+    exportPadding: 32,
+  });
+  const dataUrl = canvas.toDataURL('image/png');
+  const comma = dataUrl.indexOf(',');
+  return {
+    content: [{
+      type: 'image',
+      data: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+      mimeType: 'image/png',
+    }],
+  };
+}
 
 export default function DiagramAgentBridge() {
   const pathname = usePathname();
@@ -147,6 +179,7 @@ export default function DiagramAgentBridge() {
                 repository: workspaceRepository,
                 onOpen: publishDrawing,
                 onPresentation: publishPresentation,
+                screenshot: captureDrawingScreenshot,
                 includeMetrics: true,
               });
               await respond(request, result);

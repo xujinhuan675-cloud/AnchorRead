@@ -295,6 +295,14 @@ function elementsFitSafeViewport(elements, appState) {
   });
 }
 
+function prepareNativeElementsForCanvas(elements) {
+  const validated = validateAndFixBindings(elements)
+    .map((element) => element?.fontFamily === undefined
+      ? element
+      : { ...element, fontFamily: normalizeFontFamilyValue(element.fontFamily) });
+  return recenterBoundShapeTextElements(restoreElementBindings(validated, validated));
+}
+
 function cameraTargetChanged(from, target) {
   return Math.abs(from.scrollX - target.scrollX) > 1
     || Math.abs(from.scrollY - target.scrollY) > 1
@@ -324,7 +332,11 @@ export default function ExcalidrawCanvas({
 }) {
   const { locale } = useLocale();
   const [convertToExcalidrawElements, setConvertFunction] = useState(null);
+  const [restoreElementsForCanvas, setRestoreElementsForCanvas] = useState(null);
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
+  const [fontsReady, setFontsReady] = useState(
+    () => typeof document === 'undefined' || !document.fonts?.ready,
+  );
   // MainMenu 与 Excalidraw 同包，动态 import 就绪后才能作为 children 渲染；
   // 就绪前不渲染，保留官方默认菜单，避免闪一下空菜单
   const [MainMenu, setMainMenu] = useState(null);
@@ -392,13 +404,33 @@ export default function ExcalidrawCanvas({
 
   // Load convert function on mount
   useEffect(() => {
-    getConvertFunction().then(fn => {
+    let cancelled = false;
+    Promise.all([
+      getConvertFunction(),
+      import('@excalidraw/excalidraw'),
+      typeof document !== 'undefined' && document.fonts?.ready
+        ? document.fonts.ready
+        : Promise.resolve(),
+    ]).then(([fn, mod]) => {
+      if (cancelled) return;
       setConvertFunction(() => fn);
-    });
-    import('@excalidraw/excalidraw').then((mod) => {
+      setRestoreElementsForCanvas(() => mod.restoreElements);
       if (mod.MainMenu) setMainMenu(() => mod.MainMenu);
+      setFontsReady(true);
     });
+    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!excalidrawAPI || typeof document === 'undefined') return undefined;
+    let cancelled = false;
+    Promise.resolve(document.fonts?.ready).then(() => {
+      if (!cancelled && typeof excalidrawAPI.refresh === 'function') {
+        excalidrawAPI.refresh();
+      }
+    });
+    return () => { cancelled = true; };
+  }, [excalidrawAPI]);
 
   // Convert elements to Excalidraw format
   const presentationElements = useMemo(() => {
@@ -426,7 +458,7 @@ export default function ExcalidrawCanvas({
   }, [elements, presentationActive, presentationStep]);
 
   const convertedElements = useMemo(() => {
-    if (!presentationElements || presentationElements.length === 0) {
+    if (!fontsReady || !presentationElements || presentationElements.length === 0) {
       return [];
     }
 
@@ -435,7 +467,13 @@ export default function ExcalidrawCanvas({
       // 就绪前返回空数组会让 Excalidraw 以空 initialData 挂载，而原生元素的
       // canvasKey 不随转换就绪变化，空场景永远不会被修正，随后被持久化清空。
       if (presentationElements.every((element) => Number.isFinite(element?.version))) {
-        return presentationElements;
+        const restored = restoreElementsForCanvas
+          ? restoreElementsForCanvas(presentationElements, null, {
+            refreshDimensions: true,
+            repairBindings: true,
+          })
+          : presentationElements;
+        return prepareNativeElementsForCanvas(restored);
       }
       if (!convertToExcalidrawElements) return [];
       // 保留原始元素 id：演示步骤的 visibleElementIds/highlightElementIds 按创建时的
@@ -445,7 +483,7 @@ export default function ExcalidrawCanvas({
       console.error('Failed to convert elements:', error);
       return [];
     }
-  }, [presentationElements, convertToExcalidrawElements]);
+  }, [presentationElements, convertToExcalidrawElements, fontsReady, restoreElementsForCanvas]);
 
   // Auto zoom to fit content once per canvas instance. Element edits must not
   // refit the camera, otherwise dragging at a reduced zoom snaps back to fit.
@@ -734,10 +772,11 @@ export default function ExcalidrawCanvas({
     const conversionSuffix = needsConversion
       ? (convertToExcalidrawElements ? '-ready' : '-loading')
       : '-native';
-    if (!elements || elements.length === 0) return `empty${themeSuffix}${conversionSuffix}`;
+    const fontSuffix = fontsReady ? '-fonts-ready' : '-fonts-loading';
+    if (!elements || elements.length === 0) return `empty${themeSuffix}${conversionSuffix}${fontSuffix}`;
     // Create a hash from elements to detect changes
-    return JSON.stringify(elements.map(el => el.id)).slice(0, 50) + themeSuffix + conversionSuffix;
-  }, [convertToExcalidrawElements, elements, isDark]);
+    return JSON.stringify(elements.map(el => el.id)).slice(0, 50) + themeSuffix + conversionSuffix + fontSuffix;
+  }, [convertToExcalidrawElements, elements, fontsReady, isDark]);
 
   const initialData = useMemo(() => ({
     elements: convertedElements,

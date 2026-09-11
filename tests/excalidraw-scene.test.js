@@ -128,6 +128,23 @@ test('adds a visible default segment to an externally bound arrow without points
   assert.deepEqual(normalized.points, [[0, 0], [80, 30]]);
 });
 
+test('derives missing bound-arrow geometry from the connected nodes', () => {
+  const scene = parseExcalidrawScene([
+    { id: 'source', type: 'rectangle', x: 0, y: 0, width: 100, height: 50 },
+    { id: 'target', type: 'rectangle', x: 200, y: 100, width: 100, height: 50 },
+    { id: 'flow', type: 'arrow', startElementId: 'source', endElementId: 'target', label: { text: 'next' } },
+  ]);
+  const arrow = scene.elements.find((element) => element.id === 'flow');
+
+  assert.equal(arrow.x, 100);
+  assert.equal(arrow.y, 50);
+  assert.equal(arrow.width, 100);
+  assert.equal(arrow.height, 50);
+  assert.deepEqual(arrow.points, [[0, 0], [100, 50]]);
+  assert.deepEqual(arrow.start, { id: 'source' });
+  assert.deepEqual(arrow.end, { id: 'target' });
+});
+
 test('rejects malformed scene shapes with actionable errors', () => {
   assert.throws(
     () => parseExcalidrawScene({ elements: 'nope' }),

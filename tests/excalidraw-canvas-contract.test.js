@@ -225,6 +225,19 @@ test('browser conversion preserves bindings and media element fields', () => {
   assert.match(componentSource, /convertElementsForCanvas\(streamElements, convertToExcalidrawElements\)/u);
 });
 
+test('canvas waits for fonts and refreshes native text after fonts are ready', () => {
+  assert.match(componentSource, /document\.fonts\?\.ready/u);
+  assert.match(componentSource, /const \[fontsReady, setFontsReady\] = useState/u);
+  assert.match(componentSource, /if \(!fontsReady \|\| !presentationElements/u);
+  assert.match(componentSource, /'-fonts-ready' : '-fonts-loading'/u);
+  assert.match(componentSource, /restoreElementsForCanvas\(presentationElements, null, \{/u);
+  assert.match(componentSource, /refreshDimensions: true/u);
+  assert.match(componentSource, /repairBindings: true/u);
+  assert.match(componentSource, /prepareNativeElementsForCanvas\(restored\)/u);
+  assert.match(componentSource, /typeof excalidrawAPI\.refresh === 'function'/u);
+  assert.match(componentSource, /excalidrawAPI\.refresh\(\)/u);
+});
+
 test('auto zoom yields to the presentation camera', () => {
   // 播放期间自动 fit-zoom 会与步骤相机动画抢视口：每步覆盖相机目标
   assert.match(componentSource, /hasPersistedAppState \|\| presentationActive/u);
