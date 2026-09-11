@@ -297,6 +297,79 @@ test('migrated canvas tools operate on the browser workspace and retain named sn
   assert.deepEqual(restored.scene.elements.find((item) => item.id === 'a').groupIds, ['g1']);
 });
 
+test('batch updates are atomic, idempotent, and can rebase a stale revision', async () => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Batch update',
+      engine: 'excalidraw',
+      elements: [
+        { id: 'a', type: 'rectangle', x: 0, y: 0, width: 40, height: 20 },
+        { id: 'b', type: 'rectangle', x: 80, y: 0, width: 40, height: 20 },
+      ],
+    },
+  }, { repository: workspace, now: 100 });
+  const batch = await executeDiagramAgentCommand({
+    tool: 'batch_update_elements',
+    args: {
+      id: created.id,
+      expectedRevision: 1,
+      operationId: 'batch-1',
+      updates: [
+        { elementId: 'a', changes: { x: 20 } },
+        { id: 'b', changes: { x: 120 } },
+      ],
+    },
+  }, { repository: workspace, now: 110 });
+  assert.equal(batch.revision, 2);
+  assert.deepEqual(batch.elements.map((element) => element.x), [20, 120]);
+
+  const replay = await executeDiagramAgentCommand({
+    tool: 'batch_update_elements',
+    args: {
+      id: created.id,
+      expectedRevision: 1,
+      operationId: 'batch-1',
+      updates: [
+        { elementId: 'a', changes: { x: 20 } },
+        { id: 'b', changes: { x: 120 } },
+      ],
+    },
+  }, { repository: workspace, now: 111 });
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(replay.operationRevision, 2);
+  assert.equal(replay.revision, 2);
+
+  const rebased = await executeDiagramAgentCommand({
+    tool: 'apply_diagram_patch',
+    args: {
+      id: created.id,
+      expectedRevision: 1,
+      retryOnConflict: true,
+      patch: { update: [{ id: 'a', x: 40 }] },
+    },
+  }, { repository: workspace, now: 120 });
+  assert.equal(rebased.revision, 3);
+  assert.equal(rebased.conflictRetries, 1);
+  assert.equal(rebased.scene.elements.find((element) => element.id === 'b').x, 120);
+});
+
+test('browser command metrics expose repository timings and payload sizes', async () => {
+  const workspace = repository();
+  const result = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: { title: 'Metrics', engine: 'excalidraw', scene: { elements: [] }, open: false },
+  }, { repository: workspace, includeMetrics: true, now: 200 });
+  assert.equal(result.operationMetrics.operation, 'create_diagram');
+  assert.equal(result.operationMetrics.transport, 'browser');
+  assert.ok(result.operationMetrics.requestBytes > 0);
+  assert.ok(result.operationMetrics.responseBytes > 0);
+  assert.ok(Number.isFinite(result.operationMetrics.browserExecutionMs));
+  assert.ok(Number.isFinite(result.operationMetrics.repositoryReadMs));
+  assert.ok(Number.isFinite(result.operationMetrics.repositoryWriteMs));
+});
+
 test('mcp_excalidraw aliases preserve revision locking and Mermaid persistence', async () => {
   const workspace = repository();
   const created = await executeDiagramAgentCommand({

@@ -42,6 +42,8 @@ import { parseExcalidrawScene, serializeExcalidrawScene } from '../lib/excalidra
 import {
   commitDiagramScene,
   findDiagramRevision,
+  findDiagramRevisionByOperationId,
+  getDiagramRevision,
   getDrawingScene,
   listDiagramRevisions,
   restoreDiagramRevision,
@@ -70,6 +72,7 @@ import {
 } from '../lib/diagram-mcp-app-resource.js';
 import { createSentryOptions, safeTelemetryIdentifier } from '../lib/sentry-config.js';
 import { openDiagramUrl } from '../lib/diagram-mcp-browser-launch.js';
+import { createDiagramOperationMetrics, mergeDiagramOperationMetrics } from '../lib/diagram-operation-metrics.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = DIAGRAM_MCP_SERVER_INFO;
@@ -453,8 +456,27 @@ const WRITE_TOOLS = [
     description: '在指定 AnchorRead 图解中原子地增量创建多个 Excalidraw 元素。',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string' }, elements: { type: 'array', items: { type: 'object', additionalProperties: true }, minItems: 1 }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' } },
+      properties: { id: { type: 'string' }, elements: { type: 'array', items: { type: 'object', additionalProperties: true }, minItems: 1 }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' }, operationId: { type: 'string', minLength: 1 } },
       required: ['id', 'elements'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'batch_update_elements',
+    description: 'Atomically apply multiple element updates in one scene revision with optional idempotency and conflict rebasing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        updates: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: true } },
+        expectedRevision: { type: 'number' },
+        retryOnConflict: { type: 'boolean' },
+        maxConflictRetries: { type: 'integer', minimum: 0, maximum: 5 },
+        operationId: { type: 'string', minLength: 1 },
+        author: { type: 'string' },
+        reason: { type: 'string' },
+      },
+      required: ['id', 'updates'],
       additionalProperties: false,
     },
   },
@@ -582,6 +604,9 @@ const WRITE_TOOLS = [
         patch: { type: 'object' },
         author: { type: 'string' },
         reason: { type: 'string' },
+        retryOnConflict: { type: 'boolean' },
+        maxConflictRetries: { type: 'integer', minimum: 0, maximum: 5 },
+        operationId: { type: 'string', minLength: 1 },
       },
       required: ['id', 'patch'],
       additionalProperties: false,
@@ -782,6 +807,38 @@ async function callToolImpl(name, args = {}) {
       await writeWorkspace(writeDrawing(payload, nextDrawing));
       return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, elements: elements.map((element) => nextDrawing.scene.elements.find((item) => item.id === element.id)), scene: nextDrawing.scene });
     }
+    case 'batch_update_elements': {
+      const drawing = getDrawing(payload, args.id);
+      const replay = idempotentReplay(drawing, args, name);
+      if (replay) return textResult(replay);
+      const updates = normalizeBatchUpdates(args);
+      let expectedRevision = args.expectedRevision;
+      let conflictRetries = 0;
+      try {
+        const nextDrawing = commitDiagramScene(drawing, applyScenePatch(getDrawingScene(drawing), { update: updates }), {
+          ...args,
+          expectedRevision,
+          operationId: args.operationId,
+          operationFingerprint: args.operationId ? operationFingerprint(name, args) : undefined,
+          reason: args.reason || 'batch-update-elements',
+        });
+        await writeWorkspace(writeDrawing(payload, nextDrawing));
+        return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, elements: updates.map(({ id }) => nextDrawing.scene.elements.find((item) => item.id === id)), scene: nextDrawing.scene, conflictRetries });
+      } catch (error) {
+        if (error?.code !== 'REVISION_CONFLICT' || args.retryOnConflict !== true) throw error;
+        conflictRetries = 1;
+        expectedRevision = getDiagramRevision(drawing);
+        const nextDrawing = commitDiagramScene(drawing, applyScenePatch(getDrawingScene(drawing), { update: updates }), {
+          ...args,
+          expectedRevision,
+          operationId: args.operationId,
+          operationFingerprint: args.operationId ? operationFingerprint(name, args) : undefined,
+          reason: args.reason || 'batch-update-elements',
+        });
+        await writeWorkspace(writeDrawing(payload, nextDrawing));
+        return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, elements: updates.map(({ id }) => nextDrawing.scene.elements.find((item) => item.id === id)), scene: nextDrawing.scene, conflictRetries });
+      }
+    }
     case 'update_element': {
       const drawing = getDrawing(payload, args.id);
       const scene = getDrawingScene(drawing);
@@ -893,11 +950,27 @@ async function callToolImpl(name, args = {}) {
       throw new Error('get_canvas_screenshot requires live browser mode.');
     case 'apply_diagram_patch': {
       const drawing = getDrawing(payload, args.id);
-      const currentScene = getDrawingScene(drawing);
-      const patchedScene = applyRequestedScenePatch(currentScene, args.patch || {});
-      const nextDrawing = commitDiagramScene(drawing, patchedScene, args);
-      await writeWorkspace(writeDrawing(payload, nextDrawing));
-      return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, scene: nextDrawing.scene });
+      const replay = idempotentReplay(drawing, args, name);
+      if (replay) return textResult(replay);
+      const commitArgs = {
+        ...args,
+        operationId: args.operationId,
+        operationFingerprint: args.operationId ? operationFingerprint(name, args) : undefined,
+        reason: args.reason || 'agent-patch',
+      };
+      try {
+        const nextDrawing = commitDiagramScene(drawing, applyRequestedScenePatch(getDrawingScene(drawing), args.patch || {}), commitArgs);
+        await writeWorkspace(writeDrawing(payload, nextDrawing));
+        return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, scene: nextDrawing.scene, conflictRetries: 0 });
+      } catch (error) {
+        if (error?.code !== 'REVISION_CONFLICT' || args.retryOnConflict !== true) throw error;
+        const nextDrawing = commitDiagramScene(drawing, applyRequestedScenePatch(getDrawingScene(drawing), args.patch || {}), {
+          ...commitArgs,
+          expectedRevision: getDiagramRevision(drawing),
+        });
+        await writeWorkspace(writeDrawing(payload, nextDrawing));
+        return textResult({ id: nextDrawing.id, revision: nextDrawing.revision, scene: nextDrawing.scene, conflictRetries: 1 });
+      }
     }
     case 'commit_diagram_scene': {
       const drawing = getDrawing(payload, args.id);
@@ -917,8 +990,54 @@ async function callToolImpl(name, args = {}) {
   }
 }
 
+function stableOperationValue(value) {
+  if (Array.isArray(value)) return value.map(stableOperationValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.keys(value).sort().reduce((result, key) => {
+    result[key] = stableOperationValue(value[key]);
+    return result;
+  }, {});
+}
+
+function operationFingerprint(tool, args) {
+  const payload = { ...args };
+  delete payload.expectedRevision;
+  delete payload.retryOnConflict;
+  delete payload.maxConflictRetries;
+  return JSON.stringify(stableOperationValue({ tool, args: payload }));
+}
+
+function idempotentReplay(drawing, args, tool) {
+  if (!args?.operationId) return null;
+  const previous = findDiagramRevisionByOperationId(drawing, args.operationId);
+  if (!previous) return null;
+  if (previous.operationFingerprint && previous.operationFingerprint !== operationFingerprint(tool, args)) {
+    const error = new Error(`operationId ${args.operationId} was already used for a different diagram operation.`);
+    error.code = 'IDEMPOTENCY_KEY_REUSE';
+    throw error;
+  }
+  return { id: drawing.id, routeId: drawing.routeId, revision: drawing.revision, operationRevision: previous.revision, idempotentReplay: true, scene: getDrawingScene(drawing) };
+}
+
+function normalizeBatchUpdates(args) {
+  const updates = Array.isArray(args.updates) ? args.updates : [];
+  if (updates.length === 0) throw new TypeError('batch_update_elements requires a non-empty updates array');
+  return updates.map((item) => {
+    if (!item || typeof item !== 'object') throw new TypeError('batch_update_elements updates must be objects');
+    const id = item.elementId ?? item.id;
+    if (id === undefined || id === null || String(id).trim() === '') throw new TypeError('batch_update_elements requires elementId for every update');
+    const changes = item.changes && typeof item.changes === 'object' ? { ...item.changes } : { ...item };
+    delete changes.id;
+    delete changes.elementId;
+    delete changes.changes;
+    if (Object.keys(changes).length === 0) throw new TypeError(`batch_update_elements update ${id} has no changes`);
+    return { id: String(id), ...changes };
+  });
+}
+
 async function callTool(name, args = {}) {
   const toolName = safeTelemetryIdentifier(name);
+  const metrics = createDiagramOperationMetrics({ operation: toolName, transport: 'stdio', payload: args });
   return Sentry.startSpan({
     name: `mcp.tool ${toolName}`,
     op: 'mcp.server',
@@ -929,10 +1048,33 @@ async function callTool(name, args = {}) {
     },
   }, async (span) => {
     try {
-      const result = await callToolImpl(name, args);
+      const result = await metrics.measure('serverExecutionMs', () => callToolImpl(name, args));
+      const browserMetrics = result?.structuredContent?.operationMetrics || result?.operationMetrics || {};
+      const operationMetrics = { ...browserMetrics, ...metrics.finish(result, 'ok') };
+      const attributes = {
+        'app.mcp.total_ms': operationMetrics.mcpTotalMs,
+        'app.mcp.server_execution_ms': operationMetrics.serverExecutionMs,
+        'app.mcp.bridge_round_trip_ms': operationMetrics.bridgeRoundTripMs,
+        'app.mcp.browser_execution_ms': operationMetrics.browserExecutionMs,
+        'app.mcp.repository_read_ms': operationMetrics.repositoryReadMs,
+        'app.mcp.repository_write_ms': operationMetrics.repositoryWriteMs,
+        'app.mcp.request_bytes': operationMetrics.requestBytes,
+        'app.mcp.response_bytes': operationMetrics.responseBytes,
+        'app.mcp.conflict_retries': operationMetrics.conflictRetries,
+      };
+      for (const [key, value] of Object.entries(attributes)) {
+        if (Number.isFinite(value)) span.setAttribute(key, value);
+      }
       span.setAttribute('app.mcp.outcome', 'ok');
+      if (result?.structuredContent && typeof result.structuredContent === 'object') {
+        return { ...result, structuredContent: mergeDiagramOperationMetrics(result.structuredContent, operationMetrics) };
+      }
       return result;
     } catch (error) {
+      const operationMetrics = metrics.finish({ error: String(error?.message || error) }, 'error');
+      span.setAttribute('app.mcp.total_ms', operationMetrics.mcpTotalMs);
+      span.setAttribute('app.mcp.request_bytes', operationMetrics.requestBytes);
+      span.setAttribute('app.mcp.response_bytes', operationMetrics.responseBytes);
       span.setAttribute('app.mcp.outcome', 'error');
       throw error;
     }
@@ -940,6 +1082,7 @@ async function callTool(name, args = {}) {
 }
 
 async function callBridgeTool(name, args = {}) {
+  const startedAt = Date.now();
   const headers = { 'content-type': 'application/json' };
   const token = String(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN || '').trim();
   if (token) headers['x-anchorread-bridge-token'] = token;
@@ -968,7 +1111,7 @@ async function callBridgeTool(name, args = {}) {
     error.code = String(body?.code || '').trim() || `BRIDGE_HTTP_${response.status}`;
     throw error;
   }
-  const result = body.result;
+  const result = mergeDiagramOperationMetrics(body.result, { bridgeRoundTripMs: Date.now() - startedAt });
   return result && Array.isArray(result.content) ? result : textResult(result);
 }
 

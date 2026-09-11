@@ -147,6 +147,7 @@ export default function DiagramAgentBridge() {
                 repository: workspaceRepository,
                 onOpen: publishDrawing,
                 onPresentation: publishPresentation,
+                includeMetrics: true,
               });
               await respond(request, result);
             } catch (error) {
