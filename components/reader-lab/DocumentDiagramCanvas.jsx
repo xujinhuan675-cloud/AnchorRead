@@ -46,6 +46,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     presentation: rawPresentation,
     presentationDisabled,
     streamElements,
+    externalSceneRevision,
   } = diagram;
   const presentation = useMemo(() => {
     // 生成后再增删改元素时，播放脚本与当前画布对账后再归一：
@@ -188,6 +189,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             presentationStep={presentationStep}
             presentationActive={effectivePresentationActive}
             streamElements={streamElements}
+            externalSceneRevision={externalSceneRevision}
             onExpandPanel={onOpenChat}
             expandPanelTitle={t('diagram.openChat')}
             onCollapsePanel={onCloseChat}

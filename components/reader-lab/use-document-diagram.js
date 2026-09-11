@@ -71,10 +71,42 @@ export function useDocumentDiagram({
   const [presentationDisabled, setPresentationDisabled] = useState(() => activeDrawing?.presentationDisabled === true);
   // 流式生成预览：SSE 增量解析出的可绘制元素，画布侧逐个显现且不回写持久化
   const [streamElements, setStreamElements] = useState(null);
+  const [externalSceneRevision, setExternalSceneRevision] = useState(0);
   const [error, setError] = useState('');
   const saveTimerRef = useRef(null);
   const draftDrawingRef = useRef(activeDrawing);
   const mermaidConversionSeqRef = useRef(0);
+
+  const applyExternalDrawing = useCallback((nextDrawing) => {
+    const currentDrawing = draftDrawingRef.current || activeDrawing;
+    if (!nextDrawing?.id || nextDrawing.id !== currentDrawing?.id) return false;
+    if (getDiagramRevision(nextDrawing) <= getDiagramRevision(currentDrawing)) return false;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    mermaidConversionSeqRef.current += 1;
+    setIsConvertingMermaid(false);
+    draftDrawingRef.current = nextDrawing;
+    setEngine(nextDrawing.engine || 'mermaid');
+    setChartType(nextDrawing.chartType || 'auto');
+    setCode(nextDrawing.source || '');
+    const nextScene = nextDrawing.engine === 'excalidraw'
+      ? (() => {
+        try {
+          return parseExcalidrawScene(nextDrawing.scene || nextDrawing.variants?.excalidraw?.scene || nextDrawing.source || []);
+        } catch { return normalizeExcalidrawScene([]); }
+      })()
+      : normalizeExcalidrawScene([]);
+    setElements(nextScene.elements);
+    setAppState(normalizePersistedExcalidrawAppState(nextScene.appState));
+    setFiles(nextScene.files);
+    setRevisionHistory(Array.isArray(nextDrawing.revisionHistory) ? nextDrawing.revisionHistory : []);
+    setPresentation(nextDrawing.presentation || nextDrawing.presentationSpec || null);
+    setPresentationDisabled(nextDrawing.presentationDisabled === true);
+    setExternalSceneRevision((revision) => revision + 1);
+    return true;
+  }, [activeDrawing]);
 
   useEffect(() => {
     const isOwnPersistenceEcho = activeDrawing?.id
@@ -586,6 +618,8 @@ export function useDocumentDiagram({
     presentation,
     presentationDisabled,
     streamElements,
+    externalSceneRevision,
+    applyExternalDrawing,
     error,
     setError,
     isGenerating,

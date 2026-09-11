@@ -393,6 +393,7 @@ export default function ReaderLabWorkspace({
         return;
       }
       if (message.type !== 'drawing-upsert' || !message.drawing?.id) return;
+      diagramStateRef.current?.applyExternalDrawing?.(message.drawing);
       setDrawings((current) => {
         const index = current.findIndex((drawing) => drawing.id === message.drawing.id);
         if (index < 0) return [message.drawing, ...current];
@@ -456,6 +457,7 @@ export default function ReaderLabWorkspace({
   const [activeDrawingId, setActiveDrawingId] = useState('');
   const drawingsRef = useRef(drawings);
   const diagramSyncRef = useRef(null);
+  const diagramStateRef = useRef(null);
   useEffect(() => {
     drawingsRef.current = drawings;
   }, [drawings]);
@@ -1644,7 +1646,15 @@ export default function ReaderLabWorkspace({
     const handleDrawing = (event) => {
       const drawing = event.detail?.drawing;
       if (!drawing?.id) return;
-      setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
+      diagramStateRef.current?.applyExternalDrawing?.(drawing);
+      setDrawings((current) => {
+        const index = current.findIndex((item) => item.id === drawing.id);
+        if (index < 0) return [drawing, ...current];
+        if (!isNewerDrawing(drawing, current[index])) return current;
+        const next = [...current];
+        next[index] = drawing;
+        return next;
+      });
       if (event.detail?.open) {
         setActiveDrawingId(drawing.id);
         setHomeStarted(true);
@@ -1696,6 +1706,7 @@ export default function ReaderLabWorkspace({
     onClearAnchor: clearDiagramAnchor,
     onNotice: setNotice,
   });
+  diagramStateRef.current = diagramState;
 
   // 划词图解不跳转：留在原文直接生成，锚点随参数传入 generate（不等 anchor prop 下一帧生效）；
   // 生成中在选区下方挂占位卡，完成后图解卡就地插入

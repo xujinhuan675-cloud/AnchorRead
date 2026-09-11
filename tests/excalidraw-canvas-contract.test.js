@@ -11,6 +11,10 @@ import {
   persistedViewportSyncKey,
   shouldApplyPersistedViewport,
 } from '../lib/excalidraw-viewport.js';
+import {
+  sceneElementsChanged,
+  sceneElementsMatch,
+} from '../lib/excalidraw-scene-sync.js';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const componentSource = fs.readFileSync(
@@ -23,6 +27,10 @@ const diagramHookSource = fs.readFileSync(
 );
 const canvasHostSource = fs.readFileSync(
   path.join(testDirectory, '..', 'components', 'reader-lab', 'DocumentDiagramCanvas.jsx'),
+  'utf8',
+);
+const workspaceSource = fs.readFileSync(
+  path.join(testDirectory, '..', 'components', 'ReaderLabWorkspace.jsx'),
   'utf8',
 );
 const globalStylesSource = fs.readFileSync(
@@ -105,7 +113,8 @@ test('presentation steps update one stable Excalidraw instance', () => {
   assert.match(componentSource, /JSON\.stringify\(elements\.map\(el => el\.id\)\)/u);
   assert.match(componentSource, /restoreFullSceneRef\.current/u);
   assert.match(componentSource, /opacity: isVisible\(element\) \? \(element\.opacity \?\? 100\) : 0/u);
-  assert.match(componentSource, /currentElement\?\.opacity !== nextElement\?\.opacity/u);
+  assert.match(componentSource, /sceneElementsChanged\(currentElements, convertedElements\)/u);
+  assert.match(componentSource, /sceneElementsMatch\(nextElements, convertedElements\)/u);
   assert.match(componentSource, /if \(!convertToExcalidrawElements\) return \[\];/u);
   assert.match(componentSource, /!convertToExcalidrawElements && elements\?\.length > 0/u);
   assert.doesNotMatch(componentSource, /JSON\.stringify\(convertedElements\.map\(el => el\.id\)\)/u);
@@ -129,6 +138,44 @@ test('stream replay camera animates via rAF interpolation', () => {
   assert.match(componentSource, /easeInOutQuad/u);
   assert.match(componentSource, /duration === 0 \? 1/u);
   assert.match(componentSource, /prefers-reduced-motion: reduce/u);
+});
+
+test('external MCP scene revisions hydrate the mounted canvas without stale writes', () => {
+  assert.match(diagramHookSource, /const \[externalSceneRevision, setExternalSceneRevision\] = useState\(0\)/u);
+  assert.match(diagramHookSource, /const applyExternalDrawing = useCallback\(/u);
+  assert.match(diagramHookSource, /getDiagramRevision\(nextDrawing\) <= getDiagramRevision\(currentDrawing\)/u);
+  assert.match(canvasHostSource, /externalSceneRevision,\s*\n\s*\}/u);
+  assert.match(canvasHostSource, /externalSceneRevision=\{externalSceneRevision\}/u);
+  assert.match(workspaceSource, /diagramStateRef\.current\?\.applyExternalDrawing\?\.\(message\.drawing\)/u);
+  assert.match(workspaceSource, /diagramStateRef\.current\?\.applyExternalDrawing\?\.\(drawing\)/u);
+  assert.match(componentSource, /externalHydrationRef\.current\.pending/u);
+  assert.match(componentSource, /hydration\.revision === externalSceneRevision/u);
+  assert.match(componentSource, /excalidrawAPI\.updateScene\(\{/u);
+});
+
+test('scene sync detects connector geometry and binding changes', () => {
+  const base = [{
+    id: 'arrow-1',
+    type: 'arrow',
+    version: 3,
+    x: 0,
+    y: 0,
+    width: 120,
+    height: 0,
+    points: [[0, 0], [120, 0]],
+    startBinding: null,
+    endBinding: null,
+    boundElements: null,
+  }];
+  const moved = [{
+    ...base[0],
+    points: [[0, 0], [80, 40]],
+  }];
+  const runtimeVersionOnly = [{ ...base[0], version: 4 }];
+  assert.equal(sceneElementsChanged(base, moved), true);
+  assert.equal(sceneElementsMatch(base, moved), false);
+  assert.equal(sceneElementsMatch(base, runtimeVersionOnly), true);
+  assert.equal(sceneElementsMatch(moved, moved), true);
 });
 
 test('presentation reveals elements in place and keeps camera movement sparse', () => {

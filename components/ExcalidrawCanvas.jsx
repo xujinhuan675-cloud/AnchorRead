@@ -7,6 +7,7 @@ import { FileCode2, PanelRightClose, PanelRightOpen, Upload } from 'lucide-react
 import { useLocale } from '@/components/LocaleProvider';
 import { useAppTheme } from '@/lib/theme';
 import { persistedViewportSyncKey, shouldApplyPersistedViewport } from '@/lib/excalidraw-viewport';
+import { sceneElementsChanged, sceneElementsMatch } from '@/lib/excalidraw-scene-sync';
 import CanvasToolbar from './CanvasToolbar';
 import CanvasToolbarButton from './CanvasToolbarButton';
 
@@ -45,19 +46,6 @@ function viewportValueChanged(currentAppState, nextAppState) {
     && nextZoom !== null
     && currentZoom !== nextZoom;
   return positionChanged || zoomChanged;
-}
-
-function sceneElementsChanged(currentElements, nextElements) {
-  if (!Array.isArray(currentElements) || currentElements.length !== nextElements.length) return true;
-  return nextElements.some((nextElement, index) => {
-    const currentElement = currentElements[index];
-    return currentElement?.id !== nextElement?.id
-      || currentElement?.version !== nextElement?.version
-      || currentElement?.isDeleted !== nextElement?.isDeleted
-      || currentElement?.opacity !== nextElement?.opacity
-      || currentElement?.strokeColor !== nextElement?.strokeColor
-      || currentElement?.strokeWidth !== nextElement?.strokeWidth;
-  });
 }
 
 // 官方 convert 对线性元素 width/height 的回退是 `value || DEFAULT`（width 默认 100）：
@@ -332,6 +320,7 @@ export default function ExcalidrawCanvas({
   sourceCollapseLabel = '',
   onImport = null,
   importLabel = '',
+  externalSceneRevision = 0,
 }) {
   const { locale } = useLocale();
   const [convertToExcalidrawElements, setConvertFunction] = useState(null);
@@ -340,6 +329,8 @@ export default function ExcalidrawCanvas({
   // 就绪前不渲染，保留官方默认菜单，避免闪一下空菜单
   const [MainMenu, setMainMenu] = useState(null);
   const ignoreSceneChangesRef = useRef(false);
+  const externalHydrationRef = useRef({ revision: 0, pending: false });
+  const externalHydrationTimerRef = useRef(null);
   const restoreFullSceneRef = useRef(false);
   const cameraAnimFrameRef = useRef(0);
   const revealAnimFrameRef = useRef(0);
@@ -664,6 +655,51 @@ export default function ExcalidrawCanvas({
     setTimeout(() => { ignoreSceneChangesRef.current = false; }, 800);
   }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, initialAppState, presentationActive]);
 
+  // Apply an external MCP edit to the mounted canvas and quarantine the stale
+  // callback emitted by the scene that was replaced.
+  useEffect(() => {
+    if (!externalSceneRevision || !excalidrawAPI || typeof excalidrawAPI.updateScene !== 'function') return undefined;
+    const hydration = externalHydrationRef.current;
+    if (hydration.revision === externalSceneRevision) return undefined;
+    hydration.revision = externalSceneRevision;
+    hydration.pending = true;
+    if (externalHydrationTimerRef.current) clearTimeout(externalHydrationTimerRef.current);
+    const currentElements = typeof excalidrawAPI.getSceneElements === 'function'
+      ? excalidrawAPI.getSceneElements()
+      : [];
+    const currentAppState = typeof excalidrawAPI.getAppState === 'function'
+      ? excalidrawAPI.getAppState()
+      : null;
+    const nextAppState = {
+      ...initialAppState,
+      viewModeEnabled: Boolean(appState?.viewModeEnabled),
+    };
+    const elementsChanged = sceneElementsChanged(currentElements, convertedElements);
+    const appStateChanged = viewportValueChanged(currentAppState, nextAppState)
+      || currentAppState?.viewModeEnabled !== nextAppState.viewModeEnabled;
+    if (elementsChanged || appStateChanged) {
+      ignoreSceneChangesRef.current = true;
+      excalidrawAPI.updateScene({
+        ...(elementsChanged ? { elements: convertedElements } : {}),
+        ...(appStateChanged ? { appState: nextAppState } : {}),
+      });
+    } else {
+      hydration.pending = false;
+    }
+    externalHydrationTimerRef.current = setTimeout(() => {
+      if (externalHydrationRef.current.revision === externalSceneRevision) {
+        externalHydrationRef.current.pending = false;
+        ignoreSceneChangesRef.current = false;
+      }
+      externalHydrationTimerRef.current = null;
+    }, 1500);
+    return undefined;
+  }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, externalSceneRevision, initialAppState]);
+
+  useEffect(() => () => {
+    if (externalHydrationTimerRef.current) clearTimeout(externalHydrationTimerRef.current);
+  }, []);
+
   // Apply a persisted viewport to an already-mounted Excalidraw instance.
   // Runtime camera changes are deliberately not persisted by the parent. Only
   // a new API instance or a changed incoming viewport should hydrate the API;
@@ -774,6 +810,13 @@ export default function ExcalidrawCanvas({
               ignoreSceneChangesRef.current = true;
               excalidrawAPI.updateScene({ elements: convertedElements });
               setTimeout(() => { ignoreSceneChangesRef.current = false; }, 250);
+            }
+            return;
+          }
+          if (externalHydrationRef.current.pending) {
+            if (sceneElementsMatch(nextElements, convertedElements)) {
+              externalHydrationRef.current.pending = false;
+              ignoreSceneChangesRef.current = false;
             }
             return;
           }
