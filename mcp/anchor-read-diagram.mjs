@@ -69,6 +69,7 @@ import {
   readDiagramMcpAppResource,
 } from '../lib/diagram-mcp-app-resource.js';
 import { createSentryOptions, safeTelemetryIdentifier } from '../lib/sentry-config.js';
+import { openDiagramUrl } from '../lib/diagram-mcp-browser-launch.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = DIAGRAM_MCP_SERVER_INFO;
@@ -279,7 +280,13 @@ const BASE_TOOLS = [
   {
     name: 'open_diagram_workspace',
     description: '返回 AnchorRead 图解工作区的可打开链接。具备浏览器或打开 URL 能力的 AI 客户端应立即打开该链接；不具备该能力的客户端应把链接展示给用户。该工具不要求已有配对浏览器在线。',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { open: { type: 'boolean' } }, additionalProperties: false },
+  },
+  {
+    name: 'ensure_workspace_ready',
+    description: 'Prepare the AnchorRead diagram workspace. Local stdio mode can ask the operating system to open the default browser; remote mode returns a link for the client to open.',
+    annotations: { readOnlyHint: true },
+    inputSchema: { type: 'object', properties: { open: { type: 'boolean' } }, additionalProperties: false },
   },
   {
     name: 'list_diagrams',
@@ -625,11 +632,33 @@ async function callToolImpl(name, args = {}) {
   if (name === 'read_me') return textResult({ name: 'anchor-read-diagram', instructions: DIAGRAM_MCP_READ_ME });
   if (name === 'read_diagram_guide') return textResult(getDiagramDesignGuide());
   if (name === 'open_diagram_workspace') {
+    const url = buildDiagramWorkspaceUrl();
+    const shouldOpen = args?.open === true;
+    const launch = shouldOpen ? openDiagramUrl(url, { force: true }) : { opened: false, code: 'OPEN_NOT_REQUESTED', url };
     return textResult({
-      url: buildDiagramWorkspaceUrl(),
-      opened: false,
-      openAction: 'open_url_if_supported',
-      openResource: { kind: 'workspace' },
+      url,
+      ...launch,
+      openRequested: shouldOpen,
+      openAction: launch.opened ? 'opened_by_local_companion' : 'open_url_if_supported',
+      openTarget: 'default_browser',
+      openResource: { kind: 'workspace', url },
+    });
+  }
+  if (name === 'ensure_workspace_ready') {
+    const url = buildDiagramWorkspaceUrl();
+    const shouldOpen = args?.open !== false;
+    const launch = shouldOpen ? openDiagramUrl(url) : { opened: false, code: 'OPEN_NOT_REQUESTED', url };
+    return textResult({
+      ready: false,
+      readiness: 'browser_connection_pending',
+      mode: 'local_stdio',
+      url,
+      ...launch,
+      nextAction: 'verify_browser_connection_then_retry',
+      openRequested: shouldOpen,
+      openAction: launch.opened ? 'opened_by_local_companion' : 'open_url_if_supported',
+      openTarget: 'default_browser',
+      openResource: { kind: 'workspace', url },
     });
   }
   if (name === 'create_view') return createInlineViewToolResult(args);

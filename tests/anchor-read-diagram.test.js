@@ -76,6 +76,7 @@ test('diagram MCP lists, describes and commits with revision protection', async 
       { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'describe_diagram', arguments: { id: 'drawing-1' } } },
       { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'get_presentation', arguments: { id: 'drawing-1' } } },
       { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'open_diagram_workspace', arguments: {} } },
+      { jsonrpc: '2.0', id: 91, method: 'tools/call', params: { name: 'ensure_workspace_ready', arguments: { open: false } } },
       { jsonrpc: '2.0', id: 10, method: 'resources/list', params: {} },
       { jsonrpc: '2.0', id: 11, method: 'resources/read', params: { uri: DIAGRAM_MCP_APP_RESOURCE_URI } },
       { jsonrpc: '2.0', id: 12, method: 'tools/call', params: {
@@ -99,6 +100,8 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.match(responses[4].result.content[0].text, /"visibleElementIds":\s*\[\s*"a"\s*\]/);
     assert.equal(responses[5].result.content[1].type, 'resource_link');
     assert.match(responses[5].result.content[1].uri, /\/diagrams$/);
+    assert.equal(responses.find((response) => response.id === 91).result.structuredContent.mode, 'local_stdio');
+    assert.equal(responses.find((response) => response.id === 91).result.structuredContent.code, 'OPEN_NOT_REQUESTED');
     assert.equal(responses.find((response) => response.id === 10).result.resources[0].mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
     assert.match(responses.find((response) => response.id === 11).result.contents[0].text, /Excalidraw/);
     const inline = responses.find((response) => response.id === 12).result;

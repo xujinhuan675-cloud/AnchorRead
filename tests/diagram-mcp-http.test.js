@@ -150,6 +150,19 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     assert.equal(workspaceResult.result.structuredContent.openRequested, true);
     assert.match(workspaceResult.result.structuredContent.openResource.url, /\/diagrams$/);
 
+    const readiness = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+      jsonrpc: '2.0', id: 23, method: 'tools/call', params: {
+        name: 'ensure_workspace_ready', arguments: {},
+      },
+    }, { 'MCP-Session-Id': sessionId }), {
+      submitTool: async () => { throw new Error('readiness must not wait for the browser bridge'); },
+    });
+    const readinessResult = await readiness.json();
+    assert.equal(readinessResult.result.structuredContent.mode, 'local_http');
+    assert.equal(readinessResult.result.structuredContent.ready, true);
+    assert.equal(readinessResult.result.structuredContent.nextAction, 'continue_persisted_diagram_workflow');
+    assert.equal(readinessResult.result.content[1].type, 'resource_link');
+
     const contentfulOffline = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 24, method: 'tools/call', params: {
         name: 'create_diagram', arguments: {
