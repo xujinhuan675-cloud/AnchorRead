@@ -6,6 +6,12 @@ import { executeDiagramAgentCommand } from '@/lib/diagram-agent-commands';
 import { getDrawingScene } from '@/lib/diagram-scene-record';
 import { workspaceRepository } from '@/lib/local-workspace-db';
 import {
+  allowDiagramBrowserWrites,
+  beginDiagramBrowserHandshake,
+  blockDiagramBrowserWrites,
+} from '@/lib/diagram-browser-write-guard';
+import { getDiagramAgentBuildInfo, serializeDiagramAgentError } from '@/lib/diagram-agent-protocol';
+import {
   createDiagramAgentIdentity,
   createDiagramAgentSession,
   createDiagramSyncChannel,
@@ -61,6 +67,8 @@ export default function DiagramAgentBridge() {
     let cancelled = false;
     let pollController = null;
     const { clientId, tabId, workspaceId, browserSessionId, managementSecret } = identity;
+    const buildInfo = getDiagramAgentBuildInfo();
+    beginDiagramBrowserHandshake({ workspaceUrl: window.location.href });
     const session = createDiagramAgentSession({ tabId });
     const syncChannel = createDiagramSyncChannel();
     const pairingHeaders = {
@@ -73,6 +81,7 @@ export default function DiagramAgentBridge() {
       tabId,
       clientId,
       href: window.location.href,
+      ...buildInfo,
     });
     const emitConnection = (detail) => {
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_CONNECTION_EVENT, { detail }));
@@ -102,7 +111,7 @@ export default function DiagramAgentBridge() {
           ...pairingBody(),
           id: request.id,
           claimToken: request.claimToken,
-          ...(error ? { error: String(error?.message || error) } : { result }),
+          ...(error ? { error: serializeDiagramAgentError(error) } : { result }),
         }),
       }).catch(() => {});
     };
@@ -114,7 +123,12 @@ export default function DiagramAgentBridge() {
         body: JSON.stringify({ action: 'register', replace: true, ...pairingBody() }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || `Pairing registration failed (${response.status}).`);
+      if (!response.ok) {
+        const error = new Error(payload.error || `Pairing registration failed (${response.status}).`);
+        Object.assign(error, payload);
+        throw error;
+      }
+      allowDiagramBrowserWrites(payload.connection?.actual || buildInfo);
       emitConnection(payload.connection);
       return payload.connection;
     };
@@ -154,6 +168,7 @@ export default function DiagramAgentBridge() {
             visible: 'true',
             focused: String(typeof document.hasFocus !== 'function' || document.hasFocus()),
             href: window.location.href,
+            ...buildInfo,
           });
           const response = await fetch(`/api/diagram-agent?${presence}`, {
             cache: 'no-store',
@@ -162,12 +177,27 @@ export default function DiagramAgentBridge() {
           });
           if (!response.ok) {
             const failure = await response.json().catch(() => ({}));
-            emitConnection({ status: failure.code === 'CONNECTION_REPLACED' ? 'replaced' : 'disconnected', error: failure.error });
+            if (failure.code === 'BROWSER_BUILD_STALE') blockDiagramBrowserWrites(failure);
+            emitConnection({ ...failure, status: failure.code === 'BROWSER_BUILD_STALE' ? 'stale' : (failure.code === 'CONNECTION_REPLACED' ? 'replaced' : 'disconnected') });
             await new Promise((resolve) => window.setTimeout(resolve, response.status === 409 ? 2_000 : 1_000));
             continue;
           }
-          emitConnection({ workspaceId, browserSessionId, tabId, clientId, status: 'connected', connected: true, currentClient: true });
           const payload = await response.json();
+          emitConnection(payload.connection || {
+            workspaceId,
+            browserSessionId,
+            tabId,
+            clientId,
+            status: 'connected',
+            connected: true,
+            online: true,
+            writable: true,
+            versionCompatible: true,
+            expected: buildInfo,
+            actual: buildInfo,
+            ...buildInfo,
+            currentClient: true,
+          });
           for (const request of payload.requests || []) {
             if (cancelled) break;
             if (!session.isOwner()) {
@@ -181,6 +211,8 @@ export default function DiagramAgentBridge() {
                 onPresentation: publishPresentation,
                 screenshot: captureDrawingScreenshot,
                 includeMetrics: true,
+                compactResponse: true,
+                browserVersion: buildInfo,
               });
               await respond(request, result);
             } catch (error) {
@@ -207,7 +239,8 @@ export default function DiagramAgentBridge() {
           if (!cancelled) await poll();
           return;
         } catch (error) {
-          emitConnection({ status: 'disconnected', error: String(error?.message || error) });
+          if (error?.code === 'BROWSER_BUILD_STALE') blockDiagramBrowserWrites(error);
+          emitConnection({ ...serializeDiagramAgentError(error), status: error?.code === 'BROWSER_BUILD_STALE' ? 'stale' : 'disconnected' });
           await new Promise((resolve) => window.setTimeout(resolve, 1_500));
         }
       }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDiagramAgentTransport } from '@/lib/diagram-agent-transport';
 import { getDiagramMcpPairingStore } from '@/lib/diagram-mcp-pairing-store';
 import { withApiObservability } from '@/lib/api-observability';
+import { createBrowserBuildStaleError, serializeDiagramAgentError } from '@/lib/diagram-agent-protocol';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,8 +54,8 @@ function authorized(request, action) {
   return true;
 }
 
-function jsonError(message, status = 400, code = 'BRIDGE_ERROR') {
-  return NextResponse.json({ ok: false, error: message, code }, { status });
+function jsonError(message, status = 400, code = 'BRIDGE_ERROR', details = {}) {
+  return NextResponse.json({ ok: false, error: message, code, ...details }, { status });
 }
 
 function pairingContext(request, values = {}) {
@@ -64,6 +65,9 @@ function pairingContext(request, values = {}) {
     tabId: values.tabId || '',
     clientId: values.clientId || '',
     href: values.href || '',
+    buildSha: values.buildSha || '',
+    buildVersion: values.buildVersion || '',
+    protocolVersion: values.protocolVersion || '',
     managementSecret: request.headers.get('x-anchorread-session-secret') || '',
   };
 }
@@ -77,8 +81,11 @@ async function freshBindingInfo(store, context) {
 function pairingError(error) {
   const code = String(error?.code || 'PAIRING_ERROR');
   const unavailable = ['BROWSER_SESSION_OFFLINE', 'BROKER_BUSY', 'BROKER_CONFIG_ERROR', 'BROKER_UNAVAILABLE'].includes(code);
-  const status = code === 'CONNECTION_REPLACED' ? 409 : (unavailable ? 503 : 403);
-  return jsonError(String(error?.message || error), status, code);
+  const status = ['CONNECTION_REPLACED', 'BROWSER_BUILD_STALE'].includes(code) ? 409 : (unavailable ? 503 : 403);
+  const details = serializeDiagramAgentError(error);
+  delete details.code;
+  delete details.message;
+  return jsonError(String(error?.message || error), status, code, details);
 }
 
 function isBrokerError(error) {
@@ -123,16 +130,20 @@ async function handleGET(request) {
   const visible = url.searchParams.get('visible') !== 'false';
   const focused = url.searchParams.get('focused') !== 'false';
   const href = url.searchParams.get('href') || '';
-  const context = pairingContext(request, { clientId, tabId, workspaceId, browserSessionId, href });
+  const buildSha = url.searchParams.get('buildSha') || '';
+  const buildVersion = url.searchParams.get('buildVersion') || '';
+  const protocolVersion = url.searchParams.get('protocolVersion') || '';
+  const context = pairingContext(request, { clientId, tabId, workspaceId, browserSessionId, href, buildSha, buildVersion, protocolVersion });
   const store = getDiagramMcpPairingStore();
   const transport = getDiagramAgentTransport();
   if (action === 'register') {
     try {
       const connection = await store.registerConnection(context, { replace: false });
+      await store.assertConnectionOwner(context);
       return NextResponse.json({
         ok: true,
         connection,
-        client: await transport.registerClient(clientId, { tabId, workspaceId, bindingId: connection.bindingId, browserSessionId, visible, focused, href }),
+        client: await transport.registerClient(clientId, { tabId, workspaceId, bindingId: connection.bindingId, browserSessionId, visible, focused, href, buildSha, buildVersion, protocolVersion }),
       });
     } catch (error) {
       return pairingError(error);
@@ -165,15 +176,16 @@ async function handleGET(request) {
   let connection;
   try {
     connection = await store.registerConnection(context, { replace: false });
+    await store.assertConnectionOwner(context);
   } catch (error) {
     return pairingError(error);
   }
   const waitMs = Math.max(0, Math.min(Number(url.searchParams.get('waitMs')) || 0, 25_000));
-  const client = { tabId, workspaceId, bindingId: connection.bindingId, browserSessionId, visible, focused, href };
+  const client = { tabId, workspaceId, bindingId: connection.bindingId, browserSessionId, visible, focused, href, buildSha, buildVersion, protocolVersion };
   const requests = waitMs
     ? await transport.waitForRequests(clientId, { waitMs, client })
     : await transport.claimRequests(clientId, { client });
-  return NextResponse.json({ ok: true, requests });
+  return NextResponse.json({ ok: true, connection, requests });
 }
 
 async function handlePOST(request) {
@@ -192,6 +204,12 @@ async function handlePOST(request) {
     }
     try {
       const transport = getDiagramAgentTransport();
+      if (typeof transport.getPresence === 'function') {
+        const presence = await transport.getPresence(body?.scope || {});
+        if (presence?.online === true && presence?.versionCompatible === false) {
+          throw createBrowserBuildStaleError(presence.actual || presence, { workspaceUrl: presence.href });
+        }
+      }
       const { id, promise } = await transport.createRequest(command, { ttlMs: body?.ttlMs, scope: body?.scope });
       const timeoutMs = Math.max(1_000, Math.min(Number(body?.timeoutMs) || 45_000, 120_000));
       const timeout = new Promise((_, reject) => {
@@ -206,8 +224,11 @@ async function handlePOST(request) {
       const result = await Promise.race([promise, timeout]);
       return NextResponse.json({ ok: true, requestId: id, result });
     } catch (error) {
-      const status = error?.code === 'BRIDGE_QUEUE_FULL' ? 429 : 504;
-      return jsonError(String(error?.message || error), status, error?.code || 'BRIDGE_ERROR');
+      const status = error?.code === 'BRIDGE_QUEUE_FULL' ? 429 : (error?.code === 'BROWSER_BUILD_STALE' ? 409 : 504);
+      const details = serializeDiagramAgentError(error);
+      delete details.code;
+      delete details.message;
+      return jsonError(String(error?.message || error), status, error?.code || 'BRIDGE_ERROR', details);
     }
   }
   if (action === 'resolve') {

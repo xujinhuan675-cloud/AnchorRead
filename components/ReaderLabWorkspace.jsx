@@ -1635,8 +1635,15 @@ export default function ReaderLabWorkspace({
     }).catch((error) => setNotice(errorNotice(error)));
   }, [createDrawing, diagramDocument, historyDrawing]);
 
-  const persistDrawing = useCallback(async (drawing) => {
-    await workspaceRepository.drawings.save(drawing);
+  const persistDrawing = useCallback(async (drawing, options = {}) => {
+    try {
+      await workspaceRepository.drawings.save(drawing, options);
+    } catch (error) {
+      if (error?.code === 'REVISION_CONFLICT') {
+        error.latestDrawing = await workspaceRepository.drawings.get(drawing.id);
+      }
+      throw error;
+    }
     broadcastDrawing(drawing);
     setDrawings((current) => current.map((item) => item.id === drawing.id ? drawing : item));
   }, [broadcastDrawing]);

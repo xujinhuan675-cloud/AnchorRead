@@ -8,6 +8,7 @@ import {
   FileDiagramMcpPairingStore,
   InMemoryDiagramMcpPairingStore,
 } from '../lib/diagram-mcp-pairing-store.js';
+import { getDiagramAgentBuildInfo } from '../lib/diagram-agent-protocol.js';
 
 function context(overrides = {}) {
   return {
@@ -17,9 +18,58 @@ function context(overrides = {}) {
     clientId: 'client-test',
     managementSecret: 'manage-test-secret',
     href: 'https://anchor.example/diagrams',
+    ...getDiagramAgentBuildInfo(),
     ...overrides,
   };
 }
+
+test('browser build handshake accepts current, rejects missing and stale versions, then recovers after refresh', async () => {
+  const store = new InMemoryDiagramMcpPairingStore();
+  const current = await store.registerConnection(context(), { now: 100 });
+  assert.equal(current.connected, true);
+  assert.equal(current.writable, true);
+  assert.equal(current.versionCompatible, true);
+
+  const missingContext = context({
+    browserSessionId: 'session-missing',
+    tabId: 'tab-missing',
+    clientId: 'client-missing',
+    buildSha: '',
+    buildVersion: '',
+    protocolVersion: '',
+  });
+  const missing = await store.registerConnection(missingContext, { replace: true, now: 200 });
+  assert.equal(missing.online, true);
+  assert.equal(missing.connected, false);
+  assert.equal(missing.status, 'stale');
+  await assert.rejects(store.assertConnectionOwner(missingContext, { now: 201 }), (error) => {
+    assert.equal(error.code, 'BROWSER_BUILD_STALE');
+    assert.deepEqual(error.missing.sort(), ['buildSha', 'buildVersion', 'protocolVersion']);
+    assert.equal(error.recovery.action, 'refresh_workspace_page');
+    return true;
+  });
+
+  const staleContext = context({
+    browserSessionId: 'session-stale',
+    tabId: 'tab-stale',
+    clientId: 'client-stale',
+    protocolVersion: '1',
+  });
+  const stale = await store.registerConnection(staleContext, { replace: true, now: 300 });
+  assert.equal(stale.status, 'stale');
+  assert.deepEqual(stale.expected, getDiagramAgentBuildInfo());
+  assert.equal(stale.actual.protocolVersion, '1');
+
+  const refreshedContext = context({
+    browserSessionId: 'session-stale',
+    tabId: 'tab-refreshed',
+    clientId: 'client-refreshed',
+  });
+  const refreshed = await store.registerConnection(refreshedContext, { replace: true, now: 400 });
+  assert.equal(refreshed.connected, true);
+  assert.equal(refreshed.writable, true);
+  assert.equal((await store.assertConnectionOwner(refreshedContext, { now: 401 })).status, 'connected');
+});
 
 test('OAuth access tokens follow the browser workspace across tab sessions', async () => {
   const store = new InMemoryDiagramMcpPairingStore();

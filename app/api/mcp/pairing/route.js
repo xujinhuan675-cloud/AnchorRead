@@ -5,6 +5,7 @@ import {
   getDiagramMcpPairingStore,
   getDiagramMcpRuntimeInfo,
 } from '@/lib/diagram-mcp-pairing-store';
+import { serializeDiagramAgentError } from '@/lib/diagram-agent-protocol';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,9 @@ function contextFrom(request, body) {
     tabId: body?.tabId,
     clientId: body?.clientId,
     href: body?.href,
+    buildSha: body?.buildSha,
+    buildVersion: body?.buildVersion,
+    protocolVersion: body?.protocolVersion,
     managementSecret: request.headers.get('x-anchorread-session-secret'),
   };
 }
@@ -49,6 +53,7 @@ async function freshBindingInfo(store, context) {
 function errorStatus(code) {
   if (['PAIRING_FORBIDDEN', 'SESSION_CONFLICT'].includes(code)) return 403;
   if (code === 'CONNECTION_REPLACED') return 409;
+  if (code === 'BROWSER_BUILD_STALE') return 409;
   if (['BROWSER_SESSION_OFFLINE', 'PAIRING_STORE_UNAVAILABLE', 'BROKER_BUSY', 'BROKER_CONFIG_ERROR', 'BROKER_UNAVAILABLE'].includes(code)) return 503;
   if (code === 'TOKEN_NOT_FOUND') return 404;
   return 400;
@@ -56,11 +61,8 @@ function errorStatus(code) {
 
 function jsonError(error) {
   const code = String(error?.code || 'PAIRING_ERROR');
-  return NextResponse.json({
-    ok: false,
-    code,
-    error: String(error?.message || error),
-  }, { status: errorStatus(code) });
+  const serialized = serializeDiagramAgentError(error);
+  return NextResponse.json({ ok: false, error: serialized.message, ...serialized }, { status: errorStatus(code) });
 }
 
 async function testBrowserRoute(store, context) {
@@ -70,7 +72,7 @@ async function testBrowserRoute(store, context) {
     : await store.assertConnectionOwner(context);
   const timeoutMs = 8_000;
   const { id, promise } = await transport.createRequest(
-    { tool: 'list_diagrams', args: {} },
+    { tool: 'verify_browser_connection', args: {} },
     {
       ttlMs: timeoutMs,
       scope: {
@@ -159,6 +161,7 @@ export async function POST(request) {
       const transport = getDiagramAgentTransport();
       await transport.assertReady?.();
       const connection = await store.registerConnection(context, { replace: body?.replace === true });
+      await store.assertConnectionOwner(context);
       return NextResponse.json({
         ok: true,
         connection,

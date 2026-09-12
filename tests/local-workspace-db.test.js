@@ -9,9 +9,14 @@ import {
   createWorkspaceRepository,
   normalizeWorkspaceRecord,
 } from '../lib/local-workspace-db.js';
+import {
+  allowDiagramBrowserWrites,
+  beginDiagramBrowserHandshake,
+  resetDiagramBrowserWriteGuardForTests,
+} from '../lib/diagram-browser-write-guard.js';
 
-test('declares the complete v3 local workspace schema', () => {
-  assert.equal(WORKSPACE_DB_VERSION, 3);
+test('declares the complete v4 local workspace schema', () => {
+  assert.equal(WORKSPACE_DB_VERSION, 4);
   assert.deepEqual(WORKSPACE_STORE_NAMES, [
     'documents',
     'readSessions',
@@ -25,6 +30,27 @@ test('declares the complete v3 local workspace schema', () => {
   assert.equal(WORKSPACE_SCHEMA.readSessions.indexes.documentId.unique, true);
   assert.equal(WORKSPACE_SCHEMA.drawings.indexes.engine.keyPath, 'engine');
   assert.equal(WORKSPACE_SCHEMA.glossary.indexes.normalizedTerm.keyPath, 'normalizedTerm');
+});
+
+test('drawing writes require a compatible handshake and compare revisions atomically', async () => {
+  resetDiagramBrowserWriteGuardForTests();
+  const repository = createWorkspaceRepository(createMemoryWorkspaceAdapter());
+  await repository.drawings.save({ id: 'drawing-cas', title: 'v1', engine: 'excalidraw', revision: 1 });
+
+  beginDiagramBrowserHandshake({ workspaceUrl: 'https://anchor.example/diagrams' });
+  await assert.rejects(
+    repository.drawings.save({ id: 'drawing-cas', title: 'blocked', engine: 'excalidraw', revision: 2 }, { expectedRevision: 1 }),
+    { code: 'BROWSER_BUILD_STALE' },
+  );
+
+  allowDiagramBrowserWrites();
+  await repository.drawings.save({ id: 'drawing-cas', title: 'v2', engine: 'excalidraw', revision: 2 }, { expectedRevision: 1 });
+  await assert.rejects(
+    repository.drawings.save({ id: 'drawing-cas', title: 'stale', engine: 'excalidraw', revision: 3 }, { expectedRevision: 1 }),
+    (error) => error.code === 'REVISION_CONFLICT' && error.actualRevision === 2,
+  );
+  assert.equal((await repository.drawings.get('drawing-cas')).title, 'v2');
+  resetDiagramBrowserWriteGuardForTests();
 });
 
 test('normalizes records without mutating caller data', () => {

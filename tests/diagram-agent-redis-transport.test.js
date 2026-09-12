@@ -3,6 +3,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { createRedisDiagramAgentTransport } from '../lib/diagram-agent-redis-transport.js';
 import { FakeRedisClient } from './helpers/fake-redis-client.js';
+import { getDiagramAgentBuildInfo } from '../lib/diagram-agent-protocol.js';
 
 function client(overrides = {}) {
   return {
@@ -12,6 +13,7 @@ function client(overrides = {}) {
     tabId: 'tab-shared',
     visible: true,
     focused: true,
+    ...getDiagramAgentBuildInfo(),
     ...overrides,
   };
 }

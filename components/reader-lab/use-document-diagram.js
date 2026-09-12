@@ -77,10 +77,10 @@ export function useDocumentDiagram({
   const draftDrawingRef = useRef(activeDrawing);
   const mermaidConversionSeqRef = useRef(0);
 
-  const applyExternalDrawing = useCallback((nextDrawing) => {
+  const applyExternalDrawing = useCallback((nextDrawing, { force = false } = {}) => {
     const currentDrawing = draftDrawingRef.current || activeDrawing;
     if (!nextDrawing?.id || nextDrawing.id !== currentDrawing?.id) return false;
-    if (getDiagramRevision(nextDrawing) <= getDiagramRevision(currentDrawing)) return false;
+    if (!force && getDiagramRevision(nextDrawing) <= getDiagramRevision(currentDrawing)) return false;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -130,9 +130,9 @@ export function useDocumentDiagram({
     setElements(nextScene.elements);
     setAppState(normalizePersistedExcalidrawAppState(nextScene.appState));
     setFiles(nextScene.files);
-    setRevisionHistory(Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []);
-    setPresentation(activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
-    setPresentationDisabled(activeDrawing?.presentationDisabled === true);
+    setRevisionHistory(Array.isArray(nextDrawing?.revisionHistory) ? nextDrawing.revisionHistory : []);
+    setPresentation(nextDrawing?.presentation || nextDrawing?.presentationSpec || null);
+    setPresentationDisabled(nextDrawing?.presentationDisabled === true);
   }, [activeDrawing]);
 
   useEffect(() => () => {
@@ -229,8 +229,17 @@ export function useDocumentDiagram({
     draftDrawingRef.current = next;
     setRevisionHistory(Array.isArray(next.revisionHistory) ? next.revisionHistory : []);
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => onPersistDrawing(next), 400);
-  }, [activeDrawing, appState, chartType, code, elements, engine, files, onPersistDrawing]);
+    const expectedRevision = getDiagramRevision(baseDrawing);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      Promise.resolve(onPersistDrawing(next, { expectedRevision })).catch((caughtError) => {
+        if (caughtError?.code === 'REVISION_CONFLICT' && caughtError.latestDrawing) {
+          applyExternalDrawing(caughtError.latestDrawing, { force: true });
+        }
+        setError(caughtError?.message || '图解保存失败。');
+      });
+    }, 400);
+  }, [activeDrawing, appState, applyExternalDrawing, chartType, code, elements, engine, files, onPersistDrawing]);
 
   // anchorOverride：划词图解不跳转，锚点在同一次调用里随参数传入，
   // 不等 hook 的 anchor prop 下一帧生效
@@ -598,11 +607,16 @@ export function useDocumentDiagram({
       setFiles(next.scene.files);
       setCode(next.source);
       setRevisionHistory(next.revisionHistory || []);
-      onPersistDrawing(next);
+      Promise.resolve(onPersistDrawing(next, { expectedRevision: getDiagramRevision(baseDrawing) })).catch((caughtError) => {
+        if (caughtError?.code === 'REVISION_CONFLICT' && caughtError.latestDrawing) {
+          applyExternalDrawing(caughtError.latestDrawing, { force: true });
+        }
+        setError(caughtError?.message || '图解版本恢复失败。');
+      });
     } catch (caughtError) {
       setError(caughtError.message || '图解版本恢复失败。');
     }
-  }, [activeDrawing, engine, onPersistDrawing]);
+  }, [activeDrawing, applyExternalDrawing, engine, onPersistDrawing]);
 
   return {
     drawingId: (draftDrawingRef.current || activeDrawing)?.id || null,
