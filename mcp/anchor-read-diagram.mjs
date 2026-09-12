@@ -51,11 +51,13 @@ import {
 import { createWorkspaceFilePayload, parseWorkspaceFile } from '../lib/workspace-file.js';
 import { getPresentationSpec, normalizePresentationSpec } from '../lib/diagram-presentation.js';
 import { createDefaultMermaidPresentation, createDefaultPresentation, isDefaultMermaidPresentation, isDefaultPresentation } from '../lib/diagram-stream.js';
-import { makeDrawing } from '../lib/diagram-agent-commands.js';
+import { executeDiagramAgentCommand, makeDrawing } from '../lib/diagram-agent-commands.js';
+import { projectDiagram, projectDiagramAgentResult } from '../lib/diagram-agent-results.js';
 import {
   buildDiagramUrl,
   buildDiagramWorkspaceUrl,
   createMcpBrowserRecoveryResult,
+  createMcpErrorResult,
   createMcpToolResult,
   createInlineViewToolResult,
 } from '../lib/diagram-mcp-links.js';
@@ -63,6 +65,8 @@ import {
   DIAGRAM_MCP_SERVER_INFO,
   DIAGRAM_MCP_INSTRUCTIONS,
   DIAGRAM_MCP_READ_ME,
+  DIAGRAM_MCP_WRITE_TOOL_NAMES,
+  getDiagramMcpTools,
 } from '../lib/diagram-agent-mcp-contract.js';
 import { getDiagramDesignGuide } from '../lib/diagram-design-guide.js';
 import {
@@ -298,8 +302,17 @@ const BASE_TOOLS = [
   },
   {
     name: 'get_diagram',
-    description: '读取图解元数据与完整 Excalidraw scene。',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    description: '默认读取轻量图解摘要；完整 scene、source、history、variants 必须通过 projection/include 显式请求。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        projection: { type: 'string', enum: ['summary', 'full'], default: 'summary' },
+        include: { type: 'array', uniqueItems: true, items: { type: 'string', enum: ['scene', 'source', 'history', 'revisionHistory', 'variants', 'presentation', 'namedSnapshots'] } },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'describe_diagram',
@@ -640,11 +653,14 @@ const WRITE_TOOLS = [
   },
 ];
 
-const LIVE_READ_TOOLS = BASE_TOOLS.filter((tool) => tool.name !== 'export_excalidraw');
-const TOOLS = bridgeUrl
-  ? [...LIVE_READ_TOOLS, CREATE_VIEW_TOOL, CREATE_TOOL, ...WRITE_TOOLS]
-  : (writeEnabled ? [...BASE_TOOLS, CREATE_VIEW_TOOL, ...WRITE_TOOLS] : [...BASE_TOOLS, CREATE_VIEW_TOOL]);
-const WRITE_TOOL_NAMES = new Set(WRITE_TOOLS.map((tool) => tool.name));
+const offlineToolNames = new Set([
+  ...BASE_TOOLS.map((tool) => tool.name),
+  CREATE_VIEW_TOOL.name,
+  ...(writeEnabled ? WRITE_TOOLS.map((tool) => tool.name) : []),
+]);
+const TOOLS = getDiagramMcpTools({ includeExport: !bridgeUrl })
+  .filter((tool) => bridgeUrl || offlineToolNames.has(tool.name));
+const WRITE_TOOL_NAMES = new Set(DIAGRAM_MCP_WRITE_TOOL_NAMES);
 let writeQueue = Promise.resolve();
 
 function enqueueWrite(task) {
@@ -706,7 +722,7 @@ async function callToolImpl(name, args = {}) {
         })));
     case 'get_diagram': {
       const drawing = getDrawing(payload, args.id);
-      return textResult({ ...drawing, scene: getDrawingScene(drawing) });
+      return textResult(projectDiagram(drawing, args));
     }
     case 'describe_diagram':
     case 'describe_scene':
@@ -1004,6 +1020,7 @@ function operationFingerprint(tool, args) {
   delete payload.expectedRevision;
   delete payload.retryOnConflict;
   delete payload.maxConflictRetries;
+  delete payload.includeScene;
   return JSON.stringify(stableOperationValue({ tool, args: payload }));
 }
 
@@ -1048,7 +1065,11 @@ async function callTool(name, args = {}) {
     },
   }, async (span) => {
     try {
-      const result = await metrics.measure('serverExecutionMs', () => callToolImpl(name, args));
+      let result = await metrics.measure('serverExecutionMs', () => callToolImpl(name, args));
+      if (!bridgeUrl && result?.structuredContent && typeof result.structuredContent === 'object') {
+        const projected = projectDiagramAgentResult({ tool: name, args }, result.structuredContent);
+        if (projected !== result.structuredContent) result = createMcpToolResult(projected);
+      }
       const browserMetrics = result?.structuredContent?.operationMetrics || result?.operationMetrics || {};
       const operationMetrics = { ...browserMetrics, ...metrics.finish(result, 'ok') };
       const attributes = {
@@ -1108,11 +1129,12 @@ async function callBridgeTool(name, args = {}) {
   }
   if (!response.ok || !body?.ok) {
     const error = new Error(body?.error || `AnchorRead live bridge failed (${response.status}).`);
-    error.code = String(body?.code || '').trim() || `BRIDGE_HTTP_${response.status}`;
+    Object.assign(error, body, { code: String(body?.code || '').trim() || `BRIDGE_HTTP_${response.status}` });
     throw error;
   }
   const result = mergeDiagramOperationMetrics(body.result, { bridgeRoundTripMs: Date.now() - startedAt });
-  return result && Array.isArray(result.content) ? result : textResult(result);
+  if (result && Array.isArray(result.content)) return result;
+  return textResult(projectDiagramAgentResult({ tool: name, args }, result));
 }
 
 function send(message) {
@@ -1166,10 +1188,7 @@ async function handleRequestImpl(request) {
       return send({
         jsonrpc: '2.0',
         id,
-        result: recovery ? { ...recovery, isError: true } : {
-          content: [{ type: 'text', text: String(error?.message || error) }],
-          isError: true,
-        },
+        result: recovery ? { ...recovery, isError: true } : createMcpErrorResult(error),
       });
     }
     return send({ jsonrpc: '2.0', id, error: { code: -32000, message: String(error?.message || error) } });

@@ -83,6 +83,8 @@ test('diagram MCP lists, describes and commits with revision protection', async 
         name: 'create_view',
         arguments: { elements: JSON.stringify([{ id: 'stdio-inline-rect', type: 'rectangle', x: 0, y: 0, width: 80, height: 40 }]) },
       } },
+      { jsonrpc: '2.0', id: 13, method: 'tools/call', params: { name: 'get_diagram', arguments: { id: 'drawing-1' } } },
+      { jsonrpc: '2.0', id: 14, method: 'tools/call', params: { name: 'get_diagram', arguments: { id: 'drawing-1', include: ['scene'] } } },
     ], false);
     assert.equal(responses[0].result.serverInfo.name, 'anchor-read-diagram');
     assert.equal(responses[0].result.serverInfo.title, 'AnchorRead Diagram');
@@ -90,6 +92,9 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.match(responses[0].result.instructions, /source -> target -> connector/);
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'read_me'));
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'query_diagram'));
+    const getDiagramSchema = responses[1].result.tools.find((tool) => tool.name === 'get_diagram').inputSchema;
+    assert.deepEqual(getDiagramSchema.properties.projection.enum, ['summary', 'full']);
+    assert.ok(getDiagramSchema.properties.include.items.enum.includes('scene'));
     assert.match(
       responses[1].result.tools.find((tool) => tool.name === 'create_view').description,
       /起点节点.*终点节点.*连线及关系文字/,
@@ -108,6 +113,10 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.match(inline.content[0].text, /stdio-inline-rect/);
     assert.equal(inline.structuredContent.engine, 'excalidraw');
     assert.equal(inline.structuredContent.scene.elements[0].id, 'stdio-inline-rect');
+    const summary = responses.find((response) => response.id === 13).result.structuredContent;
+    assert.equal(summary.elementCount, 1);
+    assert.equal(summary.scene, undefined);
+    assert.equal(responses.find((response) => response.id === 14).result.structuredContent.scene.elements[0].id, 'a');
 
     const writes = await callServer(workspacePath, [
       { jsonrpc: '2.0', id: 5, method: 'tools/call', params: {
@@ -130,6 +139,7 @@ test('diagram MCP lists, describes and commits with revision protection', async 
       } },
     ], true);
     assert.match(writes[0].result.content[0].text, /"revision": 1/);
+    assert.equal(writes[0].result.structuredContent.scene, undefined);
     assert.equal(writes[1].result.isError, true);
 
     const updated = JSON.parse(await readFile(workspacePath, 'utf8'));
@@ -199,7 +209,7 @@ test('offline stdio persists the migrated create_from_mermaid workflow', async (
       } },
     ], true);
     assert.match(responses[0].result.content[0].text, /Required workflow/);
-    assert.equal(responses[1].result.structuredContent.engine, 'mermaid');
+    assert.equal(responses[1].result.structuredContent.engine, undefined);
     assert.equal(responses[1].result.structuredContent.openRequested, false);
     assert.match(responses[1].result.structuredContent.url, /\/diagrams\//);
     const stored = JSON.parse(await readFile(workspacePath, 'utf8'));

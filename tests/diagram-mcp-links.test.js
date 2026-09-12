@@ -101,6 +101,28 @@ test('text-wrapped object results retain structured content for MCP Apps', () =>
   assert.equal(metadata.structuredContent.title, 'Metadata only');
 });
 
+test('large structured results are not duplicated in the text channel', (t) => {
+  const value = {
+    id: 'large-diagram',
+    routeId: 'dg-large',
+    revision: 7,
+    scene: { elements: [{ id: 'large', type: 'text', text: 'x'.repeat(1_900_000) }] },
+  };
+  const startedAt = performance.now();
+  const result = createMcpToolResult(value);
+  const elapsedMs = performance.now() - startedAt;
+  const legacyBytes = new TextEncoder().encode(JSON.stringify({
+    content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    structuredContent: value,
+  })).byteLength;
+  const optimizedBytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+
+  assert.equal(result.structuredContent.scene.elements[0].text.length, 1_900_000);
+  assert.ok(result.content[0].text.length < 1_000);
+  assert.ok(optimizedBytes < legacyBytes * 0.6);
+  t.diagnostic(`legacy=${legacyBytes} bytes optimized=${optimizedBytes} bytes encode=${elapsedMs.toFixed(2)}ms`);
+});
+
 test('inline diagram payloads preserve named phase focus and camera steps', () => {
   const presentation = {
     title: '四阶段演示',

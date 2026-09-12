@@ -127,14 +127,18 @@ Redis broker 按 `workspaceId + bindingId` 分片（无 workspace 或旧请求�
 
 如果调用时没有在线的 AnchorRead 浏览器且请求没有提供可渲染内容，`create_diagram` 会返回 `nextAction: open_diagram_workspace_then_retry` 和工作区 `resource_link`。支持打开 URL 的客户端应先打开该链接再自动重试；CLI 或不支持打开网页的客户端只展示链接并提示用户手动打开。带有 `source`、`elements` 或 `scene` 的请求不再因为浏览器暂时离线而变成空画布。
 
-其它实时工具包括 `list_diagrams`、`get_diagram`、`describe_diagram`、`query_diagram`、`list_diagram_revisions`、`apply_diagram_patch`、`commit_diagram_scene` 和 `restore_diagram_revision`。写操作使用 `expectedRevision` 做乐观锁，避免 AI 覆盖用户刚刚的画布编辑。
+其它实时工具包括 `list_diagrams`、`get_diagram`、`describe_diagram`、`query_diagram`、`list_diagram_revisions`、`apply_diagram_patch`、`commit_diagram_scene` 和 `restore_diagram_revision`。`get_diagram` 默认只返回 id、routeId、标题、revision、更新时间、元素数量、类型统计和 bounds；需要大型字段时使用 `projection: "full"`，或用 `include` 精确请求 `scene`、`source`、`revisionHistory`、`variants`、`presentation`、`namedSnapshots`。完整对象只在 MCP `structuredContent` 中传输一次，不会再复制到文本通道。
+
+mutation 默认只返回 revision、changedIds、warnings、operationId 和必要的打开信息；只有显式传 `includeScene: true` 才返回完整 scene。所有写操作使用 `expectedRevision` 做乐观锁。`batch_create_elements`、`batch_update_elements` 和 `apply_diagram_patch` 还支持 `retryOnConflict`、`maxConflictRetries` 与 `operationId`：冲突重试会重读最新 revision 后重放同一批稳定 ID；同一 operationId 的成功请求只产生一次 revision，而被其他操作占用的稳定 ID 会返回 `ELEMENT_ID_COLLISION`。
 
 ## 浏览器会话与多标签页
 
 每个浏览器来源在 `localStorage` 中生成内部浏览器标识和管理密钥，每个浏览器会话在 `sessionStorage` 中生成会话标识，每次页面加载生成页面生命周期唯一的 `tabId` 与 `clientId`。服务器签发的不透明 `bindingId` 用于确认 OAuth access token 属于该浏览器工作区；同一来源中的标签页共享授权。请求进入队列时再携带当前在线连接的 browser/session/tab 作用域，不能落到其他浏览器或其他未持有租约的标签页。这些标识是内部路由实现，不是面向用户的“工作区”产品概念。
 
-标签页通过本机 `localStorage` 维护短租约。只有当前可见且先取得租约的图解标签页才会注册并轮询 `/api/diagram-agent`。复制标签页虽然会复制 `sessionStorage`，但新的页面级 `tabId` 不会被复制；未持有租约的页面不能接管服务端路由。刷新、复制或新开同源图解页都会复用该浏览器工作区的 OAuth 授权，在线标签页变化只会切换命令接收者，不会撤销授权。另一浏览器来源仍必须单独授权。
+标签页通过本机 `localStorage` 维护短租约。只有当前可见且先取得租约的图解标签页才会注册并轮询 `/api/diagram-agent`。pairing、presence 和 poll 同时携带统一的 `buildSha`、`buildVersion` 与图解桥接 `protocolVersion`；只有三者与服务端构建一致时，在线连接才具有 `writable: true`。缺失或不匹配会返回结构化 `BROWSER_BUILD_STALE`（含 expected、actual 与需要刷新的工作区 URL），页面保持写入门禁关闭，刷新并重新通过 `verify_browser_connection` 后才恢复。IndexedDB v4 升级也会关闭仍持有 v3 数据库连接的旧页面，避免旧 bundle 在新页面提交 revision 后继续自动保存。
 
-图解记录通过 `BroadcastChannel` 在同一浏览器来源的 AnchorRead 标签页之间广播。MCP 创建或修改的记录、用户在画布中的保存以及删除操作都会广播；接收方只合并 revision 更高、或同 revision 但 `updatedAt` 更新的记录，IndexedDB 仍是每个浏览器的持久化真源。浏览器不支持 `BroadcastChannel` 时，MCP 主流程仍可工作，只是不会获得跨标签页即时刷新。
+复制标签页虽然会复制 `sessionStorage`，但新的页面级 `tabId` 不会被复制；未持有租约的页面不能接管服务端路由。刷新、复制或新开同源图解页都会复用该浏览器工作区的 OAuth 授权，在线标签页变化只会切换命令接收者，不会撤销授权。另一浏览器来源仍必须单独授权。
+
+图解记录通过 `BroadcastChannel` 在同一浏览器来源的 AnchorRead 标签页之间广播。MCP 创建或修改的记录、用户在画布中的保存以及删除操作都会广播；接收方只合并 revision 更高、或同 revision 但 `updatedAt` 更新的记录，IndexedDB 仍是每个浏览器的持久化真源。画布延迟自动保存使用原子 revision 条件写入；若 MCP 已提交更新，旧草稿保存会失败并重载最新记录，而不是覆盖它。浏览器不支持 `BroadcastChannel` 时，MCP 主流程仍可工作，只是不会获得跨标签页即时刷新。
 
 同一个单进程实例可以按内部浏览器标识隔离多个已授权浏览器，并持久保存 OAuth 状态和短期 access-token 哈希，但它还不是多用户、多实例系统：没有账号/租户层、共享数据库、跨进程队列或可靠事件投递。

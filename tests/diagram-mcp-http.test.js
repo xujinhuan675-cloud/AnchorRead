@@ -14,6 +14,7 @@ import {
   resetDiagramAgentBrokerForTests,
   resolveDiagramAgentRequest,
 } from '../lib/diagram-agent-broker.js';
+import { getDiagramAgentBuildInfo } from '../lib/diagram-agent-protocol.js';
 
 function request(url, body, headers = {}, method = 'POST') {
   return new Request(url, {
@@ -229,7 +230,7 @@ test('create_diagram returns only after the browser acknowledges persistence', a
     }, { 'MCP-Session-Id': sessionId }));
     await new Promise((resolve) => setTimeout(resolve, 10));
     const claimed = claimDiagramAgentRequests('connected-browser', {
-      client: { workspaceId: '', visible: true, focused: true },
+      client: { workspaceId: '', visible: true, focused: true, ...getDiagramAgentBuildInfo() },
     });
     assert.equal(claimed[0].payload.args.elements[0].id, 'wake-node');
     resolveDiagramAgentRequest(claimed[0].id, claimed[0].claimToken, {
@@ -243,6 +244,35 @@ test('create_diagram returns only after the browser acknowledges persistence', a
   } finally {
     resetDiagramAgentBrokerForTests();
   }
+});
+
+test('revision conflicts retain structured retry exhaustion details', async () => {
+  const initialize = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+    jsonrpc: '2.0', id: 72, method: 'initialize', params: {},
+  }));
+  const sessionId = initialize.headers.get('mcp-session-id');
+  const response = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
+    jsonrpc: '2.0', id: 73, method: 'tools/call', params: {
+      name: 'batch_create_elements',
+      arguments: { id: 'conflicted', elements: [{ id: 'a', type: 'rectangle' }], retryOnConflict: true },
+    },
+  }, { 'MCP-Session-Id': sessionId }), {
+    submitTool: async () => {
+      const error = new Error('Diagram revision conflict after retry.');
+      error.code = 'REVISION_CONFLICT';
+      error.expectedRevision = 2;
+      error.actualRevision = 3;
+      error.retryExhausted = true;
+      error.conflictRetries = 2;
+      error.maxConflictRetries = 2;
+      throw error;
+    },
+  });
+  const result = (await response.json()).result;
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.code, 'REVISION_CONFLICT');
+  assert.equal(result.structuredContent.retryExhausted, true);
+  assert.equal(result.structuredContent.actualRevision, 3);
 });
 
 test('Streamable HTTP keeps an optional SSE session alive and fails expired sessions fast', async () => {

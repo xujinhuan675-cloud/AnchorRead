@@ -3,6 +3,8 @@ import test from 'node:test';
 import { createMemoryWorkspaceAdapter, createWorkspaceRepository } from '../lib/local-workspace-db.js';
 import { executeDiagramAgentCommand } from '../lib/diagram-agent-commands.js';
 import { STANDALONE_DIAGRAM_DOCUMENT_ID } from '../lib/diagram-generation.js';
+import { commitDiagramScene, getDrawingScene } from '../lib/diagram-scene-record.js';
+import { createMcpToolResult } from '../lib/diagram-mcp-links.js';
 
 function repository() {
   return createWorkspaceRepository(createMemoryWorkspaceAdapter());
