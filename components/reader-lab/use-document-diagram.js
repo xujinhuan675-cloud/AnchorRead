@@ -130,9 +130,9 @@ export function useDocumentDiagram({
     setElements(nextScene.elements);
     setAppState(normalizePersistedExcalidrawAppState(nextScene.appState));
     setFiles(nextScene.files);
-    setRevisionHistory(Array.isArray(nextDrawing?.revisionHistory) ? nextDrawing.revisionHistory : []);
-    setPresentation(nextDrawing?.presentation || nextDrawing?.presentationSpec || null);
-    setPresentationDisabled(nextDrawing?.presentationDisabled === true);
+    setRevisionHistory(Array.isArray(activeDrawing?.revisionHistory) ? activeDrawing.revisionHistory : []);
+    setPresentation(activeDrawing?.presentation || activeDrawing?.presentationSpec || null);
+    setPresentationDisabled(activeDrawing?.presentationDisabled === true);
   }, [activeDrawing]);
 
   useEffect(() => () => {

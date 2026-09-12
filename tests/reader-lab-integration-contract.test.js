@@ -24,6 +24,7 @@ const documentRouteIds = readSource('../lib/document-route-id.js');
 const diagramDetailRoute = readSource('../app/diagrams/[drawingId]/page.js');
 const documentDetailRoute = readSource('../app/documents/[documentId]/page.js');
 const readerLabWorkspace = readSource('../components/ReaderLabWorkspace.jsx');
+const useDocumentDiagram = readSource('../components/reader-lab/use-document-diagram.js');
 const documentDiagramPanel = readSource('../components/reader-lab/DocumentDiagramPanel.jsx');
 const documentDiagramCanvas = readSource('../components/reader-lab/DocumentDiagramCanvas.jsx');
 const mermaidCanvas = readSource('../components/MermaidCanvas.jsx');
@@ -143,6 +144,15 @@ test('diagram thumbnails treat empty or invalid local source as a recoverable pl
   assert.doesNotMatch(diagramThumbnail, /throw new Error\(['"]Empty Mermaid source['"]\)/);
   assert.doesNotMatch(diagramThumbnail, /console\.error\(/);
   assert.doesNotMatch(diagramThumbnail, /console\.warn\(/);
+});
+
+test('active drawing synchronization uses the in-scope drawing value', () => {
+  assert.match(useDocumentDiagram, /setRevisionHistory\(Array\.isArray\(activeDrawing\?\.revisionHistory\)/u);
+  assert.match(useDocumentDiagram, /setPresentation\(activeDrawing\?\.presentation \|\| activeDrawing\?\.presentationSpec \|\| null\)/u);
+  assert.match(useDocumentDiagram, /setPresentationDisabled\(activeDrawing\?\.presentationDisabled === true\)/u);
+  assert.doesNotMatch(useDocumentDiagram, /setRevisionHistory\(Array\.isArray\(nextDrawing\?\./u);
+  assert.doesNotMatch(useDocumentDiagram, /setPresentation\(nextDrawing\?\./u);
+  assert.doesNotMatch(useDocumentDiagram, /setPresentationDisabled\(nextDrawing\?\./u);
 });
 
 test('route layout controls document navigation while the workspace owns one reading surface', () => {
