@@ -191,6 +191,55 @@ test('offline stdio supports diagram-scoped element CRUD without global canvas s
   }
 });
 
+test('offline stdio batch_create_elements is idempotent and advertises conflict retries', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anchor-read-batch-create-'));
+  const workspacePath = join(directory, 'workspace.anchorread');
+  await writeFile(workspacePath, JSON.stringify(createWorkspaceFilePayload({
+    drawings: [{
+      id: 'drawing-batch',
+      routeId: 'dg-batch123',
+      title: 'Batch',
+      engine: 'excalidraw',
+      scene: { elements: [{ id: 'base', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 }] },
+      source: '[]',
+      revision: 1,
+      revisionHistory: [],
+      createdAt: 1,
+      updatedAt: 1,
+    }],
+  })), 'utf8');
+  const batchArguments = {
+    id: 'drawing-batch',
+    expectedRevision: 1,
+    retryOnConflict: true,
+    maxConflictRetries: 2,
+    operationId: 'stdio-batch-1',
+    elements: [
+      { id: 'new-a', type: 'rectangle', x: 40, y: 0, width: 20, height: 20 },
+      { id: 'new-b', type: 'text', x: 80, y: 0, width: 40, height: 20, text: 'B' },
+    ],
+  };
+  try {
+    const responses = await callServer(workspacePath, [
+      { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'batch_create_elements', arguments: batchArguments } },
+      { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'batch_create_elements', arguments: batchArguments } },
+    ], true);
+    const schema = responses[0].result.tools.find((tool) => tool.name === 'batch_create_elements').inputSchema.properties;
+    assert.equal(schema.retryOnConflict.type, 'boolean');
+    assert.equal(schema.maxConflictRetries.maximum, 5);
+    assert.equal(schema.includeScene.type, 'boolean');
+    assert.equal(responses[1].result.structuredContent.revision, 2);
+    assert.equal(responses[1].result.structuredContent.scene, undefined);
+    assert.equal(responses[2].result.structuredContent.idempotentReplay, true);
+    const stored = JSON.parse(await readFile(workspacePath, 'utf8'));
+    assert.equal(stored.data.drawings[0].revision, 2);
+    assert.deepEqual(stored.data.drawings[0].scene.elements.map((element) => element.id), ['base', 'new-a', 'new-b']);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('offline stdio persists the migrated create_from_mermaid workflow', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'anchor-read-mermaid-create-'));
   const workspacePath = join(directory, 'workspace.anchorread');

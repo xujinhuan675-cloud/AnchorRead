@@ -469,7 +469,7 @@ const WRITE_TOOLS = [
     description: '在指定 AnchorRead 图解中原子地增量创建多个 Excalidraw 元素。',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string' }, elements: { type: 'array', items: { type: 'object', additionalProperties: true }, minItems: 1 }, expectedRevision: { type: 'number' }, author: { type: 'string' }, reason: { type: 'string' }, operationId: { type: 'string', minLength: 1 } },
+      properties: { id: { type: 'string' }, elements: { type: 'array', items: { type: 'object', additionalProperties: true }, minItems: 1 }, expectedRevision: { type: 'number' }, retryOnConflict: { type: 'boolean' }, maxConflictRetries: { type: 'integer', minimum: 0, maximum: 5 }, author: { type: 'string' }, reason: { type: 'string' }, operationId: { type: 'string', minLength: 1 } },
       required: ['id', 'elements'],
       additionalProperties: false,
     },
@@ -813,15 +813,26 @@ async function callToolImpl(name, args = {}) {
       return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, element: nextDrawing.scene.elements.find((item) => item.id === element.id), scene: nextDrawing.scene });
     }
     case 'batch_create_elements': {
-      const drawing = getDrawing(payload, args.id);
-      const scene = getDrawingScene(drawing);
-      const usedIds = new Set(scene.elements.map((element) => String(element.id)));
-      const rawElements = Array.isArray(args.elements) ? args.elements : [];
-      if (rawElements.length === 0) throw new TypeError('batch_create_elements requires a non-empty elements array');
-      const elements = rawElements.map((item) => elementPayload({ ...args, element: item }, { now: Date.now(), usedIds }));
-      const nextDrawing = commitDiagramScene(drawing, applyScenePatch(scene, { create: elements }), args);
-      await writeWorkspace(writeDrawing(payload, nextDrawing));
-      return textResult({ id: nextDrawing.id, routeId: nextDrawing.routeId, revision: nextDrawing.revision, elements: elements.map((element) => nextDrawing.scene.elements.find((item) => item.id === element.id)), scene: nextDrawing.scene });
+      const repository = {
+        drawings: {
+          list: async () => (await readWorkspace()).data.drawings || [],
+          get: async (id) => getDrawing(await readWorkspace(), id),
+          save: async (nextDrawing, options = {}) => {
+            const latestPayload = await readWorkspace();
+            const current = getDrawing(latestPayload, nextDrawing.id);
+            if (options.expectedRevision !== undefined && getDiagramRevision(current) !== Number(options.expectedRevision)) {
+              const error = new Error(`Diagram revision conflict: expected ${options.expectedRevision}, actual ${getDiagramRevision(current)}.`);
+              error.code = 'REVISION_CONFLICT';
+              error.expectedRevision = Number(options.expectedRevision);
+              error.actualRevision = getDiagramRevision(current);
+              throw error;
+            }
+            await writeWorkspace(writeDrawing(latestPayload, nextDrawing));
+            return nextDrawing;
+          },
+        },
+      };
+      return textResult(await executeDiagramAgentCommand({ tool: name, args }, { repository, transport: 'stdio-file', compactResponse: true }));
     }
     case 'batch_update_elements': {
       const drawing = getDrawing(payload, args.id);

@@ -381,6 +381,190 @@ test('batch updates are atomic, idempotent, and can rebase a stale revision', as
   assert.equal(rebased.scene.elements.find((element) => element.id === 'b').x, 120);
 });
 
+test('MCP projections default to summaries and return full scenes only when requested', async () => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Projected response',
+      engine: 'excalidraw',
+      elements: [
+        { id: 'rect', type: 'rectangle', x: 10, y: 20, width: 100, height: 60 },
+        { id: 'label', type: 'text', x: 30, y: 40, width: 40, height: 20, text: 'Hi' },
+      ],
+      operationId: 'create-projected',
+    },
+  }, { repository: workspace, now: 100, compactResponse: true });
+  assert.equal(created.scene, undefined);
+  assert.deepEqual(created.changedIds, ['rect', 'label']);
+
+  const summary = await executeDiagramAgentCommand({
+    tool: 'get_diagram', args: { id: created.id },
+  }, { repository: workspace, compactResponse: true });
+  assert.equal(summary.scene, undefined);
+  assert.equal(summary.elementCount, 2);
+  assert.deepEqual(summary.typeCounts, { rectangle: 1, text: 1 });
+  assert.deepEqual(summary.bounds, { x: 10, y: 20, width: 100, height: 60 });
+
+  const full = await executeDiagramAgentCommand({
+    tool: 'get_diagram', args: { id: created.id, projection: 'full' },
+  }, { repository: workspace, compactResponse: true });
+  assert.equal(full.scene.elements.length, 2);
+  assert.ok(Array.isArray(full.revisionHistory));
+  assert.equal(typeof full.source, 'string');
+
+  const mutationWithScene = await executeDiagramAgentCommand({
+    tool: 'apply_diagram_patch',
+    args: {
+      id: created.id,
+      expectedRevision: 1,
+      patch: { update: [{ id: 'rect', x: 20 }] },
+      includeScene: true,
+    },
+  }, { repository: workspace, compactResponse: true, now: 110 });
+  assert.equal(mutationWithScene.revision, 2);
+  assert.equal(mutationWithScene.scene.elements.find((element) => element.id === 'rect').x, 20);
+});
+
+test('large get_diagram scenes stay out of the default MCP response', async (t) => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Large response benchmark',
+      engine: 'excalidraw',
+      elements: [{ id: 'large-text', type: 'text', x: 0, y: 0, width: 800, height: 400, text: 'x'.repeat(190_000) }],
+    },
+  }, { repository: workspace, now: 100 });
+
+  const beforeStartedAt = performance.now();
+  const full = await executeDiagramAgentCommand({ tool: 'get_diagram', args: { id: created.id } }, { repository: workspace });
+  const legacyWire = JSON.stringify({
+    content: [{ type: 'text', text: JSON.stringify(full, null, 2) }],
+    structuredContent: full,
+  });
+  const beforeMs = performance.now() - beforeStartedAt;
+
+  const afterStartedAt = performance.now();
+  const summary = await executeDiagramAgentCommand({ tool: 'get_diagram', args: { id: created.id } }, {
+    repository: workspace,
+    compactResponse: true,
+  });
+  const summaryWire = JSON.stringify(createMcpToolResult(summary));
+  const afterMs = performance.now() - afterStartedAt;
+  const beforeBytes = new TextEncoder().encode(legacyWire).byteLength;
+  const afterBytes = new TextEncoder().encode(summaryWire).byteLength;
+
+  assert.ok(beforeBytes > 1_900_000);
+  assert.ok(afterBytes < 2_000);
+  assert.equal(summary.scene, undefined);
+  assert.equal(summary.elementCount, 1);
+  t.diagnostic(`get_diagram before=${beforeBytes} bytes/${beforeMs.toFixed(2)}ms after=${afterBytes} bytes/${afterMs.toFixed(2)}ms`);
+});
+
+test('batch_create_elements rebases conflicts, replays idempotently, and preserves concurrent browser edits', async () => {
+  const base = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: { title: 'Concurrent batch', engine: 'excalidraw', elements: [{ id: 'base', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 }] },
+  }, { repository: base, now: 100 });
+  let injectBrowserWrite = true;
+  const concurrentRepository = {
+    drawings: {
+      list: (...args) => base.drawings.list(...args),
+      get: (...args) => base.drawings.get(...args),
+      save: async (nextDrawing, options) => {
+        if (injectBrowserWrite && nextDrawing.id === created.id && nextDrawing.revision === 2) {
+          injectBrowserWrite = false;
+          const current = await base.drawings.get(created.id);
+          const currentScene = getDrawingScene(current);
+          const browserDrawing = commitDiagramScene(current, {
+            ...currentScene,
+            elements: [...currentScene.elements, { id: 'browser-edit', type: 'text', x: 40, y: 0, width: 80, height: 20, text: 'browser' }],
+          }, { expectedRevision: 1, author: 'user', reason: 'concurrent-browser-edit', now: 105 });
+          await base.drawings.save(browserDrawing, { expectedRevision: 1 });
+        }
+        return base.drawings.save(nextDrawing, options);
+      },
+    },
+  };
+
+  const args = {
+    id: created.id,
+    expectedRevision: 1,
+    retryOnConflict: true,
+    maxConflictRetries: 2,
+    operationId: 'batch-create-1',
+    elements: [
+      { id: 'agent-a', type: 'rectangle', x: 140, y: 0, width: 40, height: 20 },
+      { id: 'agent-b', type: 'rectangle', x: 200, y: 0, width: 40, height: 20 },
+    ],
+  };
+  const result = await executeDiagramAgentCommand({ tool: 'batch_create_elements', args }, {
+    repository: concurrentRepository,
+    compactResponse: true,
+    now: 110,
+  });
+  assert.equal(result.revision, 3);
+  assert.equal(result.conflictRetries, 1);
+  assert.deepEqual(result.changedIds, ['agent-a', 'agent-b']);
+  const persistedIds = getDrawingScene(await base.drawings.get(created.id)).elements.map((element) => element.id);
+  assert.deepEqual(persistedIds, ['base', 'browser-edit', 'agent-a', 'agent-b']);
+
+  const replay = await executeDiagramAgentCommand({ tool: 'batch_create_elements', args }, {
+    repository: concurrentRepository,
+    compactResponse: true,
+    now: 120,
+  });
+  assert.equal(replay.revision, 3);
+  assert.equal(replay.operationRevision, 3);
+  assert.equal(replay.idempotentReplay, true);
+  assert.equal(getDrawingScene(await base.drawings.get(created.id)).elements.length, 4);
+
+  const stableReplay = await executeDiagramAgentCommand({
+    tool: 'batch_create_elements',
+    args: { id: created.id, expectedRevision: 3, elements: args.elements },
+  }, { repository: concurrentRepository, compactResponse: true, now: 125 });
+  assert.equal(stableReplay.stableIdReplay, true);
+  assert.equal(stableReplay.revision, 3);
+  assert.equal(getDrawingScene(await base.drawings.get(created.id)).elements.length, 4);
+
+  await assert.rejects(
+    executeDiagramAgentCommand({
+      tool: 'batch_create_elements',
+      args: { ...args, expectedRevision: 3, operationId: 'batch-create-collision', elements: [{ id: 'agent-a', type: 'ellipse' }] },
+    }, { repository: concurrentRepository, compactResponse: true, now: 130 }),
+    (error) => error.code === 'ELEMENT_ID_COLLISION' && error.elementIds[0] === 'agent-a',
+  );
+
+  const alwaysConflicting = {
+    drawings: {
+      list: (...readArgs) => base.drawings.list(...readArgs),
+      get: (...readArgs) => base.drawings.get(...readArgs),
+      save: async () => {
+        const error = new Error('forced conflict');
+        error.code = 'REVISION_CONFLICT';
+        error.actualRevision = 3;
+        throw error;
+      },
+    },
+  };
+  await assert.rejects(
+    executeDiagramAgentCommand({
+      tool: 'batch_create_elements',
+      args: {
+        id: created.id,
+        expectedRevision: 3,
+        retryOnConflict: true,
+        maxConflictRetries: 1,
+        operationId: 'batch-create-exhausted',
+        elements: [{ id: 'never-written', type: 'rectangle' }],
+      },
+    }, { repository: alwaysConflicting, compactResponse: true, now: 140 }),
+    (error) => error.code === 'REVISION_CONFLICT' && error.retryExhausted === true && error.conflictRetries === 1,
+  );
+});
+
 test('browser command metrics expose repository timings and payload sizes', async () => {
   const workspace = repository();
   const result = await executeDiagramAgentCommand({
