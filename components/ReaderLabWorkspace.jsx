@@ -105,6 +105,7 @@ import {
   createDiagramSyncChannel,
   isNewerDrawing,
 } from '@/lib/diagram-agent-session';
+import { cloneForTransport } from '@/lib/cloneable';
 import {
   ensureDocumentRouteId,
   findDocumentByRouteId,
@@ -371,10 +372,12 @@ export default function ReaderLabWorkspace({
     if (!channel) return undefined;
     const publishCurrentDrawings = () => {
       for (const drawing of drawingsRef.current) {
+        const cloneableDrawing = cloneForTransport(drawing);
+        if (!cloneableDrawing?.id) continue;
         channel.postMessage({
           type: 'drawing-upsert',
           sourceTabId: tabId,
-          drawing,
+          drawing: cloneableDrawing,
           emittedAt: Date.now(),
         });
       }
@@ -1441,10 +1444,12 @@ export default function ReaderLabWorkspace({
   const broadcastDrawing = useCallback((drawing) => {
     const channel = diagramSyncRef.current?.channel;
     if (!channel || !drawing?.id) return;
+    const cloneableDrawing = cloneForTransport(drawing);
+    if (!cloneableDrawing?.id) return;
     channel.postMessage({
       type: 'drawing-upsert',
       sourceTabId: diagramSyncRef.current.tabId,
-      drawing,
+      drawing: cloneableDrawing,
       emittedAt: Date.now(),
     });
   }, []);

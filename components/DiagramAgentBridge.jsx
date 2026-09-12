@@ -4,13 +4,18 @@ import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { executeDiagramAgentCommand } from '@/lib/diagram-agent-commands';
 import { getDrawingScene } from '@/lib/diagram-scene-record';
+import { cloneForTransport } from '@/lib/cloneable';
 import { workspaceRepository } from '@/lib/local-workspace-db';
 import {
   allowDiagramBrowserWrites,
   beginDiagramBrowserHandshake,
   blockDiagramBrowserWrites,
 } from '@/lib/diagram-browser-write-guard';
-import { getDiagramAgentBuildInfo, serializeDiagramAgentError } from '@/lib/diagram-agent-protocol';
+import {
+  getDiagramAgentBuildInfo,
+  normalizeDiagramAgentRequests,
+  serializeDiagramAgentError,
+} from '@/lib/diagram-agent-protocol';
 import {
   createDiagramAgentIdentity,
   createDiagramAgentSession,
@@ -136,13 +141,15 @@ export default function DiagramAgentBridge() {
       // The MCP result carries the open request and resource link. Keep this
       // tab as a background IndexedDB writer: changing its route here would
       // interrupt whatever the user is doing in the default browser.
+      const cloneableDrawing = cloneForTransport(drawing);
+      if (!cloneableDrawing?.id) return;
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_DRAWING_EVENT, {
-        detail: { drawing, open: false, openRequested: open },
+        detail: { drawing: cloneableDrawing, open: false, openRequested: open },
       }));
       syncChannel?.postMessage({
         type: 'drawing-upsert',
         sourceTabId: tabId,
-        drawing,
+        drawing: cloneableDrawing,
         emittedAt: Date.now(),
       });
     };
@@ -198,7 +205,7 @@ export default function DiagramAgentBridge() {
             ...buildInfo,
             currentClient: true,
           });
-          for (const request of payload.requests || []) {
+          for (const request of normalizeDiagramAgentRequests(payload)) {
             if (cancelled) break;
             if (!session.isOwner()) {
               await respond(request, undefined, new Error('AnchorRead browser tab no longer owns the workspace connection; retry the diagram command.'));

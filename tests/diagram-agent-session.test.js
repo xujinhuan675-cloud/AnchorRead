@@ -12,6 +12,7 @@ import {
   shouldOwnDiagramAgentLease,
   resetDiagramAgentIdentityForTests,
 } from '../lib/diagram-agent-session.js';
+import { normalizeDiagramAgentRequests } from '../lib/diagram-agent-protocol.js';
 
 function createStorage() {
   const values = new Map();
@@ -61,6 +62,12 @@ test('drawing sync accepts newer revisions and timestamps only', () => {
   assert.equal(isNewerDrawing({ ...current, revision: 1, updatedAt: 999 }, current), false);
   assert.equal(isNewerDrawing({ ...current, updatedAt: 199 }, current), false);
   assert.equal(isNewerDrawing({ id: 'drawing-2', revision: 1, updatedAt: 1 }, null), true);
+});
+
+test('bridge request normalization ignores malformed non-array responses', () => {
+  assert.deepEqual(normalizeDiagramAgentRequests({ requests: null }), []);
+  assert.deepEqual(normalizeDiagramAgentRequests({ requests: { forEach: () => { throw new Error('must not run'); } } }), []);
+  assert.deepEqual(normalizeDiagramAgentRequests({ requests: [{ id: 'request-1' }] }), [{ id: 'request-1' }]);
 });
 
 test('browser identity keeps workspace stable while separating page clients', () => {

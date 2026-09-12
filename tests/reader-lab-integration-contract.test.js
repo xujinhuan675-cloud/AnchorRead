@@ -112,7 +112,7 @@ test('diagram library routes are separate from the editor and preserve drawing h
   assert.doesNotMatch(diagramAgentBridge, /router\.push\(/);
   assert.match(diagramAgentBridge, /setInterval\(\(\) => \{[\s\S]*?refreshSession\(\);[\s\S]*?DIAGRAM_AGENT_LEASE_HEARTBEAT_MS\)/);
   assert.match(diagramAgentBridge, /clearInterval\(leaseHeartbeat\)/);
-  assert.match(diagramAgentBridge, /detail: \{ drawing, open: false, openRequested: open \}/);
+  assert.match(diagramAgentBridge, /detail: \{ drawing: cloneableDrawing, open: false, openRequested: open \}/);
   assert.match(diagramAgentBridge, /export async function captureDrawingScreenshot\(drawing\)/);
   assert.match(diagramAgentBridge, /exportToCanvas\(\{/);
   assert.match(diagramAgentBridge, /restoreElements\(converted, null, \{/);

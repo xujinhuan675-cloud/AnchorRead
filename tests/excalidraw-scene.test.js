@@ -30,6 +30,37 @@ test('live scene persistence drops non-cloneable Excalidraw UI state', () => {
   assert.equal('contextMenu' in scene.appState, false);
 });
 
+test('live scene persistence sanitizes non-cloneable element and file fields', () => {
+  const cyclic = {};
+  cyclic.self = cyclic;
+  const scene = normalizeExcalidrawSceneForPersistence({
+    elements: [{
+      id: 'element-1',
+      type: 'rectangle',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      customData: {
+        onRender: () => {},
+        reactElement: { $$typeof: Symbol.for('react.transitional.element') },
+        cyclic,
+        label: 'kept',
+      },
+    }],
+    appState: {},
+    files: {
+      'image-1': { data: 'base64', decode: () => {} },
+    },
+  });
+
+  assert.doesNotThrow(() => structuredClone(scene));
+  assert.equal(scene.elements[0].customData.onRender, undefined);
+  assert.equal(scene.elements[0].customData.reactElement, undefined);
+  assert.equal(scene.elements[0].customData.label, 'kept');
+  assert.equal(scene.files['image-1'].decode, undefined);
+});
+
 const elements = [
   { id: 'text-1', type: 'text', x: 10, y: 20, text: 'Anchor Read' },
 ];
