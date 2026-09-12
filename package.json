@@ -35,6 +35,7 @@
     "test:configs": "node --test tests/config-manager.test.js",
     "test:sentry": "node --test tests/sentry-config.test.js tests/chunk-load-recovery.test.js",
     "test:i18n": "node --test tests/i18n.test.js",
+    "test:commitlint": "node --test tests/commitlint-config.test.js",
     "test:all": "npm run test:llm && npm run test:document && npm run test:explain && npm run test:workspace && npm run test:reader-lab && npm run test:diagrams && npm run test:analysis && npm run test:mermaid && npm run test:import && npm run test:api && npm run test:actions && npm run test:sync && npm run test:inbox && npm run test:configs && npm run test:sentry && npm run test:i18n",
     "prepare": "husky"
   },
