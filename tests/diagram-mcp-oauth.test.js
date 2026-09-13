@@ -232,7 +232,7 @@ test('OAuth store lists and revokes refresh authorizations across browser tab se
   assert.throws(() => store.rotateRefreshToken(refreshToken, { clientId: client.clientId }, 2_005), /invalid or expired/u);
 });
 
-test('OAuth store keeps one refresh authorization per logical client and browser workspace', () => {
+test('OAuth store keeps reauthorizations independent for one logical client and browser workspace', () => {
   const store = new DiagramMcpOAuthStore();
   const client = store.registerClient({
     clientName: 'Codex',
@@ -254,15 +254,15 @@ test('OAuth store keeps one refresh authorization per logical client and browser
   const replacement = store.createRefreshToken(record, 3_000);
 
   assert.notEqual(replacement, first);
-  assert.equal(store.listAuthorizations(browserContext, 3_001).length, 1);
+  assert.equal(store.listAuthorizations(browserContext, 3_001).length, 2);
   assert.equal(store.hasAuthorization(browserContext, {
     clientId: client.clientId,
     scopes: ['diagrams:read', 'diagrams:write'],
     now: 3_001,
   }), true);
-  assert.throws(() => store.rotateRefreshToken(first, { clientId: client.clientId }, 3_002), /invalid or expired/u);
+  assert.match(store.rotateRefreshToken(first, { clientId: client.clientId }, 3_002).refreshToken, /^refresh_/u);
   assert.match(store.rotateRefreshToken(replacement, { clientId: client.clientId }, 3_003).refreshToken, /^refresh_/u);
-  assert.equal(store.listAuthorizations(browserContext, 3_004).length, 1);
+  assert.equal(store.listAuthorizations(browserContext, 3_004).length, 2);
 });
 
 test('OAuth store migrates duplicate legacy registrations to the newest refresh authorization', () => {

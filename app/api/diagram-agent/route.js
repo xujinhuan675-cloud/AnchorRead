@@ -6,6 +6,7 @@ import { createBrowserBuildStaleError, serializeDiagramAgentError } from '@/lib/
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+const PRESENCE_TIMEOUT_MS = 3_000;
 
 function requestHostname(request) {
   try {
@@ -86,6 +87,25 @@ function pairingError(error) {
   delete details.code;
   delete details.message;
   return jsonError(String(error?.message || error), status, code, details);
+}
+
+async function readPresence(transport, scope) {
+  const presencePromise = Promise.resolve(transport.getPresence(scope));
+  let timer;
+  try {
+    return await Promise.race([
+      presencePromise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(
+          new Error('AnchorRead browser presence check timed out. Open the diagram workspace and retry.'),
+          { code: 'BROWSER_SESSION_OFFLINE' },
+        )), PRESENCE_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function isBrokerError(error) {
@@ -204,14 +224,24 @@ async function handlePOST(request) {
     }
     try {
       const transport = getDiagramAgentTransport();
+      const scope = body?.scope || {};
       if (typeof transport.getPresence === 'function') {
-        const presence = await transport.getPresence(body?.scope || {});
+        const presence = await readPresence(transport, scope);
+        if (!presence || presence.online !== true) {
+          throw Object.assign(new Error('No open AnchorRead browser is paired with this workspace. Open the diagram workspace and retry.'), { code: 'BROWSER_SESSION_OFFLINE' });
+        }
         if (presence?.online === true && presence?.versionCompatible === false) {
           throw createBrowserBuildStaleError(presence.actual || presence, { workspaceUrl: presence.href });
         }
+        if (presence.connected === false || presence.writable === false) {
+          if (presence.status === 'stale') {
+            throw createBrowserBuildStaleError(presence.actual || presence, { workspaceUrl: presence.href });
+          }
+          throw Object.assign(new Error('The paired AnchorRead browser is not writable. Refresh the workspace page and retry.'), { code: 'BROWSER_SESSION_OFFLINE' });
+        }
       }
       const { id, promise } = await transport.createRequest(command, { ttlMs: body?.ttlMs, scope: body?.scope });
-      const timeoutMs = Math.max(1_000, Math.min(Number(body?.timeoutMs) || 45_000, 120_000));
+      const timeoutMs = Math.max(1_000, Math.min(Number(body?.timeoutMs) || 15_000, 60_000));
       const timeout = new Promise((_, reject) => {
         const timer = setTimeout(() => {
           const error = new Error('No open AnchorRead browser claimed the diagram request before timeout.');

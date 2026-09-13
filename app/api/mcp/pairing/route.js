@@ -168,6 +168,15 @@ export async function POST(request) {
         runtime: { ...getDiagramMcpRuntimeInfo(), ...transport.runtimeInfo },
       });
     }
+    if (action === 'heartbeat') {
+      const connection = await store.registerConnection(context, { replace: false });
+      await store.assertConnectionOwner(context);
+      return NextResponse.json({
+        ok: true,
+        heartbeat: true,
+        connection,
+      }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     if (action === 'disconnect') {
       const disconnected = await store.disconnectConnection(context);
       return NextResponse.json({ ok: true, disconnected });

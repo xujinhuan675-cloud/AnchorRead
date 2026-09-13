@@ -20,6 +20,7 @@ import {
   createDiagramAgentIdentity,
   createDiagramAgentSession,
   createDiagramSyncChannel,
+  DIAGRAM_AGENT_CONNECTION_HEARTBEAT_MS,
   DIAGRAM_AGENT_LEASE_HEARTBEAT_MS,
   DIAGRAM_AGENT_LONG_POLL_MS,
 } from '@/lib/diagram-agent-session';
@@ -71,6 +72,7 @@ export default function DiagramAgentBridge() {
     clientIdRef.current = identity.clientId;
     let cancelled = false;
     let pollController = null;
+    let connectionHeartbeatInFlight = false;
     const { clientId, tabId, workspaceId, browserSessionId, managementSecret } = identity;
     const buildInfo = getDiagramAgentBuildInfo();
     beginDiagramBrowserHandshake({ workspaceUrl: window.location.href });
@@ -107,6 +109,29 @@ export default function DiagramAgentBridge() {
       if (cancelled) return;
       refreshSession();
     }, DIAGRAM_AGENT_LEASE_HEARTBEAT_MS);
+    const connectionHeartbeat = window.setInterval(async () => {
+      if (cancelled || connectionHeartbeatInFlight || !session.isOwner()) return;
+      connectionHeartbeatInFlight = true;
+      try {
+        const response = await fetch('/api/mcp/pairing', {
+          method: 'POST',
+          headers: pairingHeaders,
+          cache: 'no-store',
+          body: JSON.stringify({ action: 'heartbeat', ...pairingBody() }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          allowDiagramBrowserWrites(payload.connection?.actual || buildInfo);
+          emitConnection(payload.connection);
+        } else {
+          emitConnection({ ...payload, status: payload.code === 'BROWSER_BUILD_STALE' ? 'stale' : 'disconnected' });
+        }
+      } catch {
+        // The long-poll loop remains the recovery path for transient heartbeat failures.
+      } finally {
+        connectionHeartbeatInFlight = false;
+      }
+    }, DIAGRAM_AGENT_CONNECTION_HEARTBEAT_MS);
     const respond = async (request, result, error) => {
       await fetch('/api/diagram-agent', {
         method: 'POST',
@@ -258,6 +283,7 @@ export default function DiagramAgentBridge() {
     return () => {
       cancelled = true;
       window.clearInterval(leaseHeartbeat);
+      window.clearInterval(connectionHeartbeat);
       releaseSession({ disconnect: true });
       syncChannel?.close();
       window.removeEventListener('pagehide', handlePageHide);

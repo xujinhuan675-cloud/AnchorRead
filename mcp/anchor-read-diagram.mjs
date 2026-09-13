@@ -1189,7 +1189,7 @@ async function callBridgeTool(name, args = {}) {
   const headers = { 'content-type': 'application/json' };
   const token = String(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN || '').trim();
   if (token) headers['x-anchorread-bridge-token'] = token;
-  const timeoutMs = Math.max(5_000, Math.min(Number(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TIMEOUT_MS) || 90_000, 180_000));
+  const timeoutMs = Math.max(5_000, Math.min(Number(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TIMEOUT_MS) || 15_000, 60_000));
   let response;
   try {
     response = await fetch(bridgeUrl, {

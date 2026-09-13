@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   DIAGRAM_AGENT_LEASE_HEARTBEAT_MS,
   DIAGRAM_AGENT_LEASE_MS,
+  DIAGRAM_AGENT_CONNECTION_HEARTBEAT_MS,
   DIAGRAM_AGENT_LONG_POLL_MS,
   createDiagramAgentSession,
   createDiagramAgentIdentity,
@@ -37,6 +38,7 @@ test('lease covers a complete long poll and heartbeat renews it early', () => {
   assert.ok(DIAGRAM_AGENT_LEASE_HEARTBEAT_MS > 0);
   assert.ok(DIAGRAM_AGENT_LEASE_HEARTBEAT_MS < DIAGRAM_AGENT_LEASE_MS);
   assert.ok(DIAGRAM_AGENT_LONG_POLL_MS < DIAGRAM_AGENT_LEASE_MS);
+  assert.ok(DIAGRAM_AGENT_CONNECTION_HEARTBEAT_MS < 5 * 60_000);
 });
 
 test('session acquire and release are owner-scoped', () => {

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+  DIAGRAM_MCP_CONNECTION_TTL_MS,
   FileDiagramMcpPairingStore,
   InMemoryDiagramMcpPairingStore,
 } from '../lib/diagram-mcp-pairing-store.js';
@@ -22,6 +23,15 @@ function context(overrides = {}) {
     ...overrides,
   };
 }
+
+test('browser pairing lease leaves enough time for background tabs between heartbeats', async () => {
+  assert.ok(DIAGRAM_MCP_CONNECTION_TTL_MS >= 5 * 60_000);
+  const store = new InMemoryDiagramMcpPairingStore();
+  const registered = await store.registerConnection(context(), { now: 100 });
+  assert.equal(registered.expiresAt, 100 + DIAGRAM_MCP_CONNECTION_TTL_MS);
+  const renewed = await store.registerConnection(context(), { now: 20_000 });
+  assert.equal(renewed.expiresAt, 20_000 + DIAGRAM_MCP_CONNECTION_TTL_MS);
+});
 
 test('browser build handshake accepts current, rejects missing and stale versions, then recovers after refresh', async () => {
   const store = new InMemoryDiagramMcpPairingStore();

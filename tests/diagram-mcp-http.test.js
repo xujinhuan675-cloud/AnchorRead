@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   getMcpSessionCount,
   handleDiagramMcpHttpRequest,
+  submitDiagramTool,
 } from '../lib/diagram-mcp-http.js';
 import {
   getDiagramMcpPairingStore,
@@ -15,6 +16,10 @@ import {
   resolveDiagramAgentRequest,
 } from '../lib/diagram-agent-broker.js';
 import { getDiagramAgentBuildInfo } from '../lib/diagram-agent-protocol.js';
+import {
+  resetDiagramAgentTransportForTests,
+  setDiagramAgentTransport,
+} from '../lib/diagram-agent-transport.js';
 
 function request(url, body, headers = {}, method = 'POST') {
   return new Request(url, {
@@ -23,6 +28,32 @@ function request(url, body, headers = {}, method = 'POST') {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
+
+test('scoped MCP commands fail fast when no browser presence is available', async () => {
+  setDiagramAgentTransport({
+    createRequest() { throw new Error('createRequest must not run'); },
+    cancelRequest() {},
+    cancelRequestsForToken() {},
+    claimRequests() { return []; },
+    waitForRequests() { return []; },
+    resolveRequest() { return false; },
+    registerClient() {},
+    unregisterClient() {},
+    getPresence: async () => null,
+  });
+  const startedAt = Date.now();
+  try {
+    await assert.rejects(
+      submitDiagramTool('list_diagrams', {}, {
+        binding: { workspaceId: 'workspace-fast-fail', bindingId: 'binding-fast-fail' },
+      }),
+      (error) => error?.code === 'BROWSER_SESSION_OFFLINE',
+    );
+  } finally {
+    resetDiagramAgentTransportForTests();
+  }
+  assert.ok(Date.now() - startedAt < 1_000);
+});
 
 test('Streamable HTTP MCP initializes, lists tools and calls a browser command', async () => {
   const previousKey = process.env.ANCHORREAD_MCP_API_KEY;
