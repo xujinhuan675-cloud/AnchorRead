@@ -14,6 +14,8 @@ import Modal from '@/components/ui/Modal';
 import { useLocale } from '@/components/LocaleProvider';
 import { createDiagramAgentIdentity } from '@/lib/diagram-agent-session';
 
+const MCP_REAUTHORIZATION_COMMAND = 'codex mcp login anchor-read-diagram';
+
 async function copyText(value) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -36,6 +38,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [copiedReauthorization, setCopiedReauthorization] = useState(false);
   const [endpoint, setEndpoint] = useState('');
   const [diagramPage, setDiagramPage] = useState(false);
   const [authorizations, setAuthorizations] = useState(null);
@@ -91,6 +94,7 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
     if (!isOpen) {
       setMessage(null);
       setCopied(false);
+      setCopiedReauthorization(false);
       setAuthorizations(null);
       return undefined;
     }
@@ -230,6 +234,16 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
     }
   };
 
+  const copyReauthorizationCommand = async () => {
+    try {
+      await copyText(MCP_REAUTHORIZATION_COMMAND);
+      setCopiedReauthorization(true);
+      window.setTimeout(() => setCopiedReauthorization(false), 1_500);
+    } catch (error) {
+      setMessage({ type: 'error', text: String(error?.message || error) });
+    }
+  };
+
   const connection = snapshot?.connection;
   const connected = connection?.status === 'connected' && connection?.currentClient !== false;
   const grants = authorizations?.grants || [];
@@ -335,6 +349,19 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
                   ) : null}
                 </div>
               ) : null}
+
+              <div className="mt-4 border-t border-stone-200 pt-4 dark:border-stone-800">
+                <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '重新授权命令' : 'Reauthorization command'}</div>
+                <div className="mt-3 flex items-center gap-2">
+                  <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-stone-100 px-3 py-2 text-xs text-stone-800 dark:bg-stone-800 dark:text-stone-200">{MCP_REAUTHORIZATION_COMMAND}</code>
+                  <button type="button" title={zh ? '复制重新授权命令' : 'Copy reauthorization command'} aria-label={zh ? '复制重新授权命令' : 'Copy reauthorization command'} onClick={copyReauthorizationCommand} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-stone-200 text-stone-600 transition hover:bg-stone-50 hover:text-stone-950 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-white/5 dark:hover:text-white">
+                    {copiedReauthorization ? <Check className="size-4" /> : <Clipboard className="size-4" />}
+                  </button>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-stone-500">
+                  {zh ? '支持其他 MCP 客户端，只需要把前面的 codex 改成对应的客户端名称，例如 Claude。' : 'Other MCP clients are supported; replace the leading codex with the client name, such as Claude.'}
+                </p>
+              </div>
             </section>
 
             {!oauthTransaction ? (
