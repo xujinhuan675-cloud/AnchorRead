@@ -6,11 +6,21 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --canvas-toolbar-bg: #ececf4;
+  --canvas-toolbar-bg-dark: hsl(240 8% 15%);
 }
 
 .dark {
   --background: #0c0a09;
   --foreground: #fafaf9;
+}
+
+.canvas-toolbar-surface {
+  background-color: var(--canvas-toolbar-bg);
+}
+
+.dark .canvas-toolbar-surface {
+  background-color: var(--canvas-toolbar-bg-dark);
 }
 
 @theme inline {
@@ -47,9 +57,124 @@ body {
   display: none !important;
 }
 
+/* The Library action now lives inside the left global menu. Keep the native
+   trigger hidden so the canvas exposes one unambiguous entry point. */
+.anchor-read-excalidraw .default-sidebar-trigger {
+  display: none !important;
+}
+
 .anchor-read-excalidraw .sidebar-trigger.default-sidebar-trigger svg {
   width: 1rem;
   height: 1rem;
+}
+
+/* Keep the four corner controls on both renderers on one geometry/color
+   baseline. Excalidraw owns these DOM nodes, so scope the override locally. */
+.anchor-read-excalidraw .main-menu-trigger,
+.anchor-read-excalidraw .sidebar-trigger.default-sidebar-trigger {
+  box-sizing: border-box;
+  width: 2rem;
+  min-width: 2rem;
+  max-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  max-height: 2rem;
+  padding: 0 !important;
+  line-height: 0;
+  background-color: var(--canvas-toolbar-bg) !important;
+}
+
+/* Excalidraw composes the trigger with its generic dropdown button class.
+   Override that more specific node as well, otherwise its --default-button-
+   size/padding can make the hamburger button visibly larger than Mermaid's
+   32px control even when the outer trigger is constrained. */
+.anchor-read-excalidraw .dropdown-menu-button.main-menu-trigger {
+  box-sizing: border-box;
+  width: 2rem !important;
+  min-width: 2rem !important;
+  max-width: 2rem !important;
+  height: 2rem !important;
+  min-height: 2rem !important;
+  max-height: 2rem !important;
+  padding: 0 !important;
+  line-height: 0;
+}
+
+.anchor-read-excalidraw .main-menu-trigger svg,
+.anchor-read-excalidraw .dropdown-menu-button.main-menu-trigger svg {
+  width: 1rem !important;
+  height: 1rem !important;
+}
+
+.anchor-read-excalidraw .zoom-button {
+  width: 2rem;
+  height: 2rem;
+  background-color: var(--canvas-toolbar-bg) !important;
+}
+
+.anchor-read-excalidraw .undo-redo-buttons button {
+  width: 2rem;
+  height: 2rem;
+  background-color: var(--canvas-toolbar-bg) !important;
+}
+
+.anchor-read-excalidraw .undo-redo-buttons {
+  background-color: var(--canvas-toolbar-bg) !important;
+}
+
+.anchor-read-excalidraw .undo-redo-buttons {
+  width: auto;
+}
+
+.anchor-read-excalidraw .reset-zoom-button {
+  width: 3.75rem;
+}
+
+.dark .anchor-read-excalidraw .main-menu-trigger,
+.dark .anchor-read-excalidraw .sidebar-trigger.default-sidebar-trigger,
+.dark .anchor-read-excalidraw .zoom-button,
+.dark .anchor-read-excalidraw .undo-redo-buttons,
+.dark .anchor-read-excalidraw .undo-redo-buttons button {
+  background-color: var(--canvas-toolbar-bg-dark) !important;
+}
+
+.anchor-read-excalidraw .main-menu-trigger:hover,
+.anchor-read-excalidraw .sidebar-trigger.default-sidebar-trigger:hover,
+.anchor-read-excalidraw .zoom-button:hover,
+.anchor-read-excalidraw .undo-redo-buttons button:hover {
+  background-color: #f1f0ff !important;
+}
+
+.dark .anchor-read-excalidraw .main-menu-trigger:hover,
+.dark .anchor-read-excalidraw .sidebar-trigger.default-sidebar-trigger:hover,
+.dark .anchor-read-excalidraw .zoom-button:hover,
+.dark .anchor-read-excalidraw .undo-redo-buttons button:hover {
+  background-color: hsl(245 10% 21%) !important;
+}
+
+/* Match the native Excalidraw context menu to the shared toolbar surface. */
+.anchor-read-excalidraw .context-menu {
+  background-color: var(--canvas-toolbar-bg) !important;
+  border-color: #d8d7e2;
+}
+
+.dark .anchor-read-excalidraw .context-menu {
+  background-color: var(--canvas-toolbar-bg-dark) !important;
+  border-color: hsl(240 6% 28%);
+}
+
+/* Page-level diagram focus mode keeps the canvas interactive while removing
+   Excalidraw's editing chrome. The shared outer exit control lives outside
+   this subtree, so it remains available without restoring the toolbar. */
+.anchor-read-excalidraw-focus .App-menu_top,
+.anchor-read-excalidraw-focus .App-menu_bottom,
+.anchor-read-excalidraw-focus .layer-ui__wrapper__top-right,
+.anchor-read-excalidraw-focus .sidebar,
+.anchor-read-excalidraw-focus .App-top-bar,
+.anchor-read-excalidraw-focus .App-bottom-bar,
+.anchor-read-excalidraw-focus .App-toolbar-container,
+.anchor-read-excalidraw-focus .App-toolbar-content {
+  display: none !important;
 }
 
 /* Hide scrollbar utility class */

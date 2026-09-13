@@ -53,9 +53,16 @@ export default function DiagramThumbnail({ drawing, title }) {
         if (engine === 'excalidraw') {
           const elements = parseExcalidrawElements(source);
           const excalidraw = await import('@excalidraw/excalidraw');
-          const normalizedElements = elements.every((element) => Number.isFinite(element?.version))
+          const convertedElements = elements.every((element) => Number.isFinite(element?.version))
             ? elements
-            : excalidraw.convertToExcalidrawElements(elements);
+            : excalidraw.convertToExcalidrawElements(elements, { regenerateIds: false });
+          // The converter preserves supplied text dimensions, which may be stale
+          // in compact AI/MCP scenes. Refresh metrics before exporting the SVG so
+          // library thumbnails match the readable main canvas after reload.
+          const normalizedElements = excalidraw.restoreElements(convertedElements, null, {
+            refreshDimensions: true,
+            repairBindings: true,
+          });
           svg = await excalidraw.exportToSvg({
             elements: normalizedElements,
             appState: {

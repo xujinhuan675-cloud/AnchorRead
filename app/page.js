@@ -26,6 +26,7 @@ export default function Home() {
   const [diagramRequest, setDiagramRequest] = useState(null);
   const [readerDocumentRequest, setReaderDocumentRequest] = useState(null);
   const [homeEntered, setHomeEntered] = useState(false);
+  const [diagramFocusMode, setDiagramFocusMode] = useState(false);
   const [currentDocument, setCurrentDocument] = useState(null);
   const [usePassword, setUsePassword] = useState(false);
   const [notification, setNotification] = useState({
@@ -79,6 +80,7 @@ export default function Home() {
 
   // 全局顶栏导航：文档库走独立路由，图解/首页在当前页内切换视图
   const handleHomeNavigate = (slug) => {
+    setDiagramFocusMode(false);
     if (slug === 'read' && (window.location.pathname !== '/' || window.location.search)) {
       router.push('/');
       return;
@@ -167,16 +169,16 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#f5f7f6] text-stone-900 dark:bg-stone-950 dark:text-stone-100">
+    <div className={`flex h-screen flex-col overflow-hidden bg-[#f5f7f6] text-stone-900 dark:bg-stone-950 dark:text-stone-100 ${diagramFocusMode ? 'fixed inset-0 z-[100] w-screen' : ''}`.trim()}>
       {/* 全局顶栏：所有页面共享的导航入口 */}
-      <AppTopNav
+      {!diagramFocusMode && <AppTopNav
         activeSlug={mode === 'diagram' ? 'diagram' : (homeEntered ? 'reader-lab' : 'read')}
         onNavigate={handleHomeNavigate}
         onConfig={() => setIsConfigManagerOpen(true)}
         onToolbarConfig={() => window.dispatchEvent(new Event(OPEN_TOOLBAR_CONFIG_EVENT))}
         onGlossary={() => window.dispatchEvent(new Event(OPEN_GLOSSARY_EVENT))}
-      />
-      <main className="min-h-0 flex-1 overflow-hidden">
+      />}
+      <main className={`min-h-0 flex-1 overflow-hidden ${diagramFocusMode ? 'h-full' : ''}`.trim()}>
         <ReaderLabWorkspace
           layout="home"
           started={homeEntered}
@@ -192,11 +194,14 @@ export default function Home() {
           onToolChange={(tool) => {
             // 工作区内触发的图解（选区锚定/一键全文图/历史应用）都是文档绑定形态
             if (tool === 'diagram') setStandaloneDiagram(false);
+            if (tool !== 'diagram') setDiagramFocusMode(false);
             setMode(tool === 'diagram' ? 'diagram' : 'article');
           }}
           onCurrentDocumentChange={setCurrentDocument}
           onOpenDocumentLibrary={() => router.push('/reader-lab')}
           onOpenDiagramLibrary={() => router.push('/diagrams')}
+          diagramFocusMode={diagramFocusMode}
+          onDiagramFocusModeChange={setDiagramFocusMode}
           onCreateDiagram={handleCreateDiagram}
           onOpenDiagram={(drawing) => {
             if (!drawing) {
@@ -228,8 +233,8 @@ export default function Home() {
         />
       </main>
 
-      <ConfigManager isOpen={isConfigManagerOpen} onClose={() => setIsConfigManagerOpen(false)} onConfigSelect={handleConfigSelect} />
-      <Notification isOpen={notification.isOpen} onClose={() => setNotification({ ...notification, isOpen: false })} title={notification.title} message={notification.message} type={notification.type} />
+      {!diagramFocusMode && <ConfigManager isOpen={isConfigManagerOpen} onClose={() => setIsConfigManagerOpen(false)} onConfigSelect={handleConfigSelect} />}
+      {!diagramFocusMode && <Notification isOpen={notification.isOpen} onClose={() => setNotification({ ...notification, isOpen: false })} title={notification.title} message={notification.message} type={notification.type} />}
     </div>
   );
 }

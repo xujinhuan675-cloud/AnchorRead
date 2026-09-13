@@ -48,7 +48,7 @@ test('ExcalidrawCanvas accepts a complete persisted scene without breaking the l
   assert.match(componentSource, /\.\.\.\(files === undefined \? \{\} : \{ files \}\)/u);
   assert.match(componentSource, /onChange=\{\(nextElements,\s*nextAppState,\s*nextFiles\)\s*=>/u);
   assert.match(componentSource, /onElementsChange\?\.\(nextElements\)/u);
-  assert.match(componentSource, /onSceneChange\?\.\(\{\s*elements:\s*nextElements,\s*appState:\s*nextAppState,\s*files:\s*nextFiles,/u);
+  assert.match(componentSource, /onSceneChange\?\.\(\{\s*elements:\s*nextElements,\s*appState:\s*(?:nextAppState|persistedAppState),\s*files:\s*nextFiles,/u);
   assert.match(componentSource, /nextValue !== undefined\s*&&\s*nextValue !== null/u);
   assert.doesNotMatch(componentSource, /Number\(current\?\.scrollX\)\s*!==\s*Number\(initialAppState\.scrollX\)/u);
 });
@@ -93,7 +93,7 @@ test('Mermaid and Excalidraw canvas controls share the global toolbar primitives
   assert.doesNotMatch(toolbarButtonSource, /h-9 w-9 p-0/u);
   assert.match(componentSource, /className="size-4"/u);
   assert.doesNotMatch(componentSource, /size-\[var\(--lg-icon-size,1rem\)\]/u);
-  assert.match(toolbarSource, /bg-\[#ececf4\]/u);
+  assert.match(toolbarSource, /canvas-toolbar-surface/u);
   assert.match(toolbarSource, /rounded-lg/u);
   assert.match(toolbarButtonSource, /rounded-lg/u);
   assert.doesNotMatch(canvasHostSource, /size="large"/u);
@@ -103,10 +103,21 @@ test('Mermaid and Excalidraw canvas controls share the global toolbar primitives
   assert.match(canvasMainMenuSource, /hover:bg-\[#f1f0ff\]/u);
   assert.match(canvasMainMenuSource, /dark:hover:bg-\[#363541\]/u);
   assert.match(globalStylesSource, /\.anchor-read-excalidraw \.sidebar-trigger\.default-sidebar-trigger \{/u);
+  assert.match(globalStylesSource, /\.anchor-read-excalidraw \.zoom-button \{/u);
+  assert.match(globalStylesSource, /\.anchor-read-excalidraw \.reset-zoom-button \{\s*width: 3\.75rem;/u);
   assert.match(globalStylesSource, /width: 2rem;/u);
   assert.match(globalStylesSource, /height: 2rem;/u);
   assert.match(globalStylesSource, /\.anchor-read-excalidraw \.default-sidebar-trigger \.sidebar-trigger__label \{\s*display: none !important;/u);
   assert.match(globalStylesSource, /\.anchor-read-excalidraw \.sidebar-trigger\.default-sidebar-trigger svg \{/u);
+});
+
+test('focus mode keeps native canvas navigation while hiding renderer chrome', () => {
+  assert.match(componentSource, /focusMode = false/u);
+  assert.match(componentSource, /anchor-read-excalidraw-focus/u);
+  assert.match(componentSource, /viewModeEnabled: focusMode \|\| Boolean\(appState\?\.viewModeEnabled\)/u);
+  assert.match(canvasHostSource, /focusMode=\{focusMode\}/u);
+  assert.match(canvasHostSource, /workspace\.enterFocusMode/u);
+  assert.match(canvasHostSource, /presentationControlsOpen/u);
 });
 
 test('presentation steps update one stable Excalidraw instance', () => {
@@ -203,7 +214,7 @@ test('chat generation streams partial elements onto one stable canvas instance',
   assert.match(diagramHookSource, /setStreamElements\(\(previous\) =>/u);
   assert.match(diagramHookSource, /setStreamElements\(null\)/u);
   assert.match(componentSource, /streamElements = null/u);
-  assert.match(componentSource, /convertElementsForCanvas\(streamElements, convertToExcalidrawElements\)/u);
+  assert.match(componentSource, /convertElementsForCanvas\(\s*streamElements,\s*convertToExcalidrawElements,/u);
   assert.match(componentSource, /excalidrawAPI\.updateScene\(\{ elements: converted \}\)/u);
   assert.match(componentSource, /streamPreviewFittedRef\.current = false/u);
 });
@@ -213,7 +224,7 @@ test('linear elements get explicit points before official conversion', () => {
   // 转换前显式补 points（覆盖默认 points），演示与流式预览两条转换路径都要走
   assert.match(componentSource, /function withLinearPoints\(element\)/u);
   assert.match(componentSource, /points: \[\[0, 0\], \[Number\(element\.width\) \|\| 0, Number\(element\.height\) \|\| 0\]\]/u);
-  assert.match(componentSource, /convertElementsForCanvas\(presentationElements, convertToExcalidrawElements\)/u);
+  assert.match(componentSource, /convertElementsForCanvas\(\s*presentationElements,\s*convertToExcalidrawElements,/u);
 });
 
 test('browser conversion preserves bindings and media element fields', () => {
@@ -222,7 +233,15 @@ test('browser conversion preserves bindings and media element fields', () => {
   assert.match(componentSource, /function normalizeFreedrawElement\(element\)/u);
   assert.match(componentSource, /function restoreElementBindings\(convertedElements, originalElements\)/u);
   assert.match(componentSource, /function recenterBoundShapeTextElements\(elements\)/u);
-  assert.match(componentSource, /convertElementsForCanvas\(streamElements, convertToExcalidrawElements\)/u);
+  assert.match(componentSource, /convertElementsForCanvas\(\s*streamElements,\s*convertToExcalidrawElements,/u);
+});
+
+test('browser conversion refreshes stale text dimensions after AI/MCP conversion', () => {
+  assert.match(componentSource, /function convertElementsForCanvas\(elements, converter, restore = null\)/u);
+  assert.match(componentSource, /refreshDimensions: true, repairBindings: true/u);
+  assert.match(componentSource, /restoreElementBindings\(converted, convertible\)/u);
+  assert.match(componentSource, /restoreElementsForCanvas,\n\s*\);/u);
+  assert.match(componentSource, /restoreElementsForCanvas\]\);/u);
 });
 
 test('canvas waits for fonts and refreshes native text after fonts are ready', () => {
@@ -291,14 +310,16 @@ test('presentation auto-advance does not nest setState in an updater', () => {
 });
 
 test('presentation controls remain bounded on narrow canvases', () => {
-  assert.match(canvasHostSource, /max-w-\[calc\(100%-2rem\)\]/u);
+  assert.match(canvasHostSource, /max-w-\[calc\(100vw-2rem\)\]/u);
   assert.match(canvasHostSource, /<CanvasToolbar floating/u);
   assert.match(canvasHostSource, /<CanvasToolbarButton/u);
   assert.doesNotMatch(canvasHostSource, /ar-overlay-tool/u);
-  assert.match(canvasHostSource, /w-24 max-w-\[12rem\]/u);
-  assert.match(canvasHostSource, /presentationHasNamedSteps && \(/u);
+  assert.match(canvasHostSource, /presentationControlsOpen/u);
+  assert.match(canvasHostSource, /role="listbox"/u);
+  assert.match(canvasHostSource, /diagram\.presentation\.node/u);
+  assert.doesNotMatch(canvasHostSource, /SkipBack|SkipForward/u);
   assert.doesNotMatch(canvasHostSource, /presentationStepLabel/u);
-  assert.match(canvasHostSource, /presentationStepIndex \+ 1\}\/\{presentation\.steps\.length\}/u);
+  assert.match(canvasHostSource, /effectivePresentationStepIndex \+ 1\}\/\{presentation\.steps\.length\}/u);
 });
 
 test('presentation script reconciles with the current canvas before playback', () => {

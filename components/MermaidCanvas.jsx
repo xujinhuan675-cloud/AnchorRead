@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { AlertTriangle, LoaderCircle } from 'lucide-react';
 import mermaid from 'mermaid';
 import { useLocale } from '@/components/LocaleProvider';
@@ -151,6 +151,7 @@ export default function MermaidCanvas({
   presentationActive = false,
   presentationStepIndex = 0,
   presentationStepCount = 0,
+  focusMode = false,
   onRender,
   onError,
 }) {
@@ -161,6 +162,9 @@ export default function MermaidCanvas({
   const resolvedEmptyMessage = emptyMessage ?? t('diagram.mermaidDefaultEmpty');
   const hostRef = useRef(null);
   const zoomContainerRef = useRef(null);
+  const panViewportRef = useRef(null);
+  const panStateRef = useRef(null);
+  const pointerInsideRef = useRef(false);
   const renderSequenceRef = useRef(0);
   const presentationAnimFrameRef = useRef(0);
   const baseViewBoxRef = useRef(null);
@@ -187,6 +191,8 @@ export default function MermaidCanvas({
     undefined,
     createMermaidRenderState
   );
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [panActive, setPanActive] = useState(false);
   const rawSource = source ?? definition ?? code ?? value ?? '';
   const validation = useMemo(() => validateMermaidSource(rawSource), [rawSource]);
   const renderIdPrefix = useMemo(
@@ -340,23 +346,77 @@ export default function MermaidCanvas({
     if (svg) svg.style.width = `${zoom * 100}%`;
   }, [zoom]);
 
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.code !== 'Space'
+        || event.target instanceof HTMLInputElement
+        || event.target instanceof HTMLTextAreaElement
+        || (!pointerInsideRef.current && !panStateRef.current)) return;
+      event.preventDefault();
+      setSpacePressed(true);
+    };
+    const handleKeyUp = (event) => {
+      if (event.code === 'Space') setSpacePressed(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  const handlePanPointerDown = useCallback((event) => {
+    const shouldPan = event.button === 1 || (event.button === 0 && spacePressed);
+    if (!shouldPan) return;
+    const viewport = panViewportRef.current;
+    if (!viewport) return;
+    event.preventDefault();
+    viewport.setPointerCapture?.(event.pointerId);
+    panStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+    };
+    setPanActive(true);
+  }, [spacePressed]);
+
+  const handlePanPointerMove = useCallback((event) => {
+    const panState = panStateRef.current;
+    const viewport = panViewportRef.current;
+    if (!panState || panState.pointerId !== event.pointerId || !viewport) return;
+    viewport.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
+    viewport.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+  }, []);
+
+  const handlePanPointerUp = useCallback((event) => {
+    if (!panStateRef.current || panStateRef.current.pointerId !== event.pointerId) return;
+    panViewportRef.current?.releasePointerCapture?.(event.pointerId);
+    panStateRef.current = null;
+    setPanActive(false);
+  }, []);
+
   const hasSource = Boolean(validation.source);
   const isRendering = renderState.status === 'rendering';
   const hasError = renderState.status === 'error';
 
   return (
     <section
-      className={`relative flex h-full min-h-[360px] flex-col bg-white dark:bg-stone-900 ${className}`.trim()}
+      className={`relative flex h-full min-h-[360px] flex-col bg-white dark:bg-stone-900 ${focusMode ? 'mermaid-focus-mode' : ''} ${className}`.trim()}
       aria-label={resolvedTitle}
       ref={zoomContainerRef}
     >
-      <CanvasMainMenu
-        items={mainMenuItems || []}
-        openLabel={mainMenuOpenLabel}
-        closeLabel={mainMenuCloseLabel}
-      />
+      {!focusMode && (
+        <CanvasMainMenu
+          items={mainMenuItems || []}
+          openLabel={mainMenuOpenLabel}
+          closeLabel={mainMenuCloseLabel}
+        />
+      )}
       {/* 顶部操作同样挂在视口层，避免滚动画布内容把它带走。 */}
-      {headerActions && (
+      {!focusMode && headerActions && (
         <CanvasToolbar className="absolute top-4 right-4 z-10 !p-0">
           {headerActions}
         </CanvasToolbar>
@@ -364,7 +424,14 @@ export default function MermaidCanvas({
 
       {/* 画布区铺满：去掉外边距与卡片描边/阴影，绘图区直接贴边；暗色下铺深色底衬托 SVG */}
       <div
-        className="relative min-h-0 flex-1 overflow-auto bg-white dark:bg-stone-900"
+        ref={panViewportRef}
+        className={`relative min-h-0 flex-1 overflow-auto bg-white dark:bg-stone-900 ${spacePressed ? 'cursor-grab' : ''} ${panActive ? 'cursor-grabbing select-none' : ''}`.trim()}
+        onPointerDown={handlePanPointerDown}
+        onPointerMove={handlePanPointerMove}
+        onPointerUp={handlePanPointerUp}
+        onPointerCancel={handlePanPointerUp}
+        onPointerEnter={() => { pointerInsideRef.current = true; }}
+        onPointerLeave={() => { pointerInsideRef.current = false; }}
       >
         <div
           ref={hostRef}
@@ -408,20 +475,22 @@ export default function MermaidCanvas({
       </div>
 
       {/* 缩放条挂在画布外层，避免内容滚动/放大后跟着 SVG 的坐标移动。 */}
-      <CanvasZoomControls
-        zoom={zoom}
-        min={MERMAID_ZOOM.min}
-        max={MERMAID_ZOOM.max}
-        initial={MERMAID_ZOOM.initial}
-        ariaLabel={t('diagram.zoomAria')}
-        zoomOutLabel={t('diagram.zoomOut')}
-        zoomResetLabel={t('diagram.zoomReset')}
-        zoomInLabel={t('diagram.zoomIn')}
-        onZoomOut={zoomOut}
-        onReset={resetZoom}
-        onZoomIn={zoomIn}
-        className="absolute bottom-4 left-4 z-50"
-      />
+      {!focusMode && (
+        <CanvasZoomControls
+          zoom={zoom}
+          min={MERMAID_ZOOM.min}
+          max={MERMAID_ZOOM.max}
+          initial={MERMAID_ZOOM.initial}
+          ariaLabel={t('diagram.zoomAria')}
+          zoomOutLabel={t('diagram.zoomOut')}
+          zoomResetLabel={t('diagram.zoomReset')}
+          zoomInLabel={t('diagram.zoomIn')}
+          onZoomOut={zoomOut}
+          onReset={resetZoom}
+          onZoomIn={zoomIn}
+          className="absolute bottom-4 left-4 z-50"
+        />
+      )}
     </section>
   );
 }

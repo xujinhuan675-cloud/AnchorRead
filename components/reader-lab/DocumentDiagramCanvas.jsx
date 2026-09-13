@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { FileCode2, Pause, Play, PanelRightClose, PanelRightOpen, SkipBack, SkipForward, Square } from 'lucide-react';
+import { ChevronDown, FileCode2, Maximize2, Minimize2, Pause, Play, PanelRightClose, PanelRightOpen, Square } from 'lucide-react';
 import CodeEditor from '@/components/CodeEditor';
 import MermaidCanvas from '@/components/MermaidCanvas';
 import { useLocale } from '@/components/LocaleProvider';
@@ -17,15 +17,25 @@ const ExcalidrawCanvas = dynamic(() => import('@/components/ExcalidrawCanvas'), 
 // 左侧主区域：图表画布 + 生成代码编辑区，与右侧对话区共享同一份 diagram 状态
 // 源码编辑区默认收起：两种画布都把源码入口放进左上角主菜单；
 // 内联卡片传入 showCode 时按外部控制为准
-export default function DocumentDiagramCanvas({ diagram, showCode, standalone = false, onOpenChat = null, onCloseChat = null }) {
+export default function DocumentDiagramCanvas({
+  diagram,
+  showCode,
+  standalone = false,
+  onOpenChat = null,
+  onCloseChat = null,
+  focusMode = false,
+  onToggleFocus = null,
+}) {
   const { t } = useLocale();
   const [codeOpen, setCodeOpen] = useState(false);
   const [presentationActive, setPresentationActive] = useState(false);
   const [presentationPlaying, setPresentationPlaying] = useState(false);
   const [presentationStepIndex, setPresentationStepIndex] = useState(0);
   const [presentationPlaybackRate, setPresentationPlaybackRate] = useState(1);
+  const [presentationControlsOpen, setPresentationControlsOpen] = useState(false);
   const fileInputRef = useRef(null);
-  const isCodeVisible = typeof showCode === 'boolean' ? showCode : codeOpen;
+  const presentationControlsRef = useRef(null);
+  const isCodeVisible = !focusMode && (typeof showCode === 'boolean' ? showCode : codeOpen);
   const {
     engine,
     code,
@@ -70,8 +80,23 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
     ? Math.min(presentationStepIndex, presentation.steps.length - 1)
     : 0;
   const presentationStep = presentation?.steps?.[effectivePresentationStepIndex] || null;
-  const presentationHasNamedSteps = presentation?.steps?.some((step) => Boolean(step.title));
   const toggleCode = useCallback(() => setCodeOpen((open) => !open), []);
+
+  useEffect(() => {
+    if (!presentationControlsOpen) return undefined;
+    const closeOnOutsidePointer = (event) => {
+      if (!presentationControlsRef.current?.contains(event.target)) setPresentationControlsOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setPresentationControlsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [presentationControlsOpen]);
 
   useEffect(() => {
     const handlePresentation = (event) => {
@@ -138,7 +163,7 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
   }] : [];
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-stone-50 dark:bg-white/5" aria-label={t('diagram.canvasAria')}>
+    <section className={`flex h-full min-h-0 flex-col bg-stone-50 dark:bg-white/5 ${focusMode ? 'diagram-focus-mode' : ''}`.trim()} aria-label={t('diagram.canvasAria')}>
       <div className={`relative min-h-0 bg-stone-50 dark:bg-white/5 ${isCodeVisible ? 'flex-[3]' : 'flex-1'}`}>
         {engine === 'mermaid'
           ? (
@@ -190,9 +215,9 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             presentationActive={effectivePresentationActive}
             streamElements={streamElements}
             externalSceneRevision={externalSceneRevision}
-            onExpandPanel={onOpenChat}
+            onExpandPanel={focusMode ? null : onOpenChat}
             expandPanelTitle={t('diagram.openChat')}
-            onCollapsePanel={onCloseChat}
+            onCollapsePanel={focusMode ? null : onCloseChat}
             collapsePanelTitle={t('workspace.collapseRightPanel')}
             onToggleSourceCode={canToggleCode ? toggleCode : null}
             sourceCodeOpen={isCodeVisible}
@@ -200,7 +225,23 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             sourceCollapseLabel={t('diagram.collapseSource')}
             onImport={canToggleCode ? openImport : null}
             importLabel={t('common.import')}
+            libraryLabel={t('diagram.library')}
+            focusMode={focusMode}
           />}
+        {onToggleFocus && (
+          <CanvasToolbar
+            floating
+            className={`absolute top-4 z-50 !p-0 ${onOpenChat || onCloseChat ? 'right-16' : 'right-4'} ${focusMode ? 'opacity-30 transition-opacity hover:opacity-100' : ''}`.trim()}
+          >
+            <CanvasToolbarButton
+              onClick={onToggleFocus}
+              aria-label={t(focusMode ? 'workspace.exitFocusMode' : 'workspace.enterFocusMode')}
+              title={t(focusMode ? 'workspace.exitFocusMode' : 'workspace.enterFocusMode')}
+            >
+              {focusMode ? <Minimize2 size={16} className="size-4" aria-hidden="true" /> : <Maximize2 size={16} className="size-4" aria-hidden="true" />}
+            </CanvasToolbarButton>
+          </CanvasToolbar>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -211,7 +252,8 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
         {presentation && (
           /* 播放条靠右下角：左下角是 Excalidraw 原生缩放控件的位置，避免与其重叠；
              源码开关已收进主菜单，右下角只剩播放条 */
-          <CanvasToolbar floating className="absolute bottom-4 right-4 z-10 max-w-[calc(100%-2rem)]">
+          <div ref={presentationControlsRef} className="absolute bottom-4 right-4 z-10">
+          <CanvasToolbar floating className="!gap-0 !p-0 max-w-[calc(100vw-2rem)]">
             <CanvasToolbarButton
               onClick={() => {
                 setPresentationActive(true);
@@ -222,38 +264,67 @@ export default function DocumentDiagramCanvas({ diagram, showCode, standalone = 
             >
               {effectivePresentationPlaying ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
             </CanvasToolbarButton>
-            <CanvasToolbarButton onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.max(0, index - 1)); }} aria-label={t('diagram.presentation.previous')} title={t('diagram.presentation.previous')}><SkipBack size={15} aria-hidden="true" /></CanvasToolbarButton>
-            {presentationHasNamedSteps && (
-              <select
-                value={effectivePresentationStepIndex}
-                aria-label={t('diagram.presentation.selectStep')}
-                className="w-24 max-w-[12rem] min-w-0 bg-transparent px-1 text-xs outline-none sm:w-auto"
-                onChange={(event) => {
-                  setPresentationActive(true);
-                  setPresentationPlaying(false);
-                  setPresentationStepIndex(Number(event.target.value));
-                }}
-              >
-                {presentation.steps.map((step, index) => (
-                  <option key={step.id} value={index}>
-                    {step.title || t('diagram.presentation.unnamedStep', { number: index + 1 })}
-                  </option>
-                ))}
-              </select>
-            )}
-            <select
-              value={presentationPlaybackRate}
-              aria-label={t('diagram.presentation.speed')}
-              title={t('diagram.presentation.speed')}
-              className="w-14 shrink-0 bg-transparent px-1 text-xs tabular-nums outline-none"
-              onChange={(event) => setPresentationPlaybackRate(Number(event.target.value))}
+            <CanvasToolbarButton
+              onClick={() => setPresentationControlsOpen((open) => !open)}
+              aria-label={t('diagram.presentation.selectStep')}
+              title={t('diagram.presentation.selectStep')}
+              active={presentationControlsOpen}
+              className="!w-auto min-w-[7rem] gap-1 px-2 text-xs tabular-nums"
             >
-              {PRESENTATION_PLAYBACK_RATES.map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
-            </select>
-            <span className="min-w-6 px-1 text-center text-[14px] tabular-nums" aria-live="polite">{presentationStepIndex + 1}/{presentation.steps.length}</span>
-            <CanvasToolbarButton onClick={() => { setPresentationActive(true); setPresentationPlaying(false); setPresentationStepIndex((index) => Math.min(presentation.steps.length - 1, index + 1)); }} aria-label={t('diagram.presentation.next')} title={t('diagram.presentation.next')}><SkipForward size={15} aria-hidden="true" /></CanvasToolbarButton>
-            {effectivePresentationActive && <CanvasToolbarButton onClick={() => { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); }} aria-label={t('diagram.presentation.stop')} title={t('diagram.presentation.stop')}><Square size={14} aria-hidden="true" /></CanvasToolbarButton>}
+              <span>{t('diagram.presentation.node')} {effectivePresentationStepIndex + 1}/{presentation.steps.length}</span>
+              <ChevronDown size={13} aria-hidden="true" />
+            </CanvasToolbarButton>
           </CanvasToolbar>
+          {presentationControlsOpen && (
+            <div
+              role="dialog"
+              aria-label={t('diagram.presentation.selectStep')}
+              className="absolute bottom-11 right-0 w-48 rounded-lg border border-stone-200 bg-white p-2 shadow-xl dark:border-stone-700 dark:bg-stone-900"
+            >
+              <div role="listbox" aria-label={t('diagram.presentation.selectStep')} className="max-h-52 overflow-y-auto">
+                {presentation.steps.map((step, index) => (
+                  <button
+                    key={step.id}
+                    type="button"
+                    role="option"
+                    aria-selected={effectivePresentationStepIndex === index}
+                    className={`flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-[#f1f0ff] focus-visible:ring-2 focus-visible:ring-stone-400 dark:hover:bg-[hsl(245,10%,21%)] ${effectivePresentationStepIndex === index ? 'bg-[#e0dfff] text-[#030064] dark:bg-[#403e6a] dark:text-[#e0dfff]' : 'text-stone-700 dark:text-stone-300'}`}
+                    onClick={() => {
+                      setPresentationActive(true);
+                      setPresentationPlaying(false);
+                      setPresentationStepIndex(index);
+                      setPresentationControlsOpen(false);
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{step.title || t('diagram.presentation.unnamedStep', { number: index + 1 })}</span>
+                    <span className="ml-2 shrink-0 tabular-nums text-stone-400">{index + 1}/{presentation.steps.length}</span>
+                  </button>
+                ))}
+              </div>
+              <label className="mt-2 flex items-center justify-between border-t border-stone-100 px-2 pt-2 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
+                <span>{t('diagram.presentation.speed')}</span>
+                <select
+                  value={presentationPlaybackRate}
+                  aria-label={t('diagram.presentation.speed')}
+                  className="w-14 rounded bg-transparent text-right text-xs tabular-nums text-stone-700 outline-none focus-visible:ring-2 focus-visible:ring-stone-400 dark:text-stone-300"
+                  onChange={(event) => setPresentationPlaybackRate(Number(event.target.value))}
+                >
+                  {PRESENTATION_PLAYBACK_RATES.map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
+                </select>
+              </label>
+              {effectivePresentationActive && (
+                <button
+                  type="button"
+                  onClick={() => { setPresentationActive(false); setPresentationPlaying(false); setPresentationStepIndex(0); setPresentationControlsOpen(false); }}
+                  className="mt-2 flex w-full items-center gap-2 rounded-md border-t border-stone-100 px-2 pt-2 text-left text-xs text-stone-600 outline-none hover:text-stone-950 focus-visible:ring-2 focus-visible:ring-stone-400 dark:border-stone-800 dark:text-stone-400 dark:hover:text-stone-100"
+                >
+                  <Square size={13} aria-hidden="true" />
+                  {t('diagram.presentation.stop')}
+                </button>
+              )}
+            </div>
+          )}
+          </div>
         )}
       </div>
       {isCodeVisible && (

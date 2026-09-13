@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import '@excalidraw/excalidraw/index.css';
 import { FileCode2, PanelRightClose, PanelRightOpen, Upload } from 'lucide-react';
+import { Library } from 'lucide-react';
 import { useLocale } from '@/components/LocaleProvider';
 import { useAppTheme } from '@/lib/theme';
 import { persistedViewportSyncKey, shouldApplyPersistedViewport } from '@/lib/excalidraw-viewport';
@@ -198,7 +199,7 @@ function recenterBoundShapeTextElements(elements) {
 // Excalidraw's converter expands labels but can drop server/agent metadata and
 // binding fields. Keep those fields while still using the official converter
 // for shape/text defaults and generated bound-text elements.
-function convertElementsForCanvas(elements, converter) {
+function convertElementsForCanvas(elements, converter, restore = null) {
   if (!Array.isArray(elements) || elements.length === 0) return [];
   if (elements.every((element) => Number.isFinite(element?.version))) return elements;
   const validated = validateAndFixBindings(elements)
@@ -211,8 +212,20 @@ function convertElementsForCanvas(elements, converter) {
     .filter((element) => element.type !== 'image' && element.type !== 'freedraw')
     .map(withLinearPoints);
   const converted = converter(convertible, { regenerateIds: false });
+  // The official converter intentionally preserves supplied width/height.
+  // AI/MCP elements often carry stale dimensions from a previous font or
+  // viewport, so refresh text metrics after conversion just like the native
+  // scene path below. This makes a page refresh render the same readable text
+  // as entering/exiting text edit mode.
+  const refreshed = typeof restore === 'function'
+    ? restore(
+      restoreElementBindings(converted, convertible),
+      null,
+      { refreshDimensions: true, repairBindings: true },
+    )
+    : restoreElementBindings(converted, convertible);
   return recenterBoundShapeTextElements([
-    ...restoreElementBindings(converted, convertible),
+    ...refreshed,
     ...imageElements,
     ...freedrawElements,
   ]);
@@ -328,7 +341,9 @@ export default function ExcalidrawCanvas({
   sourceCollapseLabel = '',
   onImport = null,
   importLabel = '',
+  libraryLabel = 'Library',
   externalSceneRevision = 0,
+  focusMode = false,
 }) {
   const { locale } = useLocale();
   const [convertToExcalidrawElements, setConvertFunction] = useState(null);
@@ -371,8 +386,8 @@ export default function ExcalidrawCanvas({
     viewBackgroundColor: isDark ? '#1c1c1c' : '#ffffff',
     currentItemFontFamily: 1,
     ...withoutRuntimeContainerFields(appState),
-    ...(presentationActive ? { viewModeEnabled: true } : {}),
-  }), [appState, isDark, presentationActive]);
+    ...((presentationActive || focusMode) ? { viewModeEnabled: true } : {}),
+  }), [appState, focusMode, isDark, presentationActive]);
   const persistedViewportKey = useMemo(
     () => persistedViewportSyncKey(initialAppState),
     [initialAppState],
@@ -382,6 +397,11 @@ export default function ExcalidrawCanvas({
   // identities stable so a parent state update does not make the canvas
   // rebuild its toolbar and menu tunnels synchronously.
   const handleExcalidrawAPI = useCallback((api) => setExcalidrawAPI(api), []);
+  const openLibrary = useCallback(() => {
+    if (typeof excalidrawAPI?.toggleSidebar === 'function') {
+      excalidrawAPI.toggleSidebar({ name: 'default', tab: 'library' });
+    }
+  }, [excalidrawAPI]);
   const renderTopRightUI = useCallback(() => {
     // 面板触发器挂在原生 renderTopRightUI 槽位：与 Library 触发器
     // 同一 flex 行并排（CSS 里 order: 99 排到它右侧）；外壳和按钮
@@ -478,7 +498,11 @@ export default function ExcalidrawCanvas({
       if (!convertToExcalidrawElements) return [];
       // 保留原始元素 id：演示步骤的 visibleElementIds/highlightElementIds 按创建时的
       // 简化元素 id 引用，重新生成随机 id 会让过滤、高亮与持久化后的场景全部失配。
-      return convertElementsForCanvas(presentationElements, convertToExcalidrawElements);
+      return convertElementsForCanvas(
+        presentationElements,
+        convertToExcalidrawElements,
+        restoreElementsForCanvas,
+      );
     } catch (error) {
       console.error('Failed to convert elements:', error);
       return [];
@@ -651,7 +675,11 @@ export default function ExcalidrawCanvas({
     if (!excalidrawAPI || !convertToExcalidrawElements || streamElements.length === 0) return undefined;
     let converted = [];
     try {
-      converted = convertElementsForCanvas(streamElements, convertToExcalidrawElements);
+      converted = convertElementsForCanvas(
+        streamElements,
+        convertToExcalidrawElements,
+        restoreElementsForCanvas,
+      );
     } catch {
       return undefined;
     }
@@ -664,7 +692,7 @@ export default function ExcalidrawCanvas({
       }
     }
     return undefined;
-  }, [streamElements, excalidrawAPI, convertToExcalidrawElements]);
+  }, [streamElements, excalidrawAPI, convertToExcalidrawElements, restoreElementsForCanvas]);
 
   useEffect(() => {
     if (presentationActive || !restoreFullSceneRef.current || !excalidrawAPI || typeof excalidrawAPI.updateScene !== 'function') return;
@@ -677,7 +705,7 @@ export default function ExcalidrawCanvas({
       : null;
     const restoredAppState = {
       ...initialAppState,
-      viewModeEnabled: Boolean(appState?.viewModeEnabled),
+      viewModeEnabled: focusMode || Boolean(appState?.viewModeEnabled),
     };
     const elementsChanged = sceneElementsChanged(currentElements, convertedElements);
     const appStateChanged = viewportValueChanged(currentAppState, restoredAppState)
@@ -691,7 +719,7 @@ export default function ExcalidrawCanvas({
     // 覆盖 Excalidraw 异步应用 updateScene 的过渡期：窗口内任何回调都拦截，
     // 防止过滤后的演示元素被当作正式场景持久化。
     setTimeout(() => { ignoreSceneChangesRef.current = false; }, 800);
-  }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, initialAppState, presentationActive]);
+  }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, focusMode, initialAppState, presentationActive]);
 
   // Apply an external MCP edit to the mounted canvas and quarantine the stale
   // callback emitted by the scene that was replaced.
@@ -710,7 +738,7 @@ export default function ExcalidrawCanvas({
       : null;
     const nextAppState = {
       ...initialAppState,
-      viewModeEnabled: Boolean(appState?.viewModeEnabled),
+      viewModeEnabled: focusMode || Boolean(appState?.viewModeEnabled),
     };
     const elementsChanged = sceneElementsChanged(currentElements, convertedElements);
     const appStateChanged = viewportValueChanged(currentAppState, nextAppState)
@@ -732,7 +760,7 @@ export default function ExcalidrawCanvas({
       externalHydrationTimerRef.current = null;
     }, 1500);
     return undefined;
-  }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, externalSceneRevision, initialAppState]);
+  }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, externalSceneRevision, focusMode, initialAppState]);
 
   useEffect(() => () => {
     if (externalHydrationTimerRef.current) clearTimeout(externalHydrationTimerRef.current);
@@ -786,7 +814,9 @@ export default function ExcalidrawCanvas({
   }), [convertedElements, files, hasPersistedAppState, initialAppState]);
 
   const mainMenu = useMemo(() => {
-    if (!MainMenu || (!onToggleSourceCode && !onImport)) return null;
+    if (!MainMenu || (!onToggleSourceCode && !onImport)) {
+      if (!MainMenu || !excalidrawAPI) return null;
+    }
     return (
       <MainMenu>
         {onToggleSourceCode && (
@@ -806,6 +836,14 @@ export default function ExcalidrawCanvas({
             {importLabel}
           </MainMenu.Item>
         )}
+        {excalidrawAPI && (
+          <MainMenu.Item
+            icon={<Library size={NATIVE_MENU_ICON_SIZE} strokeWidth={NATIVE_MENU_ICON_STROKE_WIDTH} />}
+            onSelect={openLibrary}
+          >
+            {libraryLabel}
+          </MainMenu.Item>
+        )}
         <MainMenu.Separator />
         <MainMenu.DefaultItems.ChangeCanvasBackground />
         <MainMenu.DefaultItems.Export />
@@ -814,7 +852,7 @@ export default function ExcalidrawCanvas({
         <MainMenu.DefaultItems.Help />
       </MainMenu>
     );
-  }, [MainMenu, importLabel, onImport, onToggleSourceCode, sourceCodeOpen, sourceCollapseLabel, sourceExpandLabel]);
+  }, [MainMenu, excalidrawAPI, importLabel, libraryLabel, onImport, onToggleSourceCode, openLibrary, sourceCodeOpen, sourceCollapseLabel, sourceExpandLabel]);
 
   // Remount 后 Excalidraw 在 initialData 应用前会触发一次瞬态空 onChange 回调。
   // 记录本实例挂载时的初始元素数：只要初始场景非空，任何空回调都视为瞬态，
@@ -828,7 +866,7 @@ export default function ExcalidrawCanvas({
   }, [canvasKey, convertedElements.length]);
 
   return (
-    <div className="anchor-read-excalidraw relative h-full w-full">
+    <div className={`anchor-read-excalidraw relative h-full w-full ${focusMode ? 'anchor-read-excalidraw-focus' : ''}`.trim()}>
       <Excalidraw
         key={canvasKey}
         excalidrawAPI={handleExcalidrawAPI}
@@ -861,13 +899,18 @@ export default function ExcalidrawCanvas({
           }
           if (presentationActive || ignoreSceneChangesRef.current || restoreFullSceneRef.current
             || (!convertToExcalidrawElements && elements?.length > 0)) return;
+          // Focus mode is a transient presentation state. Do not let the
+          // canvas callback persist its temporary read-only flag.
+          const persistedAppState = focusMode
+            ? { ...nextAppState, viewModeEnabled: Boolean(appState?.viewModeEnabled) }
+            : nextAppState;
           // Preserve the original callback contract for existing callers.
           onElementsChange?.(nextElements);
           // Expose one canonical scene object to persistence consumers while
           // keeping the legacy element-only callback above unchanged.
           onSceneChange?.({
             elements: nextElements,
-            appState: nextAppState,
+            appState: persistedAppState,
             files: nextFiles,
           });
         }}

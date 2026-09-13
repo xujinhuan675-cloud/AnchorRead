@@ -339,6 +339,8 @@ export default function ReaderLabWorkspace({
   onDocumentResolved = () => {},
   onOpenDocumentLibrary = null,
   onOpenDiagramLibrary = null,
+  diagramFocusMode = false,
+  onDiagramFocusModeChange = null,
 }) {
   const { t } = useLocale();
   const isHomeLayout = layout === 'home';
@@ -1718,6 +1720,14 @@ export default function ReaderLabWorkspace({
     onClearAnchor: clearDiagramAnchor,
     onNotice: setNotice,
   });
+  useEffect(() => {
+    if (!diagramFocusMode) return undefined;
+    const handleFocusModeKeydown = (event) => {
+      if (event.key === 'Escape') onDiagramFocusModeChange?.(false);
+    };
+    document.addEventListener('keydown', handleFocusModeKeydown);
+    return () => document.removeEventListener('keydown', handleFocusModeKeydown);
+  }, [diagramFocusMode, onDiagramFocusModeChange]);
   diagramStateRef.current = diagramState;
 
   // 划词图解不跳转：留在原文直接生成，锚点随参数传入 generate（不等 anchor prop 下一帧生效）；
@@ -2321,6 +2331,20 @@ export default function ReaderLabWorkspace({
     if (isDesktop) updateRightCollapsed(true);
     else setKnowledgeOpen(false);
   }, [isDesktop, updateRightCollapsed]);
+  const toggleDiagramFocus = useCallback(() => {
+    const next = !diagramFocusMode;
+    if (next) {
+      setKnowledgeOpen(false);
+      setInternalHistoryOpen(false);
+      setSyncOpen(false);
+      setCustomActionsOpen(false);
+      setGlossaryOpen(false);
+      setMoreMenuOpen(false);
+      setLayerMenuOpen(false);
+      setPrecisionMenuOpen(false);
+    }
+    onDiagramFocusModeChange?.(next);
+  }, [diagramFocusMode, onDiagramFocusModeChange]);
 
   if (!ready) {
     return (
@@ -2489,18 +2513,18 @@ export default function ReaderLabWorkspace({
       }}
     />
   );
-  const diagramCanvas = <DocumentDiagramCanvas diagram={diagramState} standalone={standaloneDiagram} onOpenChat={standaloneDiagram && rightCollapsed ? expandRightPanel : null} onCloseChat={standaloneDiagram && !rightCollapsed ? collapseRightPanel : null} />;
+  const diagramCanvas = <DocumentDiagramCanvas diagram={diagramState} standalone={standaloneDiagram} onOpenChat={standaloneDiagram && rightCollapsed ? expandRightPanel : null} onCloseChat={standaloneDiagram && !rightCollapsed ? collapseRightPanel : null} focusMode={diagramFocusMode} onToggleFocus={onDiagramFocusModeChange ? toggleDiagramFocus : null} />;
     const rightPanel = rightPanelView === 'diagram' ? diagram : knowledge;
   // 图解画布形态：阅读区不渲染，解读/白话/重点等阅读专属控件随之收起，顶栏只留图解相关动作
 
   return (
     <TooltipProvider>
-      <main className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f3f5f4] text-stone-950 dark:bg-stone-950 dark:text-stone-100">
-        <PrivacyNoticeBar onExport={exportBackup} />
+      <main className={`flex h-full min-h-0 flex-col overflow-hidden bg-[#f3f5f4] text-stone-950 dark:bg-stone-950 dark:text-stone-100 ${diagramFocusMode ? 'fixed inset-0 z-[100] w-screen' : ''}`.trim()}>
+        {!diagramFocusMode && <PrivacyNoticeBar onExport={exportBackup} />}
 
         {/* 独立图解工作区：顶栏「图解」已表明当前视图，header 行只剩标题太浪费，
             整行移除让下方画布与面板直接提上来；文档绑定形态照常保留 header */}
-        {!standaloneDiagram && (
+        {!diagramFocusMode && !standaloneDiagram && (
         <header className="z-20 flex min-h-[62px] shrink-0 items-center gap-3 border-b border-stone-200 dark:border-stone-800 bg-white px-3 sm:px-4 lg:px-6 dark:bg-stone-900">
           {!standaloneDiagram && !diagramMode && (
             <Tooltip content={outlineOpen ? t('library.collapseOutline') : t('library.openOutline')}>
@@ -2838,7 +2862,7 @@ export default function ReaderLabWorkspace({
         </header>
         )}
 
-        {notice && (
+        {!diagramFocusMode && notice && (
           <div className={`flex min-h-9 shrink-0 items-center gap-2 border-b px-4 text-xs ${notice.type === 'error' ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300' : notice.type === 'demo' ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300' : 'border-stone-200 dark:border-stone-700 bg-stone-100 dark:bg-white/10 text-stone-900 dark:text-stone-200'}`}>
             {notice.type === 'error' ? <TriangleAlert size={14} /> : <CheckCircle2 size={14} />}
             {/* 通知支持 messageKey：回调里只存 i18n 键，此处按当前语言渲染，切换语言即时生效 */}
@@ -2848,7 +2872,11 @@ export default function ReaderLabWorkspace({
         )}
 
         <div className="min-h-0 flex-1">
-          {isDesktop ? (
+          {diagramFocusMode ? (
+            <section className="h-full min-h-0" aria-label={standaloneDiagram ? t('workspace.freeDiagramCanvas') : t('workspace.docDiagramArea')}>
+              {diagramCanvas}
+            </section>
+          ) : isDesktop ? (
             <ResizablePanelGroup orientation="horizontal" id="reader-lab-layout">
               <ResizablePanel id="reader-content" defaultSize={isHomeLayout ? '72%' : '77%'} minSize="420px">
                 <div className="relative h-full min-h-0">
@@ -2886,7 +2914,7 @@ export default function ReaderLabWorkspace({
           )}
         </div>
 
-        <footer className="flex min-h-8 shrink-0 items-center justify-between border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 px-4 text-[11px] text-stone-500 dark:text-stone-400">
+        {!diagramFocusMode && <footer className="flex min-h-8 shrink-0 items-center justify-between border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 px-4 text-[11px] text-stone-500 dark:text-stone-400">
           <span className="flex min-w-0 items-center gap-1.5 truncate">
             <BookOpen size={13} className="shrink-0" />
             {standaloneDiagram
@@ -2901,9 +2929,9 @@ export default function ReaderLabWorkspace({
           >
             <Library size={13} /> {t('workspace.localBadge')}
           </button>
-        </footer>
+        </footer>}
 
-        <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
+        {!diagramFocusMode && <Sheet open={knowledgeOpen} onOpenChange={setKnowledgeOpen}>
           <SheetContent
             title={rightPanelView === 'diagram' ? (standaloneDiagram ? t('workspace.freeDiagram') : t('workspace.docRelationDiagram')) : t('workspace.knowledgePanel')}
             side="right"
@@ -2911,7 +2939,7 @@ export default function ReaderLabWorkspace({
           >
             {rightPanelView === 'diagram' ? diagram : renderKnowledge(sheetInlineClose)}
           </SheetContent>
-        </Sheet>
+        </Sheet>}
         {!onOpenHistory && (
           <HistoryModal
             isOpen={internalHistoryOpen}

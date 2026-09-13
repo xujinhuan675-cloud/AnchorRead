@@ -90,6 +90,16 @@ test('shares Excalidraw-style Ctrl/Cmd wheel zoom behavior', () => {
   assert.match(zoomHookSource, /boundedDelta/u);
 });
 
+test('supports Excalidraw-like Space or middle-button canvas panning', () => {
+  assert.match(componentSource, /spacePressed/u);
+  assert.match(componentSource, /event\.button === 1 \|\| \(event\.button === 0 && spacePressed\)/u);
+  assert.match(componentSource, /setPointerCapture\?\.\(event\.pointerId\)/u);
+  assert.match(componentSource, /releasePointerCapture\?\.\(event\.pointerId\)/u);
+  assert.match(componentSource, /pointerInsideRef/u);
+  assert.match(componentSource, /event\.preventDefault\(\)/u);
+  assert.match(componentSource, /!focusMode && \(/u);
+});
+
 test('render failures preserve the last successful diagram contract', () => {
   const initial = createMermaidRenderState();
   const rendering = mermaidRenderReducer(initial, { type: 'start' });

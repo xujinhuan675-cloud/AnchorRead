@@ -146,6 +146,13 @@ test('diagram thumbnails treat empty or invalid local source as a recoverable pl
   assert.doesNotMatch(diagramThumbnail, /console\.warn\(/);
 });
 
+test('diagram thumbnails refresh Excalidraw text dimensions before SVG export', () => {
+  assert.match(diagramThumbnail, /convertToExcalidrawElements\(elements, \{ regenerateIds: false \}\)/u);
+  assert.match(diagramThumbnail, /restoreElements\(convertedElements, null, \{/u);
+  assert.match(diagramThumbnail, /refreshDimensions: true/u);
+  assert.match(diagramThumbnail, /repairBindings: true/u);
+});
+
 test('active drawing synchronization uses the in-scope drawing value', () => {
   assert.match(useDocumentDiagram, /setRevisionHistory\(Array\.isArray\(activeDrawing\?\.revisionHistory\)/u);
   assert.match(useDocumentDiagram, /setPresentation\(activeDrawing\?\.presentation \|\| activeDrawing\?\.presentationSpec \|\| null\)/u);
@@ -271,8 +278,8 @@ test('nav diagram entry opens a standalone free-form diagram workspace', () => {
   assert.match(readerLabWorkspace, /\|\| drawing\.documentId === STANDALONE_DIAGRAM_DOCUMENT_ID/);
   // 独立形态下 header 整行移除（顶栏「图解」已表明视图），下方画布与面板提上来；文档绑定形态保留
   assert.match(readerLabWorkspace, /diagramMode && !standaloneDiagram/);
-  assert.match(readerLabWorkspace, /\{!standaloneDiagram && \(\s*<header className="z-20 flex min-h-\[62px\]/);
-  assert.match(readerLabWorkspace, /\{!standaloneDiagram && \([\s\S]*?<Tooltip content=\{t\('workspace\.moreTooltip'\)\}>/);
+  assert.match(readerLabWorkspace, /\{!diagramFocusMode && !standaloneDiagram && \(\s*<header className="z-20 flex min-h-\[62px\]/);
+  assert.match(readerLabWorkspace, /\{!diagramFocusMode && !standaloneDiagram && \([\s\S]*?<Tooltip content=\{t\('workspace\.moreTooltip'\)\}>/);
   assert.doesNotMatch(readerLabWorkspace, /不绑定文档 · 在这里自由创建与管理图解/);
   // 面板标题由图解选择器直接替代：切换/删除/新建/历史同行，不再单独留标题与子栏
   assert.match(documentDiagramPanel, /图解选择器直接替代面板标题/);
