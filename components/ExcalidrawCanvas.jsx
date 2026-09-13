@@ -428,10 +428,13 @@ export default function ExcalidrawCanvas({
     Promise.all([
       getConvertFunction(),
       import('@excalidraw/excalidraw'),
-      typeof document !== 'undefined' && document.fonts?.ready
-        ? document.fonts.ready
-        : Promise.resolve(),
-    ]).then(([fn, mod]) => {
+    ]).then(async ([fn, mod]) => {
+      // Excalidraw registers its bundled font faces during the dynamic import.
+      // Wait after that import, otherwise document.fonts.ready may have
+      // resolved before those faces were added to the document.
+      if (typeof document !== 'undefined' && document.fonts?.ready) {
+        await document.fonts.ready;
+      }
       if (cancelled) return;
       setConvertFunction(() => fn);
       setRestoreElementsForCanvas(() => mod.restoreElements);
@@ -444,13 +447,41 @@ export default function ExcalidrawCanvas({
   useEffect(() => {
     if (!excalidrawAPI || typeof document === 'undefined') return undefined;
     let cancelled = false;
+    const refreshTextDimensions = () => {
+      if (cancelled || typeof excalidrawAPI.getSceneElements !== 'function'
+        || typeof excalidrawAPI.updateScene !== 'function'
+        || typeof restoreElementsForCanvas !== 'function'
+        || presentationActive || streamElements !== null) return;
+      const currentElements = excalidrawAPI.getSceneElements();
+      const refreshedElements = restoreElementsForCanvas(currentElements, null, {
+        refreshDimensions: true,
+        repairBindings: true,
+      });
+      if (sceneElementsChanged(currentElements, refreshedElements)) {
+        // updateScene follows the normal Excalidraw onChange path, which saves
+        // the refreshed geometry instead of leaving it as an in-memory fix.
+        excalidrawAPI.updateScene({ elements: refreshedElements });
+      }
+    };
+    const scheduleTextRefresh = () => {
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(refreshTextDimensions);
+      } else {
+        refreshTextDimensions();
+      }
+    };
+    document.fonts?.addEventListener?.('loadingdone', scheduleTextRefresh);
     Promise.resolve(document.fonts?.ready).then(() => {
       if (!cancelled && typeof excalidrawAPI.refresh === 'function') {
         excalidrawAPI.refresh();
       }
+      scheduleTextRefresh();
     });
-    return () => { cancelled = true; };
-  }, [excalidrawAPI]);
+    return () => {
+      cancelled = true;
+      document.fonts?.removeEventListener?.('loadingdone', scheduleTextRefresh);
+    };
+  }, [excalidrawAPI, presentationActive, restoreElementsForCanvas, streamElements]);
 
   // Convert elements to Excalidraw format
   const presentationElements = useMemo(() => {

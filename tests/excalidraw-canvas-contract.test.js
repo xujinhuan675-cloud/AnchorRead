@@ -257,6 +257,14 @@ test('canvas waits for fonts and refreshes native text after fonts are ready', (
   assert.match(componentSource, /excalidrawAPI\.refresh\(\)/u);
 });
 
+test('canvas remeasures text when Excalidraw finishes loading its font faces', () => {
+  assert.match(componentSource, /loadingdone/u);
+  assert.match(componentSource, /restoreElementsForCanvas\(currentElements, null, \{/u);
+  assert.match(componentSource, /const refreshedElements = restoreElementsForCanvas/u);
+  assert.match(componentSource, /excalidrawAPI\.updateScene\(\{ elements: refreshedElements \}\)/u);
+  assert.match(componentSource, /removeEventListener\?\.\('loadingdone'/u);
+});
+
 test('auto zoom yields to the presentation camera', () => {
   // 播放期间自动 fit-zoom 会与步骤相机动画抢视口：每步覆盖相机目标
   assert.match(componentSource, /hasPersistedAppState \|\| presentationActive/u);
