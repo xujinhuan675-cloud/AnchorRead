@@ -92,6 +92,8 @@ test('diagram MCP lists, describes and commits with revision protection', async 
     assert.match(responses[0].result.instructions, /source -> target -> connector/);
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'read_me'));
     assert.ok(responses[1].result.tools.some((tool) => tool.name === 'query_diagram'));
+    assert.ok(responses[1].result.tools.some((tool) => tool.name === 'preflight_scene'));
+    assert.ok(responses[1].result.tools.some((tool) => tool.name === 'verify_diagram'));
     const getDiagramSchema = responses[1].result.tools.find((tool) => tool.name === 'get_diagram').inputSchema;
     assert.deepEqual(getDiagramSchema.properties.projection.enum, ['summary', 'full']);
     assert.ok(getDiagramSchema.properties.include.items.enum.includes('scene'));

@@ -54,6 +54,8 @@ test('Streamable HTTP MCP initializes, lists tools and calls a browser command',
     assert.equal(tools.some((tool) => tool.name === 'export_excalidraw'), false);
     assert.ok(tools.some((tool) => tool.name === 'read_diagram_guide'));
     assert.ok(tools.some((tool) => tool.name === 'describe_scene'));
+    assert.ok(tools.some((tool) => tool.name === 'preflight_scene'));
+    assert.ok(tools.some((tool) => tool.name === 'verify_diagram'));
     const guide = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
       jsonrpc: '2.0', id: 19, method: 'tools/call', params: {
         name: 'read_diagram_guide', arguments: {},

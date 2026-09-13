@@ -81,6 +81,10 @@ test('browser connection surface exposes OAuth only', () => {
   assert.match(panel, /OAuth authorization|OAuth 授权/u);
   assert.match(panel, /View authorization|查看授权/u);
   assert.match(panel, /Revoke authorization|撤销授权/u);
+  assert.match(panel, /codex mcp login anchor-read-diagram/u);
+  assert.match(panel, /其他 MCP 客户端/u);
+  assert.match(panel, /replace the leading codex with the client name, such as Claude/u);
+  assert.match(panel, /copyReauthorizationCommand/u);
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{approveOAuth\}/u);
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{viewAuthorizations\}/u);
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{\(\) => revokeAuthorizations\(\)\}/u);

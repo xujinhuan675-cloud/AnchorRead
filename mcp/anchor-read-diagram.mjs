@@ -69,6 +69,7 @@ import {
   getDiagramMcpTools,
 } from '../lib/diagram-agent-mcp-contract.js';
 import { getDiagramDesignGuide } from '../lib/diagram-design-guide.js';
+import { preflightDiagramScene } from '../lib/diagram-scene-quality.js';
 import {
   DIAGRAM_MCP_APP_RESOURCE_URI,
   diagramMcpAppResourceListing,
@@ -331,6 +332,31 @@ const BASE_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' }, maxElements: { type: 'number' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'preflight_scene',
+    description: '在写入或复核前运行确定性的图解质量预检：检查稳定 id、连接绑定、节点尺寸、文字截断风险和 camera 比例。仅返回检查结果，不修改图解。',
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'verify_diagram',
+    description: '完成一次图解验收：返回结构描述、质量预检和当前画布截图状态。发现问题时给出可执行的修复建议。',
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        visual: { type: 'boolean', description: '是否请求当前画布截图；离线文件模式会返回 visual unavailable。默认 true。' },
+      },
       required: ['id'],
       additionalProperties: false,
     },
@@ -729,6 +755,50 @@ async function callToolImpl(name, args = {}) {
       return textResult(describeScene(getDrawingScene(getDrawing(payload, args.id)), {
         maxElements: Number.isInteger(args.maxElements) ? args.maxElements : Infinity,
       }));
+    case 'preflight_scene': {
+      const drawing = getDrawing(payload, args.id);
+      if (drawing.engine !== 'excalidraw') {
+        return textResult({
+          status: 'not_applicable',
+          ok: true,
+          errors: [],
+          warnings: [],
+          repairSuggestions: [],
+          summary: { engine: drawing.engine, note: 'Visual scene preflight applies to Excalidraw drawings.' },
+        });
+      }
+      return textResult(preflightDiagramScene(getDrawingScene(drawing)));
+    }
+    case 'verify_diagram': {
+      const drawing = getDrawing(payload, args.id);
+      const isExcalidraw = drawing.engine === 'excalidraw';
+      const scene = isExcalidraw ? getDrawingScene(drawing) : null;
+      const preflight = isExcalidraw
+        ? preflightDiagramScene(scene)
+        : {
+          status: 'not_applicable',
+          ok: true,
+          errors: [],
+          warnings: [],
+          repairSuggestions: [],
+          summary: { engine: drawing.engine, note: 'Visual scene preflight applies to Excalidraw drawings.' },
+        };
+      return textResult({
+        id: drawing.id,
+        routeId: drawing.routeId,
+        revision: drawing.revision || 0,
+        description: isExcalidraw
+          ? describeScene(scene)
+          : `Mermaid diagram source is present (${String(drawing.source || '').length} characters).`,
+        preflight,
+        visual: args.visual === false
+          ? { available: false, skipped: true }
+          : { available: false, nextAction: isExcalidraw ? 'open_diagram_workspace_then_retry' : 'verify_mermaid_render_in_workspace' },
+        nextAction: !preflight.ok
+          ? 'fix_scene_then_verify'
+          : (preflight.warnings.length > 0 ? 'repair_scene_then_verify' : 'none'),
+      });
+    }
     case 'query_diagram':
       return textResult(querySceneElements(getDrawingScene(getDrawing(payload, args.id)), args.filters || {}));
     case 'query_elements': {
@@ -799,6 +869,7 @@ async function callToolImpl(name, args = {}) {
         ...(openRequested ? { openTarget: 'default_browser' } : {}),
         openResource: { kind: 'diagram', routeId: drawing.routeId, title: drawing.title, url },
         presentationAutoPlayed: false,
+        nextAction: 'verify_diagram',
       });
     }
     case 'export_excalidraw':

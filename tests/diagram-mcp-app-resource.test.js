@@ -19,6 +19,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /@excalidraw\/excalidraw@0\.18\.0\/dist\/prod\/index\.css/);
   assert.match(resource.text, /lucide-react@1\.31\.0/);
   assert.match(resource.text, /exportToSvg/);
+  assert.match(resource.text, /convertToExcalidrawElements, restoreElements, FONT_FAMILY/);
   assert.match(resource.text, /mermaid@11\.16\.1/);
   assert.match(resource.text, /useApp\(/);
   assert.match(resource.text, /onAppCreated/);

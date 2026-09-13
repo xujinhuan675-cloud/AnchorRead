@@ -45,6 +45,7 @@ test('creates and reads a diagram in the browser workspace without a file round-
   assert.equal(created.openAction, 'open_url_if_supported');
   assert.equal(created.openTarget, 'default_browser');
   assert.equal(created.openResource.kind, 'diagram');
+  assert.equal(created.nextAction, 'verify_diagram');
   assert.equal(opened.id, created.id);
   assert.equal((await workspace.drawings.list()).length, 1);
 
@@ -102,6 +103,58 @@ test('renders a screenshot from the requested drawing instead of an arbitrary DO
 
   assert.equal(capturedDrawing.id, created.id);
   assert.deepEqual(result, expected);
+});
+
+test('verify_diagram closes the structure and visual quality loop', async () => {
+  const workspace = repository();
+  const created = await executeDiagramAgentCommand({
+    tool: 'create_diagram',
+    args: {
+      title: 'Verification loop',
+      engine: 'excalidraw',
+      elements: [
+        { id: 'source', type: 'rectangle', x: 0, y: 0, width: 160, height: 80, label: { text: 'Source' } },
+        { id: 'target', type: 'rectangle', x: 280, y: 0, width: 160, height: 80, label: { text: 'Target' } },
+        { id: 'edge', type: 'arrow', x: 160, y: 20, width: 120, height: 0, startElementId: 'source', endElementId: 'target', label: { text: 'calls' } },
+      ],
+      open: false,
+    },
+  }, { repository: workspace, now: 106 });
+  const verified = await executeDiagramAgentCommand({
+    tool: 'verify_diagram',
+    args: { id: created.id },
+  }, {
+    repository: workspace,
+    screenshot: async () => ({ content: [{ type: 'image', data: 'png', mimeType: 'image/png' }] }),
+  });
+
+  const verifiedPayload = verified.structuredContent || verified;
+  assert.equal(verifiedPayload.id, created.id);
+  assert.equal(verifiedPayload.revision, 1);
+  assert.equal(verifiedPayload.preflight.status, 'pass');
+  assert.match(verifiedPayload.description, /Total elements: 3/);
+  assert.equal(verifiedPayload.visual.available, true);
+  assert.equal(verifiedPayload.nextAction, 'none');
+});
+
+test('create_diagram rejects duplicate element ids before persistence', async () => {
+  const workspace = repository();
+  await assert.rejects(
+    executeDiagramAgentCommand({
+      tool: 'create_diagram',
+      args: {
+        title: 'Invalid scene',
+        engine: 'excalidraw',
+        elements: [
+          { id: 'duplicate', type: 'rectangle', width: 160, height: 80 },
+          { id: 'duplicate', type: 'ellipse', width: 160, height: 80 },
+        ],
+      },
+    }, { repository: workspace, now: 107 }),
+    (error) => error.code === 'SCENE_PREFLIGHT_FAILED'
+      && error.preflight?.errors?.some((item) => item.code === 'DUPLICATE_ELEMENT_ID'),
+  );
+  assert.equal((await workspace.drawings.list()).length, 0);
 });
 
 test('content diagrams receive a default presentation and play when opened', async () => {
