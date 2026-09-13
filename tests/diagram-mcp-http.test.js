@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createMcpSession,
   getMcpSessionCount,
   handleDiagramMcpHttpRequest,
   submitDiagramTool,
@@ -308,7 +309,7 @@ test('revision conflicts retain structured retry exhaustion details', async () =
   assert.equal(result.structuredContent.actualRevision, 3);
 });
 
-test('Streamable HTTP keeps an optional SSE session alive and fails expired sessions fast', async () => {
+test('Streamable HTTP keeps SSE alive and rebuilds a stale POST session', async () => {
   const initialize = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
     jsonrpc: '2.0', id: 31, method: 'initialize', params: {},
   }));
@@ -328,9 +329,9 @@ test('Streamable HTTP keeps an optional SSE session alive and fails expired sess
   const expired = await handleDiagramMcpHttpRequest(request('http://127.0.0.1:3000/mcp', {
     jsonrpc: '2.0', id: 32, method: 'ping', params: {},
   }, { 'MCP-Session-Id': 'anchorread-expired-session' }));
-  assert.equal(expired.status, 404);
-  assert.equal(expired.headers.get('retry-after'), '0');
-  assert.match((await expired.json()).error.message, /Re-initialize/);
+  assert.equal(expired.status, 200);
+  assert.equal(expired.headers.get('mcp-session-id'), 'anchorread-expired-session');
+  assert.deepEqual((await expired.json()).result, {});
 });
 
 test('remote MCP requires OAuth, follows the active browser tab, and enforces CORS origins', async () => {
@@ -386,6 +387,52 @@ test('remote MCP requires OAuth, follows the active browser tab, and enforces CO
     assert.equal(submittedOptions.binding.browserSessionId, reopenedBrowser.browserSessionId);
     assert.equal(submittedOptions.binding.bindingId, registered.bindingId);
     assert.equal(submittedOptions.tokenId, created.record.id);
+
+    // OAuth refresh/re-login may produce a new token while the client keeps
+    // sending the old MCP-Session-Id. The stable browser binding keeps the
+    // session valid while the request uses the new token.
+    const rotated = await store.createTokenForWorkspace(registered, { name: 'OAuth HTTP refresh', expiresInMs: 60_000 });
+    let reboundSubmission;
+    const rebound = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
+      jsonrpc: '2.0', id: 30, method: 'tools/call', params: { name: 'list_diagrams', arguments: {} },
+    }, { Origin: 'https://client.example', Authorization: `Bearer ${rotated.token}`, 'MCP-Session-Id': sessionId }), {
+      submitTool: async (_name, _args, options) => {
+        reboundSubmission = options;
+        return [];
+      },
+    });
+    assert.equal(rebound.status, 200);
+    assert.equal(rebound.headers.get('mcp-session-id'), sessionId);
+    assert.equal(reboundSubmission.tokenId, rotated.record.id);
+    assert.equal(reboundSubmission.binding.workspaceId, browser.workspaceId);
+
+    const legacySession = createMcpSession({
+      protocolVersion: '2025-06-18',
+      auth: {
+        tokenId: created.record.id,
+        workspaceId: browser.workspaceId,
+        browserSessionId: browser.browserSessionId,
+      },
+    });
+    const legacyRebound = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
+      jsonrpc: '2.0', id: 32, method: 'ping', params: {},
+    }, { Origin: 'https://client.example', Authorization: `Bearer ${rotated.token}`, 'MCP-Session-Id': legacySession.id }));
+    assert.equal(legacyRebound.status, 200);
+    assert.equal(legacyRebound.headers.get('mcp-session-id'), legacySession.id);
+
+    const otherBrowser = {
+      workspaceId: 'workspace-http-other',
+      browserSessionId: 'session-http-other',
+      tabId: 'tab-http-other',
+      clientId: 'client-http-other',
+      managementSecret: 'manage-http-other-secret',
+    };
+    const otherBinding = await store.registerConnection(otherBrowser);
+    const otherToken = await store.createTokenForWorkspace(otherBinding, { name: 'OAuth HTTP other', expiresInMs: 60_000 });
+    const wrongBinding = await handleDiagramMcpHttpRequest(request('https://anchor.example/mcp', {
+      jsonrpc: '2.0', id: 31, method: 'ping', params: {},
+    }, { Origin: 'https://client.example', Authorization: `Bearer ${otherToken.token}`, 'MCP-Session-Id': sessionId }));
+    assert.equal(wrongBinding.status, 401);
 
     await store.registerConnection({
       ...browser,
