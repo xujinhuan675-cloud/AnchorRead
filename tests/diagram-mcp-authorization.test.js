@@ -5,6 +5,8 @@ import {
   getDiagramMcpAuthorizationInfo,
   getDiagramMcpAuthorizationInfoUrl,
   getDiagramMcpAuthorizationUrl,
+  getDiagramMcpCodexOAuthSetup,
+  getDiagramMcpCodexPersonalTokenConfig,
   getDiagramMcpDiagramsUrl,
   getDiagramMcpOAuthAuthorizationUrl,
   getDiagramMcpOAuthRegisterUrl,
@@ -66,6 +68,29 @@ test('authorization URL helpers discard caller paths and query strings', () => {
   assert.equal(getDiagramMcpOAuthServerMetadataUrl(request), 'https://anchor.example/.well-known/oauth-authorization-server');
 });
 
+test('Codex connection helpers produce one-paste OAuth commands and Personal Token config', () => {
+  const endpoint = 'https://anchor.example/mcp';
+  assert.equal(
+    getDiagramMcpCodexOAuthSetup(endpoint),
+    [
+      'codex mcp add anchor-read-diagram --url https://anchor.example/mcp',
+      'codex mcp login anchor-read-diagram',
+    ].join('\n'),
+  );
+  assert.equal(
+    getDiagramMcpCodexPersonalTokenConfig(endpoint, 'armcp_personal-secret'),
+    [
+      '[mcp_servers.anchor-read-diagram]',
+      'enabled = true',
+      'url = "https://anchor.example/mcp"',
+      '',
+      '[mcp_servers.anchor-read-diagram.http_headers]',
+      'Authorization = "Bearer armcp_personal-secret"',
+    ].join('\n'),
+  );
+  assert.throws(() => getDiagramMcpCodexPersonalTokenConfig(endpoint, ''), TypeError);
+});
+
 test('authorization metadata rejects invalid URL input', () => {
   assert.throws(() => getDiagramMcpResourceUrl('not a URL'), TypeError);
 });
@@ -82,10 +107,12 @@ test('browser connection surface exposes OAuth and Personal Token controls', () 
   assert.match(panel, /createPersonalToken|Personal Token|个人 Token/u);
   assert.match(panel, /View authorization|查看授权/u);
   assert.match(panel, /Revoke authorization|撤销授权/u);
-  assert.match(panel, /codex mcp login anchor-read-diagram/u);
-  assert.match(panel, /其他 MCP 客户端/u);
-  assert.match(panel, /replace the leading codex with the client name, such as Claude/u);
-  assert.match(panel, /copyReauthorizationCommand/u);
+  assert.match(panel, /方式一：OAuth 自动授权|Option 1: OAuth authorization/u);
+  assert.match(panel, /方式二：个人 Token|Option 2: Personal Token/u);
+  assert.match(panel, /copyOAuthSetup/u);
+  assert.match(panel, /copyPersonalConfig/u);
+  assert.match(panel, /getDiagramMcpCodexPersonalTokenConfig/u);
+  assert.doesNotMatch(panel, /重新授权命令|Reauthorization command/u);
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{approveOAuth\}/u);
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{viewAuthorizations\}/u);
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{\(\) => revokeAuthorizations\(\)\}/u);

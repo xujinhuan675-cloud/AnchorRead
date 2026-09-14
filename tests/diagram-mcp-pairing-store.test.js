@@ -143,7 +143,8 @@ test('OAuth access tokens follow the browser workspace across tab sessions', asy
     now: 10_000_004,
   });
   assert.equal(revoked.tokens.length, 1);
-  await assert.rejects(store.authenticateToken(created.token, { now: 10_000_005 }), { code: 'TOKEN_REVOKED' });
+  assert.deepEqual((await store.listTokensForBinding(reloadedPage, { now: 10_000_005 })).tokens, []);
+  await assert.rejects(store.authenticateToken(created.token, { now: 10_000_006 }), { code: 'TOKEN_UNKNOWN' });
 });
 
 test('personal token is long-lived, browser-bound, and only one active credential is kept', async () => {
@@ -162,8 +163,10 @@ test('personal token is long-lived, browser-bound, and only one active credentia
 
   const replacement = await store.createPersonalTokenForWorkspace(context(), { now: 10_001 });
   assert.notEqual(replacement.token, created.token);
-  await assert.rejects(store.authenticateToken(created.token, { now: 10_002 }), { code: 'TOKEN_REVOKED' });
-  assert.equal((await store.listTokensForBinding(context(), { now: 10_003 })).tokens.filter((token) => token.kind === 'personal' && token.status === 'active').length, 1);
+  await assert.rejects(store.authenticateToken(created.token, { now: 10_002 }), { code: 'TOKEN_UNKNOWN' });
+  const listed = await store.listTokensForBinding(context(), { now: 10_003 });
+  assert.equal(listed.tokens.length, 1);
+  assert.equal(listed.tokens[0].id, replacement.record.id);
 });
 
 test('file pairing store persists personal token records and rejects legacy static tokens', async () => {
@@ -358,9 +361,11 @@ test('file pairing store lists and revokes authorizations for the managed browse
       now: 55_003,
     });
     assert.equal(revoked.tokens[0].status, 'revoked');
+    assert.deepEqual((await second.listTokensForBinding(context(), { now: 55_004 })).tokens, []);
 
     const third = new FileDiagramMcpPairingStore({ filePath });
-    await assert.rejects(third.authenticateToken(created.token, { now: 55_004 }), { code: 'TOKEN_REVOKED' });
+    assert.deepEqual((await third.listTokensForBinding(context(), { now: 55_005 })).tokens, []);
+    await assert.rejects(third.authenticateToken(created.token, { now: 55_006 }), { code: 'TOKEN_UNKNOWN' });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
