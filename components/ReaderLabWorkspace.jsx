@@ -103,7 +103,7 @@ import { DIAGRAM_AGENT_DRAWING_EVENT } from '@/components/DiagramAgentBridge';
 import {
   createBrowserTabId,
   createDiagramSyncChannel,
-  canPersistDiagramDrawing,
+  canPersistDiagramUiDrawing,
   isNewerDrawing,
 } from '@/lib/diagram-agent-session';
 import { cloneForTransport } from '@/lib/cloneable';
@@ -604,11 +604,11 @@ export default function ReaderLabWorkspace({
           : storedDrawings;
         const normalizedDrawings = normalizeDiagramRouteIds(drawingsWithDemo);
         for (const [index, drawing] of normalizedDrawings.entries()) {
-          if (drawing !== drawingsWithDemo[index] && canPersistDiagramDrawing()) {
-            await workspaceRepository.drawings.save(drawing);
+          if (drawing !== drawingsWithDemo[index] && canPersistDiagramUiDrawing()) {
+            await workspaceRepository.drawings.save(drawing, { allowUnpairedUi: true });
           }
         }
-        if (canPersistDiagramDrawing()) {
+        if (canPersistDiagramUiDrawing()) {
           markReaderSampleSeeded(window.localStorage, READER_DIAGRAM_SAMPLE_SEEDED_KEY);
         }
 
@@ -1480,14 +1480,14 @@ export default function ReaderLabWorkspace({
   }, [currentDrawings, diagramDocumentId, onDiagramResolved, saveSession]);
 
   const createDrawing = useCallback(async (drawing) => {
-    if (!canPersistDiagramDrawing()) return null;
+    if (!canPersistDiagramUiDrawing()) return null;
     const usedRouteIds = new Set(
       drawings
         .filter((item) => item.id !== drawing.id && isDiagramRouteId(item.routeId))
         .map((item) => item.routeId)
     );
     const nextDrawing = ensureDiagramRouteId(drawing, usedRouteIds);
-    await workspaceRepository.drawings.save(nextDrawing);
+    await workspaceRepository.drawings.save(nextDrawing, { allowUnpairedUi: true });
     broadcastDrawing(nextDrawing);
     setDrawings((current) => [nextDrawing, ...current.filter((item) => item.id !== nextDrawing.id)]);
     setActiveDrawingId(nextDrawing.id);
@@ -1545,7 +1545,7 @@ export default function ReaderLabWorkspace({
           if (drawing && !isDiagramRouteId(drawing.routeId)) {
             const usedRouteIds = new Set(drawings.map((item) => item.routeId).filter(isDiagramRouteId));
             drawing = ensureDiagramRouteId(drawing, usedRouteIds);
-            if (canPersistDiagramDrawing()) await workspaceRepository.drawings.save(drawing);
+            if (canPersistDiagramUiDrawing()) await workspaceRepository.drawings.save(drawing, { allowUnpairedUi: true });
           }
           if (drawing && !cancelled) setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
         }
@@ -1649,9 +1649,8 @@ export default function ReaderLabWorkspace({
   }, [createDrawing, diagramDocument, historyDrawing]);
 
   const persistDrawing = useCallback(async (drawing, options = {}) => {
-    if (!canPersistDiagramDrawing()) return false;
     try {
-      await workspaceRepository.drawings.save(drawing, options);
+      await workspaceRepository.drawings.save(drawing, { ...options, allowUnpairedUi: true });
     } catch (error) {
       if (error?.code === 'REVISION_CONFLICT') {
         error.latestDrawing = await workspaceRepository.drawings.get(drawing.id);
@@ -1690,15 +1689,13 @@ export default function ReaderLabWorkspace({
   const renameDrawing = useCallback(async (drawingId, title) => {
     const target = currentDrawings.find((drawing) => drawing.id === drawingId);
     if (!target || !title) return;
-    if (!canPersistDiagramDrawing()) return;
     const next = { ...target, title, updatedAt: Date.now() };
-    await workspaceRepository.drawings.save(next);
+    await workspaceRepository.drawings.save(next, { allowUnpairedUi: true });
     broadcastDrawing(next);
     setDrawings((current) => current.map((item) => (item.id === drawingId ? next : item)));
   }, [broadcastDrawing, currentDrawings]);
 
   const deleteDrawing = useCallback(async (drawingId) => {
-    if (!canPersistDiagramDrawing()) return;
     await workspaceRepository.drawings.remove(drawingId);
     broadcastDrawingRemoval(drawingId);
     const remaining = currentDrawings.filter((drawing) => drawing.id !== drawingId);

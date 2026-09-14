@@ -8,6 +8,7 @@ import {
   createDiagramAgentSession,
   createDiagramAgentIdentity,
   canPersistDiagramDrawing,
+  canPersistDiagramUiDrawing,
   DIAGRAM_AGENT_LEASE_STORAGE_KEY,
   isDiagramAgentLeaseActive,
   isNewerDrawing,
@@ -62,6 +63,13 @@ test('drawing persistence allows the hidden owner but rejects a competing tab', 
     documentRef: { visibilityState: 'visible' },
     now: 1_500,
   }), false);
+  assert.equal(canPersistDiagramDrawing({
+    tabId: 'other',
+    storage,
+    requireLeaseOwner: false,
+    now: 1_500,
+  }), true);
+  assert.equal(canPersistDiagramUiDrawing(), true);
   assert.equal(canPersistDiagramDrawing({
     tabId: 'owner',
     storage,

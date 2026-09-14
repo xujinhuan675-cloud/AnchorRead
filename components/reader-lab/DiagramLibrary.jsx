@@ -35,7 +35,7 @@ import {
   shouldSeedReaderSample,
 } from '@/lib/reader-sample-seeding';
 import { workspaceRepository } from '@/lib/local-workspace-db';
-import { canPersistDiagramDrawing } from '@/lib/diagram-agent-session';
+import { canPersistDiagramUiDrawing } from '@/lib/diagram-agent-session';
 
 function formatUpdatedAt(value, locale, justNow) {
   const date = new Date(value);
@@ -77,11 +77,11 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
         const drawingsWithSeed = seededDrawing ? [seededDrawing, ...storedDrawings] : storedDrawings;
         const normalizedDrawings = normalizeDiagramRouteIds(drawingsWithSeed);
         for (const [index, drawing] of normalizedDrawings.entries()) {
-          if (drawing !== drawingsWithSeed[index] && canPersistDiagramDrawing()) {
-            await workspaceRepository.drawings.save(drawing);
+          if (drawing !== drawingsWithSeed[index] && canPersistDiagramUiDrawing()) {
+            await workspaceRepository.drawings.save(drawing, { allowUnpairedUi: true });
           }
         }
-        if (canPersistDiagramDrawing()) {
+        if (canPersistDiagramUiDrawing()) {
           markReaderSampleSeeded(window.localStorage, READER_DIAGRAM_SAMPLE_SEEDED_KEY);
         }
         if (cancelled) return;
@@ -112,8 +112,7 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
       return;
     }
     const next = { ...renaming.drawing, title, updatedAt: Date.now() };
-    if (!canPersistDiagramDrawing()) return;
-    await workspaceRepository.drawings.save(next);
+    await workspaceRepository.drawings.save(next, { allowUnpairedUi: true });
     setDrawings((current) => current.map((drawing) => drawing.id === next.id ? next : drawing));
     setRenaming(null);
   };
@@ -125,15 +124,13 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
     });
     const usedRouteIds = new Set(drawings.map((item) => item.routeId).filter(isDiagramRouteId));
     const next = ensureDiagramRouteId(duplicate, usedRouteIds);
-    if (!canPersistDiagramDrawing()) return;
-    await workspaceRepository.drawings.save(next);
+    await workspaceRepository.drawings.save(next, { allowUnpairedUi: true });
     setDrawings((current) => [next, ...current]);
     setMenuId('');
   };
 
   const deleteDrawing = async () => {
     if (!deleteTarget) return;
-    if (!canPersistDiagramDrawing()) return;
     await workspaceRepository.drawings.remove(deleteTarget.id);
     setDrawings((current) => current.filter((drawing) => drawing.id !== deleteTarget.id));
     setDeleteTarget(null);

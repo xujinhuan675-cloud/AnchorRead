@@ -43,6 +43,12 @@ test('drawing writes require a compatible handshake and compare revisions atomic
     { code: 'BROWSER_BUILD_STALE' },
   );
 
+  await repository.drawings.save(
+    { id: 'drawing-ui', title: 'unpaired ui', engine: 'excalidraw', revision: 1 },
+    { allowUnpairedUi: true },
+  );
+  assert.equal((await repository.drawings.get('drawing-ui')).title, 'unpaired ui');
+
   allowDiagramBrowserWrites();
   await repository.drawings.save({ id: 'drawing-cas', title: 'v2', engine: 'excalidraw', revision: 2 }, { expectedRevision: 1 });
   await assert.rejects(
