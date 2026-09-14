@@ -135,10 +135,12 @@ test('diagram library routes are separate from the editor and preserve drawing h
   assert.match(readerLabWorkspace, /createDocumentDrawingId\(STANDALONE_DIAGRAM_DOCUMENT_ID/);
   assert.match(readerQuickImport, /t\('home\.quick\.recentDocuments'\)/);
   assert.match(readerQuickImport, /t\('diagramLibrary\.openLibrary'\)/);
-  assert.match(readerHome, /onClick=\{onCreateDiagram \|\| onOpenDiagram\}/);
+  assert.match(readerHome, /href=\{onCreateDiagram \? ['"]\/diagrams\/new['"] : ['"]\/diagrams['"]\}/);
+  assert.match(readerHome, /handleDiagramLinkClick/);
   assert.match(readerHome, /home\.openDiagram/);
   assert.match(readerQuickImport, /home\.quick\.noDiagramsTitle/);
-  assert.match(readerQuickImport, /onClick=\{onCreateDiagram\}/);
+  assert.match(readerQuickImport, /href="\/diagrams\/new"/);
+  assert.match(readerQuickImport, /handleClientLinkClick/);
   assert.equal((readerQuickImport.match(/home\.quick\.newDiagram/g) || []).length, 1);
   assert.equal((readerQuickImport.match(/diagramLibrary\.openLibrary/g) || []).length, 2);
 });
@@ -266,6 +268,20 @@ test('home keeps app navigation while diagrams live inside the shared document w
   // 历史与配置弹窗随重构下沉：历史进工作区、配置进页面壳，首页不再直接挂载
   assert.match(readerLabWorkspace, /<HistoryModal\b/);
   assert.match(readerLabPageShell, /<ConfigManager\b/);
+});
+
+test('top routes and resource cards expose real hrefs for native new-tab navigation', () => {
+  assert.match(appTopNav, /slug: ['"]read['"][^\n]*href: ['"]\/['"]/);
+  assert.match(appTopNav, /slug: ['"]diagram['"][^\n]*href: ['"]\/diagrams['"]/);
+  assert.match(appTopNav, /slug: ['"]reader-lab['"][^\n]*href: ['"]\/reader-lab['"]/);
+  assert.match(appTopNav, /event\.metaKey \|\| event\.ctrlKey \|\| event\.shiftKey \|\| event\.altKey/);
+
+  assert.match(documentLibraryHub, /href=\{buildDocumentReaderHref\(document\)\}/);
+  assert.match(diagramLibrary, /href=\{buildDiagramEditorHref\(drawing\)\}/);
+  assert.match(readerQuickImport, /href=\{buildDocumentReaderHref\(doc\)\}/);
+  assert.match(readerQuickImport, /href=\{buildDiagramEditorHref\(drawing\)\}/);
+  assert.match(readerQuickImport, /href="\/reader-lab"/);
+  assert.match(readerQuickImport, /href="\/diagrams"/);
 });
 
 test('nav diagram entry opens a standalone free-form diagram workspace', () => {

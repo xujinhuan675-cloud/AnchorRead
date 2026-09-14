@@ -15,6 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import DocumentImportDialog from '@/components/reader-lab/DocumentImportDialog';
 import { useLocale } from '@/components/LocaleProvider';
 import {
@@ -147,6 +148,13 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
 
   const openDocument = (document) => {
     onOpenDocument?.(document, buildDocumentReaderHref(document));
+  };
+
+  const handleDocumentLinkClick = (event, document) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!onOpenDocument) return;
+    event.preventDefault();
+    openDocument(document);
   };
 
   const persistImportedDocument = async (document) => {
@@ -324,10 +332,10 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
                     const session = sessions[document.id];
                     const progress = Math.min(100, Math.max(0, Math.round(session?.progress || 0)));
                     return (
-                      <button
+                      <Link
                         key={`recent-${document.id}`}
-                        type="button"
-                        onClick={() => openDocument(document)}
+                        href={buildDocumentReaderHref(document)}
+                        onClick={(event) => handleDocumentLinkClick(event, document)}
                         className="min-w-0 rounded-md border border-stone-200 bg-white p-4 text-left transition hover:border-stone-400 hover:shadow-sm dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
                         aria-label={`${t('documentLibrary.open')}: ${document.title}`}
                       >
@@ -341,7 +349,7 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
                         <div className="mt-3 h-1 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-800" aria-hidden="true">
                           <div className="h-full rounded-full bg-stone-700 dark:bg-stone-300" style={{ width: `${progress}%` }} />
                         </div>
-                      </button>
+                      </Link>
                     );
                   })}
                 </div>
@@ -366,7 +374,7 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
               const progress = Math.min(100, Math.max(0, Math.round(session?.progress || 0)));
               return (
                 <article key={document.id} className={`group relative overflow-visible rounded-md border bg-white transition hover:border-stone-400 dark:bg-stone-900 dark:hover:border-stone-600 ${archived ? 'border-stone-200 opacity-75 dark:border-stone-800' : 'border-stone-200 dark:border-stone-800'}`}>
-                  <button type="button" onClick={() => openDocument(document)} className="block w-full p-4 text-left" aria-label={`${t('documentLibrary.open')}: ${document.title}`}>
+                  <Link href={buildDocumentReaderHref(document)} onClick={(event) => handleDocumentLinkClick(event, document)} className="block w-full p-4 text-left" aria-label={`${t('documentLibrary.open')}: ${document.title}`}>
                     <h2 className="text-base font-semibold leading-6 truncate">{document.title}</h2>
                     <p className="mt-1 flex min-w-0 items-center gap-1.5 truncate text-xs text-stone-400">
                       <span className="truncate">{document.category || sourceLabel(document, t)}</span>
@@ -376,7 +384,7 @@ export default function DocumentLibraryHub({ onOpenDocument }) {
                       <span className="inline-flex items-center gap-1"><BookOpen size={12} />{t('documentLibrary.readMinutes', { count: document.readMinutes || 0 })}</span>
                       {drawingCounts.get(document.id) ? <span>{t('documentLibrary.diagramCount', { count: drawingCounts.get(document.id) })}</span> : null}
                     </div>
-                  </button>
+                  </Link>
                   <button type="button" onClick={() => setMenuId((current) => current === document.id ? '' : document.id)} className="absolute right-3 top-3 flex size-8 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-white/10 dark:hover:text-stone-100" aria-label={t('documentLibrary.actionsAria', { title: document.title })}><MoreHorizontal size={16} /></button>
                   {menuId === document.id ? (
                     <>

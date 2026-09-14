@@ -1,10 +1,13 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import Link from 'next/link';
 import { ArrowRight, ArrowUpRight, Eraser, FileText, FileUp, LoaderCircle, Network, Plus, Sparkles } from 'lucide-react';
 import { isEpubFile, parseEpubFile } from '@/lib/epub-import';
 import { useLocale } from '@/components/LocaleProvider';
 import DiagramThumbnail from '@/components/reader-lab/DiagramThumbnail';
+import { buildDiagramEditorHref } from '@/lib/diagram-library';
+import { buildDocumentReaderHref } from '@/lib/document-library';
 
 export default function ReaderQuickImport({
   recentDocuments = [],
@@ -64,6 +67,18 @@ export default function ReaderQuickImport({
     event.preventDefault();
     if (!content.trim() || busy) return;
     onSubmit({ title, content, file: selectedFile });
+  };
+
+  const handleClientLinkClick = (event, callback) => {
+    const modified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+    if (busy && event.button === 0 && !modified) {
+      event.preventDefault();
+      return;
+    }
+    if (event.defaultPrevented || event.button !== 0 || modified) return;
+    if (!callback) return;
+    event.preventDefault();
+    callback();
   };
 
   return (
@@ -139,25 +154,24 @@ export default function ReaderQuickImport({
             </h3>
             {/* 文档库入口替换排序说明：最近文档只是库的预览，完整管理进文档库 */}
             {hasExistingDocuments && onOpenExisting ? (
-              <button
-                type="button"
-                onClick={onOpenExisting}
+              <Link
+                href="/reader-lab"
+                onClick={(event) => handleClientLinkClick(event, onOpenExisting)}
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300"
               >
                 <span>{t('workspace.libraryOpen')}</span>
                 <ArrowRight className="size-4" />
-              </button>
+              </Link>
             ) : (
               <span className="text-xs text-stone-400">{t('home.quick.sortedByRecent')}</span>
             )}
           </div>
           <div className="grid auto-rows-[108px] gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {recentDocuments.map((doc) => (
-              <button
+              <Link
                 key={doc.id || doc.title}
-                type="button"
-                onClick={() => onOpenDocument?.(doc.id)}
-                disabled={busy}
+                href={buildDocumentReaderHref(doc)}
+                onClick={(event) => handleClientLinkClick(event, () => onOpenDocument?.(doc.id))}
                 className="group relative flex flex-col justify-center overflow-hidden border border-stone-200 bg-white p-4 text-left transition hover:border-stone-400 disabled:opacity-50 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
               >
                 <ArrowUpRight size={16} aria-hidden="true" className="absolute right-3 top-3 text-stone-400 opacity-0 transition group-hover:opacity-100" />
@@ -168,7 +182,7 @@ export default function ReaderQuickImport({
                     {doc.title}
                   </span>
                 </span>
-              </button>
+              </Link>
             ))}
           </div>
         </section>
@@ -180,24 +194,23 @@ export default function ReaderQuickImport({
             {t('home.quick.recentDiagrams')}
           </h3>
           {recentDrawings.length > 0 ? (
-            <button
-              type="button"
-              onClick={onOpenDiagram}
+            <Link
+              href="/diagrams"
+              onClick={(event) => handleClientLinkClick(event, onOpenDiagram)}
               className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300"
             >
               <span>{t('diagramLibrary.openLibrary')}</span>
               <ArrowRight className="size-4" />
-            </button>
+            </Link>
           ) : null}
         </div>
         {recentDrawings.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {recentDrawings.map((drawing) => (
-              <button
+              <Link
                 key={drawing.id || drawing.title}
-                type="button"
-                onClick={() => onOpenDrawing?.(drawing)}
-                disabled={busy}
+                href={buildDiagramEditorHref(drawing)}
+                onClick={(event) => handleClientLinkClick(event, () => onOpenDrawing?.(drawing))}
                 className="group relative overflow-hidden border border-stone-200 bg-white text-left transition hover:border-stone-400 disabled:opacity-50 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600"
                 aria-label={`${t('home.quick.openDiagram')}: ${drawing.title || t('diagram.untitled')}`}
               >
@@ -221,7 +234,7 @@ export default function ReaderQuickImport({
                     {drawing.isLocalDemo ? t('home.quick.localDemo') : (drawing.chartType || drawing.renderer || drawing.engine || 'Mermaid')}
                   </span>
                 </div>
-              </button>
+              </Link>
             ))}
           </div>
         ) : (
@@ -237,23 +250,23 @@ export default function ReaderQuickImport({
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {onCreateDiagram ? (
-                <button
-                  type="button"
-                  onClick={onCreateDiagram}
+                <Link
+                  href="/diagrams/new"
+                  onClick={(event) => handleClientLinkClick(event, onCreateDiagram)}
                   className="inline-flex h-9 items-center gap-2 rounded-md bg-stone-950 px-3 text-xs font-medium text-white transition hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
                 >
                   <Plus size={14} aria-hidden="true" />
                   {t('home.quick.newDiagram')}
-                </button>
+                </Link>
               ) : null}
-              <button
-                type="button"
-                onClick={onOpenDiagram}
+              <Link
+                href="/diagrams"
+                onClick={(event) => handleClientLinkClick(event, onOpenDiagram)}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 text-xs font-medium text-stone-700 transition hover:border-stone-400 hover:text-stone-950 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300 dark:hover:border-stone-600 dark:hover:text-stone-100"
               >
                 <span>{t('diagramLibrary.openLibrary')}</span>
                 <ArrowRight className="size-4" />
-              </button>
+              </Link>
             </div>
           </div>
         )}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   BookOpen,
   Brain,
@@ -2392,13 +2393,18 @@ export default function ReaderLabWorkspace({
           <h1 className="mt-4 text-lg font-semibold">{t('workspace.diagramMissingTitle')}</h1>
           <p className="mt-3 text-sm leading-6 text-stone-600 dark:text-stone-300">{t('workspace.diagramMissingBody')}</p>
           <div className="mt-6 flex justify-center">
-            <button
-              type="button"
-              onClick={() => onOpenDiagramLibrary?.()}
+            <Link
+              href="/diagrams"
+              onClick={(event) => {
+                if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                if (!onOpenDiagramLibrary) return;
+                event.preventDefault();
+                onOpenDiagramLibrary();
+              }}
               className="inline-flex h-9 items-center rounded-md bg-stone-950 px-4 text-sm font-medium text-white hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
             >
               {t('workspace.openDiagramLibrary')}
-            </button>
+            </Link>
           </div>
         </section>
       </main>

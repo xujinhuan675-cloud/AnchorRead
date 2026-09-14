@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   Check,
   CircleAlert,
@@ -290,10 +291,16 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
               <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '先打开图解页' : 'Open diagrams first'}</div>
               <p className="mt-1 text-xs leading-5 text-stone-500">{zh ? '授权会把 MCP 连接到当前浏览器中的图解页。' : 'Authorization connects MCP to the diagrams open in this browser.'}</p>
             </div>
-            <button type="button" onClick={() => { onClose(); onOpenDiagrams?.(); }} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-stone-900 px-4 text-xs font-medium text-white dark:bg-stone-100 dark:text-stone-900">
+            <Link href="/diagrams" onClick={(event) => {
+              if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              if (!onOpenDiagrams) return;
+              event.preventDefault();
+              onClose();
+              onOpenDiagrams?.();
+            }} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-stone-900 px-4 text-xs font-medium text-white dark:bg-stone-100 dark:text-stone-900">
               <PlugZap className="size-4" />
               {zh ? '打开图解库' : 'Open diagrams'}
-            </button>
+            </Link>
           </div>
         ) : (
           <>

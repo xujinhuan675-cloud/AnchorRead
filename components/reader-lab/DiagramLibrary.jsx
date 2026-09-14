@@ -10,11 +10,13 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import DiagramThumbnail from '@/components/reader-lab/DiagramThumbnail';
 import { useLocale } from '@/components/LocaleProvider';
 import { createDocumentDrawingId } from '@/lib/diagram-generation';
 import {
   buildDiagramEditorHref,
+  buildNewDiagramHref,
   DIAGRAM_LIBRARY_RENDERERS,
   DIAGRAM_LIBRARY_SCOPES,
   DIAGRAM_LIBRARY_SORTS,
@@ -136,6 +138,20 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
     setDeleteTarget(null);
   };
 
+  const handleDrawingLinkClick = (event, drawing) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!onOpenDrawing) return;
+    event.preventDefault();
+    onOpenDrawing(drawing, buildDiagramEditorHref(drawing));
+  };
+
+  const handleCreateLinkClick = (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!onCreateDrawing) return;
+    event.preventDefault();
+    onCreateDrawing();
+  };
+
   return (
     <main className="h-full overflow-y-auto bg-background text-stone-950 dark:text-stone-100">
       <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:py-10">
@@ -146,14 +162,14 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
               {t('diagramLibrary.subtitle', { count: drawings.length })}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onCreateDrawing}
+          <Link
+            href={buildNewDiagramHref()}
+            onClick={handleCreateLinkClick}
             className="inline-flex h-10 items-center justify-center gap-2 self-start rounded-md bg-stone-950 px-4 text-sm font-medium text-white transition hover:bg-stone-800 md:self-auto dark:bg-stone-100 dark:text-stone-950 dark:hover:bg-white"
           >
             <Plus size={16} aria-hidden="true" />
             {t('diagramLibrary.new')}
-          </button>
+          </Link>
         </header>
 
         <section className="flex flex-col gap-3 py-6 lg:flex-row lg:items-center" aria-label={t('diagramLibrary.filtersAria')}>
@@ -194,10 +210,10 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
               {drawings.length === 0 ? t('diagramLibrary.emptyBody') : t('diagramLibrary.noMatchBody')}
             </p>
             {drawings.length === 0 ? (
-              <button type="button" onClick={onCreateDrawing} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white dark:bg-stone-100 dark:text-stone-950">
+              <Link href={buildNewDiagramHref()} onClick={handleCreateLinkClick} className="mt-5 inline-flex h-9 items-center gap-2 rounded-md bg-stone-950 px-4 text-sm font-medium text-white dark:bg-stone-100 dark:text-stone-950">
                 <Plus size={15} aria-hidden="true" />
                 {t('diagramLibrary.newFreeform')}
-              </button>
+              </Link>
             ) : null}
           </section>
         ) : (
@@ -208,7 +224,7 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
               const title = drawing.title || t('diagram.untitled');
               return (
                 <article key={drawing.id} className="group relative overflow-hidden rounded-md border border-stone-200 bg-white transition hover:border-stone-400 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-600">
-                  <button type="button" onClick={() => onOpenDrawing?.(drawing, buildDiagramEditorHref(drawing))} className="block w-full text-left" aria-label={`${t('home.quick.openDiagram')}: ${title}`}>
+                  <Link href={buildDiagramEditorHref(drawing)} onClick={(event) => handleDrawingLinkClick(event, drawing)} className="block w-full text-left" aria-label={`${t('home.quick.openDiagram')}: ${title}`}>
                     <div className="relative aspect-[4/3] overflow-hidden bg-stone-50 bg-[radial-gradient(#d6d3d1_1px,transparent_1px)] [background-size:12px_12px] dark:bg-stone-950 dark:bg-[radial-gradient(rgba(245,245,244,.12)_1px,transparent_1px)]">
                       <DiagramThumbnail drawing={drawing} title={title} />
                       {/* 左上角：引擎类型标签 */}
@@ -227,7 +243,7 @@ export default function DiagramLibrary({ onOpenDrawing, onCreateDrawing }) {
                         <span className="shrink-0 whitespace-nowrap">{formatUpdatedAt(drawing.updatedAt || drawing.createdAt, locale, t('library.justNow'))}</span>
                       </p>
                     </div>
-                  </button>
+                  </Link>
                   <button type="button" onClick={() => setMenuId((current) => current === drawing.id ? '' : drawing.id)} className="flex size-7 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-white/10 dark:hover:text-stone-100 absolute top-3 right-3" aria-label={t('diagramLibrary.actionsAria', { title })}>
                     <MoreHorizontal size={16} aria-hidden="true" />
                   </button>

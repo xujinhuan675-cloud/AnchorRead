@@ -2,6 +2,7 @@
 
 import { BookMarked, BookOpenText, Library, Menu, Network, PlugZap, Settings2, WandSparkles, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 import ThemeToggler from './ThemeToggler';
 import McpConnectionPanel from './McpConnectionPanel';
@@ -12,9 +13,9 @@ const GITHUB_URL = 'https://github.com/xujinhuan675-cloud/smart-excalidraw-next'
 
 // 顶部导航项：语义对齐无限画布顶栏，改写为 AnchorRead 的阅读工具入口
 export const navigationTools = [
-  { slug: 'read', label: '首页', icon: BookOpenText },
-  { slug: 'diagram', label: '图解库', icon: Network },
-  { slug: 'reader-lab', label: '文档库', icon: Library },
+  { slug: 'read', label: '首页', href: '/', icon: BookOpenText },
+  { slug: 'diagram', label: '图解库', href: '/diagrams', icon: Network },
+  { slug: 'reader-lab', label: '文档库', href: '/reader-lab', icon: Library },
 ];
 
 const actionIconClass =
@@ -63,19 +64,35 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
 
   const switchLocale = () => setLocale(nextLocale);
 
+  // Keep normal clicks inside the current SPA state, but leave modified clicks
+  // and the browser context menu to the real link target (for example, open in
+  // a new tab).
+  const handleNavigationClick = (event, slug) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onNavigate(slug);
+  };
+
+  const handleMobileNavigationClick = (event, slug) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    setMobileNavOpen(false);
+    onNavigate(slug);
+  };
+
   return (
     <>
       <header className="z-30 flex h-14 shrink-0 items-stretch border-b border-stone-200 bg-background/90 backdrop-blur-xl dark:border-stone-800">
         <div className="mx-auto flex h-full w-full max-w-7xl items-stretch justify-between gap-5 px-6">
           <div className="flex min-w-0 items-center">
-            <button
-              type="button"
-              onClick={() => onNavigate('read')}
+            <Link
+              href="/"
+              onClick={(event) => handleNavigationClick(event, 'read')}
               className="flex h-full shrink-0 items-center gap-2 text-sm font-semibold leading-none tracking-tight text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300"
             >
               <BookOpenText className="size-5 shrink-0" />
               <span className="text-base font-medium">Anchor Read</span>
-            </button>
+            </Link>
 
             <button
               type="button"
@@ -92,10 +109,10 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                 const Icon = tool.icon;
                 const active = tool.slug === activeSlug;
                 return (
-                  <button
+                  <Link
                     key={tool.slug}
-                    type="button"
-                    onClick={() => onNavigate(tool.slug)}
+                    href={tool.href}
+                    onClick={(event) => handleNavigationClick(event, tool.slug)}
                     className={
                       active
                         ? 'relative flex h-14 shrink-0 items-center gap-2 text-sm font-medium leading-6 transition after:absolute after:inset-x-0 after:bottom-0 after:h-px text-stone-950 after:bg-stone-950 dark:text-stone-100 dark:after:bg-stone-100'
@@ -104,7 +121,7 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
                   >
                     <Icon className="size-4" />
                     <span className="truncate">{t(`topNav.${tool.slug}`)}</span>
-                  </button>
+                  </Link>
                 );
               })}
             </nav>
@@ -218,18 +235,15 @@ export default function AppTopNav({ activeSlug = '', onNavigate = () => {}, onCo
               {navigationTools.map((tool) => {
                 const Icon = tool.icon;
                 return (
-                  <button
+                  <Link
                     key={tool.slug}
-                    type="button"
-                    onClick={() => {
-                      setMobileNavOpen(false);
-                      onNavigate(tool.slug);
-                    }}
+                    href={tool.href}
+                    onClick={(event) => handleMobileNavigationClick(event, tool.slug)}
                     className="flex items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm text-stone-700 transition hover:bg-black/5 dark:text-stone-200 dark:hover:bg-white/10"
                   >
                     <Icon className="size-4" />
                     <span>{t(`topNav.${tool.slug}`)}</span>
-                  </button>
+                  </Link>
                 );
               })}
             </div>

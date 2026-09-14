@@ -2,6 +2,7 @@
 
 import { ArrowRight, BookMarked, Layers, LineChart, Network, Sparkles } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import Link from 'next/link';
 import ReaderQuickImport from '@/components/reader-lab/ReaderQuickImport';
 import { useLocale } from '@/components/LocaleProvider';
 
@@ -79,6 +80,13 @@ export default function ReaderHome({
     importSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const handleDiagramLinkClick = (event, callback = onCreateDiagram || onOpenDiagram) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!callback) return;
+    event.preventDefault();
+    callback();
+  };
+
   useEffect(() => {
     const handleGoImport = () => scrollToImport();
     window.addEventListener(GO_IMPORT_EVENT, handleGoImport);
@@ -107,13 +115,13 @@ export default function ReaderHome({
               <span>{t('home.getStart')}</span>
               <ArrowRight className="size-4" />
             </button>
-            <button
-              type="button"
-              onClick={onCreateDiagram || onOpenDiagram}
+            <Link
+              href={onCreateDiagram ? '/diagrams/new' : '/diagrams'}
+              onClick={handleDiagramLinkClick}
               className="inline-flex h-11 items-center rounded-lg border border-stone-300 bg-white px-6 text-sm font-medium text-stone-950 transition hover:border-stone-400 hover:bg-stone-50 dark:border-stone-700 dark:bg-transparent dark:text-stone-100 dark:hover:bg-white/10"
             >
               {t('home.openDiagram')}
-            </button>
+            </Link>
           </div>
         </div>
 
@@ -174,11 +182,17 @@ export default function ReaderHome({
                 'md:col-span-2',
                 'md:col-span-2',
               ][index];
+              const Action = index === 1 ? Link : 'button';
               return (
-                <button
+                <Action
                   key={slug}
-                  type="button"
-                  onClick={() => (index === 1 ? onOpenDiagram() : scrollToImport())}
+                  {...(index === 1 ? {
+                    href: '/diagrams',
+                    onClick: (event) => handleDiagramLinkClick(event, onOpenDiagram),
+                  } : {
+                    type: 'button',
+                    onClick: scrollToImport,
+                  })}
                   className={[
                     'group relative cursor-pointer overflow-hidden border border-stone-200 text-left transition hover:border-stone-400 dark:border-stone-800 dark:hover:border-stone-600',
                     `bg-gradient-to-br ${item.gradient}`,
@@ -199,7 +213,7 @@ export default function ReaderHome({
                       <p className="mt-1.5 text-sm leading-6 text-stone-600 dark:text-stone-300">{t(`home.showcase.${slug}.desc`)}</p>
                     </div>
                   </div>
-                </button>
+                </Action>
               );
             })}
           </div>
