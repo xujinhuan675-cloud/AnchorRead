@@ -8,7 +8,11 @@ import { Library } from 'lucide-react';
 import { useLocale } from '@/components/LocaleProvider';
 import { useAppTheme } from '@/lib/theme';
 import { persistedViewportSyncKey, shouldApplyPersistedViewport } from '@/lib/excalidraw-viewport';
-import { sceneElementsChanged, sceneElementsMatch } from '@/lib/excalidraw-scene-sync';
+import {
+  classifyExternalHydrationChange,
+  sceneElementsChanged,
+} from '@/lib/excalidraw-scene-sync';
+import { cloneForTransport } from '@/lib/cloneable';
 import CanvasToolbar from './CanvasToolbar';
 import CanvasToolbarButton from './CanvasToolbarButton';
 
@@ -356,8 +360,7 @@ export default function ExcalidrawCanvas({
   // 就绪前不渲染，保留官方默认菜单，避免闪一下空菜单
   const [MainMenu, setMainMenu] = useState(null);
   const ignoreSceneChangesRef = useRef(false);
-  const externalHydrationRef = useRef({ revision: 0, pending: false });
-  const externalHydrationTimerRef = useRef(null);
+  const externalHydrationRef = useRef({ revision: 0, pending: false, acknowledged: false, staleElements: null });
   const restoreFullSceneRef = useRef(false);
   const cameraAnimFrameRef = useRef(0);
   const revealAnimFrameRef = useRef(0);
@@ -760,13 +763,14 @@ export default function ExcalidrawCanvas({
     if (hydration.revision === externalSceneRevision) return undefined;
     hydration.revision = externalSceneRevision;
     hydration.pending = true;
-    if (externalHydrationTimerRef.current) clearTimeout(externalHydrationTimerRef.current);
+    hydration.acknowledged = false;
     const currentElements = typeof excalidrawAPI.getSceneElements === 'function'
       ? excalidrawAPI.getSceneElements()
       : [];
     const currentAppState = typeof excalidrawAPI.getAppState === 'function'
       ? excalidrawAPI.getAppState()
       : null;
+    hydration.staleElements = cloneForTransport(currentElements);
     const nextAppState = {
       ...initialAppState,
       viewModeEnabled: focusMode || Boolean(appState?.viewModeEnabled),
@@ -782,19 +786,15 @@ export default function ExcalidrawCanvas({
       });
     } else {
       hydration.pending = false;
+      hydration.staleElements = null;
     }
-    externalHydrationTimerRef.current = setTimeout(() => {
-      if (externalHydrationRef.current.revision === externalSceneRevision) {
-        externalHydrationRef.current.pending = false;
-        ignoreSceneChangesRef.current = false;
-      }
-      externalHydrationTimerRef.current = null;
-    }, 1500);
     return undefined;
   }, [appState?.viewModeEnabled, convertedElements, excalidrawAPI, externalSceneRevision, focusMode, initialAppState]);
 
-  useEffect(() => () => {
-    if (externalHydrationTimerRef.current) clearTimeout(externalHydrationTimerRef.current);
+  const acknowledgeExternalHydrationByUser = useCallback(() => {
+    if (!externalHydrationRef.current.pending) return;
+    externalHydrationRef.current.acknowledged = true;
+    ignoreSceneChangesRef.current = false;
   }, []);
 
   // Apply a persisted viewport to an already-mounted Excalidraw instance.
@@ -922,11 +922,28 @@ export default function ExcalidrawCanvas({
             return;
           }
           if (externalHydrationRef.current.pending) {
-            if (sceneElementsMatch(nextElements, convertedElements)) {
+            const hydrationDecision = classifyExternalHydrationChange({
+              pending: true,
+              nextElements,
+              convertedElements,
+              staleElements: externalHydrationRef.current.staleElements,
+              acknowledged: externalHydrationRef.current.acknowledged,
+            });
+            if (hydrationDecision === 'hydrated') {
               externalHydrationRef.current.pending = false;
+              externalHydrationRef.current.staleElements = null;
               ignoreSceneChangesRef.current = false;
+              return;
             }
-            return;
+            // A delayed callback from the pre-hydration scene is still stale,
+            // even if the user clicked the canvas in the meantime. Quarantine
+            // that exact snapshot instead of relying on a wall-clock timeout.
+            if (hydrationDecision === 'stale' || hydrationDecision === 'pending') {
+              return;
+            }
+            externalHydrationRef.current.pending = false;
+            externalHydrationRef.current.staleElements = null;
+            ignoreSceneChangesRef.current = false;
           }
           if (presentationActive || ignoreSceneChangesRef.current || restoreFullSceneRef.current
             || (!convertToExcalidrawElements && elements?.length > 0)) return;
@@ -945,6 +962,8 @@ export default function ExcalidrawCanvas({
             files: nextFiles,
           });
         }}
+        onPointerDown={acknowledgeExternalHydrationByUser}
+        onKeyDown={acknowledgeExternalHydrationByUser}
       >
         {/* 自定义主菜单：源码开关收进菜单作为选项（点击才展开/收起源码区），
             其余保留官方默认项；不传 children 时 Excalidraw 自带默认菜单。

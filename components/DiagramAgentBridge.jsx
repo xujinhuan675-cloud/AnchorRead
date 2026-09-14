@@ -104,7 +104,8 @@ export default function DiagramAgentBridge() {
       pollController?.abort();
       if (disconnect) disconnectPairing();
     };
-    const refreshSession = () => session.acquire();
+    const pageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+    const refreshSession = () => session.acquire({ visible: pageVisible() });
     const leaseHeartbeat = window.setInterval(() => {
       if (cancelled) return;
       refreshSession();
@@ -163,9 +164,10 @@ export default function DiagramAgentBridge() {
       return payload.connection;
     };
     const publishDrawing = (drawing, { open = true } = {}) => {
-      // The MCP result carries the open request and resource link. Keep this
-      // tab as a background IndexedDB writer: changing its route here would
-      // interrupt whatever the user is doing in the default browser.
+      // The MCP result carries the open request and resource link. The bridge
+      // only publishes through the visible lease owner; a hidden page releases
+      // its lease and can no longer race the user's active canvas.
+      if (!pageVisible() || !session.isOwner()) return;
       const cloneableDrawing = cloneForTransport(drawing);
       if (!cloneableDrawing?.id) return;
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_DRAWING_EVENT, {
@@ -183,13 +185,14 @@ export default function DiagramAgentBridge() {
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_PRESENTATION_EVENT, { detail }));
     };
     const poll = async () => {
-      while (!cancelled) {
+      while (!cancelled && pageVisible()) {
         if (!refreshSession()) {
           await new Promise((resolve) => window.setTimeout(resolve, 500));
           continue;
         }
         pollController = new AbortController();
         try {
+          if (!pageVisible()) return;
           const presence = new URLSearchParams({
             action: 'poll',
             waitMs: String(DIAGRAM_AGENT_LONG_POLL_MS),
@@ -197,7 +200,7 @@ export default function DiagramAgentBridge() {
             tabId,
             workspaceId,
             browserSessionId,
-            visible: 'true',
+            visible: String(pageVisible()),
             focused: String(typeof document.hasFocus !== 'function' || document.hasFocus()),
             href: window.location.href,
             ...buildInfo,
@@ -260,24 +263,47 @@ export default function DiagramAgentBridge() {
         }
       }
     };
+    let connecting = false;
+    let reconnectAfterCurrent = false;
     const connect = async () => {
-      while (!cancelled) {
-        try {
-          if (!refreshSession()) {
-            await new Promise((resolve) => window.setTimeout(resolve, 500));
-            continue;
+      if (connecting) {
+        reconnectAfterCurrent = true;
+        return;
+      }
+      connecting = true;
+      try {
+        while (!cancelled && pageVisible()) {
+          try {
+            if (!refreshSession()) {
+              await new Promise((resolve) => window.setTimeout(resolve, 500));
+              continue;
+            }
+            await register();
+            if (!cancelled && pageVisible()) await poll();
+            return;
+          } catch (error) {
+            if (error?.code === 'BROWSER_BUILD_STALE') blockDiagramBrowserWrites(error);
+            emitConnection({ ...serializeDiagramAgentError(error), status: error?.code === 'BROWSER_BUILD_STALE' ? 'stale' : 'disconnected' });
+            await new Promise((resolve) => window.setTimeout(resolve, 1_500));
           }
-          await register();
-          if (!cancelled) await poll();
-          return;
-        } catch (error) {
-          if (error?.code === 'BROWSER_BUILD_STALE') blockDiagramBrowserWrites(error);
-          emitConnection({ ...serializeDiagramAgentError(error), status: error?.code === 'BROWSER_BUILD_STALE' ? 'stale' : 'disconnected' });
-          await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+        }
+      } finally {
+        connecting = false;
+        if (reconnectAfterCurrent) {
+          reconnectAfterCurrent = false;
+          if (!cancelled && pageVisible()) connect();
         }
       }
     };
+    const handleVisibilityChange = () => {
+      if (!pageVisible()) {
+        releaseSession({ disconnect: true });
+        return;
+      }
+      connect();
+    };
     const handlePageHide = () => releaseSession({ disconnect: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
     connect();
     return () => {
@@ -286,6 +312,7 @@ export default function DiagramAgentBridge() {
       window.clearInterval(connectionHeartbeat);
       releaseSession({ disconnect: true });
       syncChannel?.close();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
     };
   }, [bridgeEnabled]);

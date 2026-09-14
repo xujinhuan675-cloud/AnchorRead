@@ -103,6 +103,7 @@ import { DIAGRAM_AGENT_DRAWING_EVENT } from '@/components/DiagramAgentBridge';
 import {
   createBrowserTabId,
   createDiagramSyncChannel,
+  canPersistDiagramDrawing,
   isNewerDrawing,
 } from '@/lib/diagram-agent-session';
 import { cloneForTransport } from '@/lib/cloneable';
@@ -603,9 +604,13 @@ export default function ReaderLabWorkspace({
           : storedDrawings;
         const normalizedDrawings = normalizeDiagramRouteIds(drawingsWithDemo);
         for (const [index, drawing] of normalizedDrawings.entries()) {
-          if (drawing !== drawingsWithDemo[index]) await workspaceRepository.drawings.save(drawing);
+          if (drawing !== drawingsWithDemo[index] && canPersistDiagramDrawing()) {
+            await workspaceRepository.drawings.save(drawing);
+          }
         }
-        markReaderSampleSeeded(window.localStorage, READER_DIAGRAM_SAMPLE_SEEDED_KEY);
+        if (canPersistDiagramDrawing()) {
+          markReaderSampleSeeded(window.localStorage, READER_DIAGRAM_SAMPLE_SEEDED_KEY);
+        }
 
         const readerSessions = storedSessions.filter((session) => session.readerLab);
         const sessionMap = Object.fromEntries(readerSessions.map((session) => [session.documentId, session]));
@@ -1475,6 +1480,7 @@ export default function ReaderLabWorkspace({
   }, [currentDrawings, diagramDocumentId, onDiagramResolved, saveSession]);
 
   const createDrawing = useCallback(async (drawing) => {
+    if (!canPersistDiagramDrawing()) return null;
     const usedRouteIds = new Set(
       drawings
         .filter((item) => item.id !== drawing.id && isDiagramRouteId(item.routeId))
@@ -1539,7 +1545,7 @@ export default function ReaderLabWorkspace({
           if (drawing && !isDiagramRouteId(drawing.routeId)) {
             const usedRouteIds = new Set(drawings.map((item) => item.routeId).filter(isDiagramRouteId));
             drawing = ensureDiagramRouteId(drawing, usedRouteIds);
-            await workspaceRepository.drawings.save(drawing);
+            if (canPersistDiagramDrawing()) await workspaceRepository.drawings.save(drawing);
           }
           if (drawing && !cancelled) setDrawings((current) => [drawing, ...current.filter((item) => item.id !== drawing.id)]);
         }
@@ -1643,6 +1649,7 @@ export default function ReaderLabWorkspace({
   }, [createDrawing, diagramDocument, historyDrawing]);
 
   const persistDrawing = useCallback(async (drawing, options = {}) => {
+    if (!canPersistDiagramDrawing()) return false;
     try {
       await workspaceRepository.drawings.save(drawing, options);
     } catch (error) {
@@ -1683,6 +1690,7 @@ export default function ReaderLabWorkspace({
   const renameDrawing = useCallback(async (drawingId, title) => {
     const target = currentDrawings.find((drawing) => drawing.id === drawingId);
     if (!target || !title) return;
+    if (!canPersistDiagramDrawing()) return;
     const next = { ...target, title, updatedAt: Date.now() };
     await workspaceRepository.drawings.save(next);
     broadcastDrawing(next);
@@ -1690,6 +1698,7 @@ export default function ReaderLabWorkspace({
   }, [broadcastDrawing, currentDrawings]);
 
   const deleteDrawing = useCallback(async (drawingId) => {
+    if (!canPersistDiagramDrawing()) return;
     await workspaceRepository.drawings.remove(drawingId);
     broadcastDrawingRemoval(drawingId);
     const remaining = currentDrawings.filter((drawing) => drawing.id !== drawingId);

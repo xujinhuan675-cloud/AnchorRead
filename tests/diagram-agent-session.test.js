@@ -7,6 +7,8 @@ import {
   DIAGRAM_AGENT_LONG_POLL_MS,
   createDiagramAgentSession,
   createDiagramAgentIdentity,
+  canPersistDiagramDrawing,
+  DIAGRAM_AGENT_LEASE_STORAGE_KEY,
   isDiagramAgentLeaseActive,
   isNewerDrawing,
   parseDiagramAgentLease,
@@ -24,14 +26,47 @@ function createStorage() {
   };
 }
 
-test('diagram agent lease remains valid for a background IndexedDB writer', () => {
+test('diagram agent lease is exclusive to the visible owner', () => {
   const active = parseDiagramAgentLease({ tabId: 'a', expiresAt: 2_000, acquiredAt: 1_000 });
   assert.equal(isDiagramAgentLeaseActive(active, 1_500), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: true, focused: true, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: true, focused: false, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 1_500 }), false);
-  assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: false, focused: false, now: 1_500 }), true);
+  assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: false, focused: false, now: 1_500 }), false);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 2_001 }), true);
+});
+
+test('drawing persistence rejects hidden and non-owner tabs', () => {
+  const storage = createStorage();
+  storage.setItem(DIAGRAM_AGENT_LEASE_STORAGE_KEY, JSON.stringify({
+    tabId: 'owner',
+    acquiredAt: 1_000,
+    expiresAt: 2_000,
+  }));
+  assert.equal(canPersistDiagramDrawing({
+    tabId: 'owner',
+    storage,
+    documentRef: { visibilityState: 'visible' },
+    now: 1_500,
+  }), true);
+  assert.equal(canPersistDiagramDrawing({
+    tabId: 'other',
+    storage,
+    documentRef: { visibilityState: 'visible' },
+    now: 1_500,
+  }), false);
+  assert.equal(canPersistDiagramDrawing({
+    tabId: 'owner',
+    storage,
+    documentRef: { visibilityState: 'hidden' },
+    now: 1_500,
+  }), false);
+  assert.equal(canPersistDiagramDrawing({
+    tabId: 'other',
+    storage,
+    documentRef: { visibilityState: 'visible' },
+    now: 2_001,
+  }), true);
 });
 
 test('lease covers a complete long poll and heartbeat renews it early', () => {
@@ -56,6 +91,15 @@ test('session acquire and release are owner-scoped', () => {
   first.release();
   assert.equal(second.isOwner(), true);
   second.release();
+});
+
+test('hidden session releases its writer lease instead of retaining ownership', () => {
+  const storage = createStorage();
+  const session = createDiagramAgentSession({ tabId: 'tab', storage, now: () => 100, leaseMs: 1_000 });
+  assert.equal(session.acquire(), true);
+  assert.equal(session.acquire({ visible: false }), false);
+  assert.equal(session.isOwner(), false);
+  assert.equal(session.readLease(), null);
 });
 
 test('drawing sync accepts newer revisions and timestamps only', () => {

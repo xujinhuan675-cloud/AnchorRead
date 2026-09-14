@@ -12,6 +12,7 @@ import {
   shouldApplyPersistedViewport,
 } from '../lib/excalidraw-viewport.js';
 import {
+  classifyExternalHydrationChange,
   sceneElementsChanged,
   sceneElementsMatch,
 } from '../lib/excalidraw-scene-sync.js';
@@ -125,7 +126,7 @@ test('presentation steps update one stable Excalidraw instance', () => {
   assert.match(componentSource, /restoreFullSceneRef\.current/u);
   assert.match(componentSource, /opacity: isVisible\(element\) \? \(element\.opacity \?\? 100\) : 0/u);
   assert.match(componentSource, /sceneElementsChanged\(currentElements, convertedElements\)/u);
-  assert.match(componentSource, /sceneElementsMatch\(nextElements, convertedElements\)/u);
+  assert.match(componentSource, /classifyExternalHydrationChange\(/u);
   assert.match(componentSource, /if \(!convertToExcalidrawElements\) return \[\];/u);
   assert.match(componentSource, /!convertToExcalidrawElements && elements\?\.length > 0/u);
   assert.doesNotMatch(componentSource, /JSON\.stringify\(convertedElements\.map\(el => el\.id\)\)/u);
@@ -162,6 +163,22 @@ test('external MCP scene revisions hydrate the mounted canvas without stale writ
   assert.match(componentSource, /externalHydrationRef\.current\.pending/u);
   assert.match(componentSource, /hydration\.revision === externalSceneRevision/u);
   assert.match(componentSource, /excalidrawAPI\.updateScene\(\{/u);
+  assert.match(componentSource, /acknowledgeExternalHydrationByUser/u);
+  assert.match(componentSource, /onPointerDown=\{acknowledgeExternalHydrationByUser\}/u);
+  assert.match(componentSource, /onKeyDown=\{acknowledgeExternalHydrationByUser\}/u);
+  assert.doesNotMatch(componentSource, /externalHydrationTimerRef/u);
+  assert.doesNotMatch(componentSource, /1500\);/u);
+  assert.match(workspaceSource, /canPersistDiagramDrawing/u);
+});
+
+test('external hydration quarantines delayed callbacks from the replaced scene', () => {
+  const stale = [{ id: 'old', type: 'rectangle', version: 1, x: 0, y: 0, width: 10, height: 10 }];
+  const next = [{ id: 'new', type: 'rectangle', version: 1, x: 20, y: 0, width: 10, height: 10 }];
+  const userEdit = [{ id: 'new', type: 'rectangle', version: 2, x: 24, y: 0, width: 10, height: 10 }];
+  assert.equal(classifyExternalHydrationChange({ pending: true, nextElements: stale, convertedElements: next, staleElements: stale }), 'stale');
+  assert.equal(classifyExternalHydrationChange({ pending: true, nextElements: userEdit, convertedElements: next, staleElements: stale }), 'pending');
+  assert.equal(classifyExternalHydrationChange({ pending: true, nextElements: userEdit, convertedElements: next, staleElements: stale, acknowledged: true }), 'accept');
+  assert.equal(classifyExternalHydrationChange({ pending: true, nextElements: next, convertedElements: next, staleElements: stale }), 'hydrated');
 });
 
 test('scene sync detects connector geometry and binding changes', () => {
