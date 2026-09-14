@@ -8,6 +8,7 @@
  *
  * Usage:
  *   node mcp/anchor-read-diagram.mjs --bridge http://127.0.0.1:3000
+ *   node mcp/anchor-read-diagram.mjs --server https://anchorread.example --token <personal-token>
  *   node mcp/anchor-read-diagram.mjs <workspace-file.anchorread> --write
  *
  * Codex/Claude stdio configuration:
@@ -94,20 +95,35 @@ if (sentryEnabled) {
 }
 const rawArgs = process.argv.slice(2);
 const writeEnabled = rawArgs.includes('--write') || process.env.ANCHORREAD_DIAGRAM_MCP_WRITE === 'true';
-const bridgeIndex = rawArgs.findIndex((argument) => argument === '--bridge');
-const bridgeValue = bridgeIndex >= 0
-  ? rawArgs[bridgeIndex + 1]
-  : rawArgs.find((argument) => argument.startsWith('--bridge='))?.slice('--bridge='.length);
+function readFlagValue(names) {
+  const index = rawArgs.findIndex((argument) => names.includes(argument));
+  if (index >= 0) return rawArgs[index + 1] || '';
+  for (const name of names) {
+    const prefix = `${name}=`;
+    const value = rawArgs.find((argument) => argument.startsWith(prefix));
+    if (value) return value.slice(prefix.length);
+  }
+  return '';
+}
+
+const bridgeValue = readFlagValue(['--bridge']);
+const serverValue = readFlagValue(['--server']);
 const configuredBridgeUrl = bridgeValue || process.env.ANCHORREAD_DIAGRAM_BRIDGE_URL || '';
+const configuredServerUrl = serverValue || process.env.ANCHORREAD_DIAGRAM_SERVER_URL || '';
+const bridgeToken = readFlagValue(['--token'])
+  || process.env.ANCHORREAD_DIAGRAM_PERSONAL_TOKEN
+  || process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN
+  || '';
 const bridgeUrl = normalizeBridgeUrl(configuredBridgeUrl || (
-  rawArgs.length === 0 || rawArgs.every((argument) => argument.startsWith('--'))
+  !configuredServerUrl && (rawArgs.length === 0 || rawArgs.every((argument) => argument.startsWith('--')))
     ? 'http://127.0.0.1:3000'
     : ''
 ));
+const serverUrl = normalizeServerUrl(configuredServerUrl);
 const workspaceFlagIndex = rawArgs.findIndex((argument) => argument === '--workspace');
 const workspaceArgument = workspaceFlagIndex >= 0
   ? rawArgs[workspaceFlagIndex + 1]
-  : (!bridgeUrl ? rawArgs.find((argument) => !argument.startsWith('--')) : '');
+  : (!bridgeUrl && !serverUrl ? rawArgs.find((argument) => !argument.startsWith('--')) : '');
 const workspacePath = (workspaceArgument || process.env.ANCHORREAD_WORKSPACE_FILE || '')
   ? resolve(workspaceArgument || process.env.ANCHORREAD_WORKSPACE_FILE)
   : '';
@@ -121,6 +137,122 @@ function normalizeBridgeUrl(value) {
 
 function textResult(value) {
   return createMcpToolResult(value);
+}
+
+function normalizeServerUrl(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  const normalized = source.replace(/\/+$/, '');
+  if (/(?:\/api)?\/mcp$/iu.test(normalized)) return normalized;
+  return `${normalized}/mcp`;
+}
+
+if (bridgeUrl && serverUrl) {
+  throw new Error('不能同时指定 --bridge 和 --server；请选择本地 bridge 或远程 MCP 服务器。');
+}
+const liveMode = Boolean(bridgeUrl || serverUrl);
+let remoteSessionId = '';
+let remoteInitialization = null;
+
+function remoteServerIsLoopback() {
+  try {
+    return new Set(['localhost', '127.0.0.1', '[::1]', '::1']).has(new URL(serverUrl).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function remoteTokenRequired() {
+  if (bridgeToken || remoteServerIsLoopback()) return;
+  const error = new Error('远程 AnchorRead MCP 需要 Personal Token。请使用 --token <token> 或设置 ANCHORREAD_DIAGRAM_PERSONAL_TOKEN。');
+  error.code = 'PERSONAL_TOKEN_REQUIRED';
+  return error;
+}
+
+async function remoteRequestRaw(method, params, { retry = true } = {}) {
+  const missingToken = remoteTokenRequired();
+  if (missingToken) throw missingToken;
+  const headers = {
+    accept: 'application/json',
+    connection: 'close',
+    'content-type': 'application/json',
+    'mcp-protocol-version': PROTOCOL_VERSION,
+  };
+  if (bridgeToken) headers.authorization = `Bearer ${bridgeToken}`;
+  if (remoteSessionId) headers['mcp-session-id'] = remoteSessionId;
+  let response;
+  try {
+    response = await fetch(serverUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jsonrpc: '2.0', id: `anchorread-${Date.now()}-${Math.random().toString(36).slice(2)}`, method, params: params || {} }),
+      signal: AbortSignal.timeout(Math.max(5_000, Math.min(Number(process.env.ANCHORREAD_DIAGRAM_SERVER_TIMEOUT_MS) || 30_000, 120_000))),
+    });
+  } catch (error) {
+    const wrapped = new Error(`无法连接远程 AnchorRead MCP ${serverUrl}: ${error?.message || error}`);
+    wrapped.code = 'REMOTE_MCP_OFFLINE';
+    throw wrapped;
+  }
+  const responseSessionId = String(response.headers.get('mcp-session-id') || '').trim();
+  if (responseSessionId) remoteSessionId = responseSessionId;
+  let body = null;
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('application/json')) {
+    try { body = await response.json(); } catch { body = null; }
+  } else {
+    try { body = await response.json(); } catch { body = null; }
+  }
+  if (response.status === 404 && remoteSessionId && retry && method !== 'initialize') {
+    remoteSessionId = '';
+    remoteInitialization = null;
+    await ensureRemoteInitialized();
+    return remoteRequestRaw(method, params, { retry: false });
+  }
+  if (response.status === 401) {
+    const error = new Error('远程 AnchorRead Personal Token 无效或已撤销。请在浏览器中重新生成 Token。');
+    error.code = 'PERSONAL_TOKEN_INVALID';
+    throw error;
+  }
+  if (body?.error) {
+    const remoteError = body.error;
+    const error = new Error(String(remoteError.message || remoteError));
+    error.code = String(remoteError.code || 'REMOTE_MCP_ERROR');
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error(body?.error?.message || body?.error || `远程 AnchorRead MCP 请求失败（HTTP ${response.status}）。`);
+    error.code = String(body?.code || body?.error?.code || `REMOTE_MCP_HTTP_${response.status}`);
+    throw error;
+  }
+  return body || {};
+}
+
+async function ensureRemoteInitialized(params = {}) {
+  if (remoteInitialization) return remoteInitialization;
+  remoteInitialization = remoteRequestRaw('initialize', {
+    protocolVersion: params.protocolVersion || PROTOCOL_VERSION,
+    capabilities: params.capabilities || {},
+    clientInfo: params.clientInfo || { name: 'anchorread-diagram-stdio', version: SERVER_INFO.version },
+  }, { retry: false }).catch((error) => {
+    remoteInitialization = null;
+    throw error;
+  });
+  return remoteInitialization;
+}
+
+async function callRemoteRpc(method, params = {}) {
+  if (method === 'initialize') {
+    remoteSessionId = '';
+    remoteInitialization = null;
+    return ensureRemoteInitialized(params);
+  }
+  await ensureRemoteInitialized();
+  return remoteRequestRaw(method, params);
+}
+
+async function callRemoteTool(name, args = {}) {
+  const response = await callRemoteRpc('tools/call', { name, arguments: args });
+  return response?.result || response;
 }
 
 function requireWorkspacePath() {
@@ -684,8 +816,8 @@ const offlineToolNames = new Set([
   CREATE_VIEW_TOOL.name,
   ...(writeEnabled ? WRITE_TOOLS.map((tool) => tool.name) : []),
 ]);
-const TOOLS = getDiagramMcpTools({ includeExport: !bridgeUrl })
-  .filter((tool) => bridgeUrl || offlineToolNames.has(tool.name));
+const TOOLS = getDiagramMcpTools({ includeExport: !liveMode })
+  .filter((tool) => liveMode || offlineToolNames.has(tool.name));
 const WRITE_TOOL_NAMES = new Set(DIAGRAM_MCP_WRITE_TOOL_NAMES);
 let writeQueue = Promise.resolve();
 
@@ -696,6 +828,9 @@ function enqueueWrite(task) {
 }
 
 async function callToolImpl(name, args = {}) {
+  if (serverUrl && !['read_me', 'read_diagram_guide', 'create_view'].includes(name)) {
+    return callRemoteTool(name, args);
+  }
   if (name === 'read_me') return textResult({ name: 'anchor-read-diagram', instructions: DIAGRAM_MCP_READ_ME });
   if (name === 'read_diagram_guide') return textResult(getDiagramDesignGuide());
   if (name === 'open_diagram_workspace') {
@@ -1148,7 +1283,7 @@ async function callTool(name, args = {}) {
   }, async (span) => {
     try {
       let result = await metrics.measure('serverExecutionMs', () => callToolImpl(name, args));
-      if (!bridgeUrl && result?.structuredContent && typeof result.structuredContent === 'object') {
+      if (!liveMode && result?.structuredContent && typeof result.structuredContent === 'object') {
         const projected = projectDiagramAgentResult({ tool: name, args }, result.structuredContent);
         if (projected !== result.structuredContent) result = createMcpToolResult(projected);
       }
@@ -1187,8 +1322,9 @@ async function callTool(name, args = {}) {
 async function callBridgeTool(name, args = {}) {
   const startedAt = Date.now();
   const headers = { 'content-type': 'application/json' };
-  const token = String(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TOKEN || '').trim();
-  if (token) headers['x-anchorread-bridge-token'] = token;
+  if (bridgeToken) {
+    headers['x-anchorread-bridge-token'] = bridgeToken;
+  }
   const timeoutMs = Math.max(5_000, Math.min(Number(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TIMEOUT_MS) || 15_000, 60_000));
   let response;
   try {
@@ -1254,7 +1390,7 @@ async function handleRequestImpl(request) {
         // the same JSON-RPC batch cannot observe the scene before a prior
         // element mutation has finished persisting it. Live browser reads stay
         // concurrent; live writes retain their existing serialization.
-        const result = await (!bridgeUrl || WRITE_TOOL_NAMES.has(params?.name)
+        const result = await (!liveMode || WRITE_TOOL_NAMES.has(params?.name)
           ? enqueueWrite(() => callTool(params?.name, params?.arguments))
           : callTool(params?.name, params?.arguments));
         return send({ jsonrpc: '2.0', id, result });

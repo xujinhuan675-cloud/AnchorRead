@@ -36,6 +36,7 @@ function contextFrom(request, body) {
     browserSessionId: body?.browserSessionId,
     tabId: body?.tabId,
     clientId: body?.clientId,
+    generation: body?.generation,
     href: body?.href,
     buildSha: body?.buildSha,
     buildVersion: body?.buildVersion,
@@ -197,6 +198,22 @@ export async function POST(request) {
     if (action === 'authorizations') {
       const snapshot = await authorizationSnapshot(store, oauthStore, context);
       return NextResponse.json({ ok: true, ...snapshot }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (action === 'create-personal-token') {
+      // Personal mode is intentionally a same-origin browser action. The
+      // management secret proves the request comes from this browser
+      // workspace; the returned secret is shown only once to the user.
+      const created = await store.createPersonalTokenForWorkspace(context, {
+        name: 'AnchorRead Personal Token',
+        clientId: 'anchorread-personal',
+      });
+      return NextResponse.json({
+        ok: true,
+        token: created.token,
+        tokenRecord: created.record,
+        binding: created.binding,
+        warning: 'Store this token securely. It is shown only once and can be revoked from this browser.',
+      }, { headers: { 'Cache-Control': 'no-store' } });
     }
     if (action === 'revoke-authorizations') {
       const clientId = String(body?.clientId || '').trim();

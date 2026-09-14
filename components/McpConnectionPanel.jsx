@@ -42,6 +42,8 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
   const [endpoint, setEndpoint] = useState('');
   const [diagramPage, setDiagramPage] = useState(false);
   const [authorizations, setAuthorizations] = useState(null);
+  const [personalToken, setPersonalToken] = useState('');
+  const [copiedPersonalToken, setCopiedPersonalToken] = useState(false);
   // OAuth approval is an explicit user action. Keep a local guard because a
   // double click or a delayed browser event must not consume the one-shot
   // transaction twice.
@@ -95,6 +97,8 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
       setMessage(null);
       setCopied(false);
       setCopiedReauthorization(false);
+      setCopiedPersonalToken(false);
+      setPersonalToken('');
       setAuthorizations(null);
       return undefined;
     }
@@ -244,6 +248,29 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
     }
   };
 
+  const createPersonalToken = () => perform('personal-token', async () => {
+    const payload = await request('create-personal-token');
+    setPersonalToken(String(payload.token || ''));
+    setCopiedPersonalToken(false);
+    setMessage({
+      type: 'success',
+      text: zh
+        ? '个人 Token 已生成，只显示这一次。请立即复制到 Codex。'
+        : 'Personal Token created. It is shown only once; copy it to Codex now.',
+    });
+  });
+
+  const copyPersonalToken = async () => {
+    if (!personalToken) return;
+    try {
+      await copyText(personalToken);
+      setCopiedPersonalToken(true);
+      window.setTimeout(() => setCopiedPersonalToken(false), 1_500);
+    } catch (error) {
+      setMessage({ type: 'error', text: String(error?.message || error) });
+    }
+  };
+
   const connection = snapshot?.connection;
   const connected = connection?.status === 'connected' && connection?.currentClient !== false;
   const grants = authorizations?.grants || [];
@@ -365,6 +392,46 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
             </section>
 
             {!oauthTransaction ? (
+              <>
+                <section className="border-t border-stone-200 py-5 dark:border-stone-800">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? '个人 Token（推荐）' : 'Personal Token (recommended)'}</div>
+                      <p className="mt-1 text-xs leading-5 text-stone-500">
+                        {zh ? '仅适合你自己的 Codex 和浏览器。生成一次后，本地 MCP 可直接连接此服务器，不再经过 OAuth。' : 'For your own Codex and browser. The local MCP connects directly without the OAuth flow.'}
+                      </p>
+                    </div>
+                    <button type="button" disabled={!connected || Boolean(busy)} onClick={createPersonalToken} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-stone-900 px-2.5 text-xs font-medium text-white hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-300">
+                      {busy === 'personal-token' ? <LoaderCircle className="size-3.5 animate-spin" /> : <PlugZap className="size-3.5" />}
+                      {zh ? '生成 Token' : 'Create Token'}
+                    </button>
+                  </div>
+                  {personalToken ? (
+                    <div className="mt-3 flex items-center gap-2">
+                      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-amber-50 px-3 py-2 text-[11px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">{personalToken}</code>
+                      <button type="button" title={zh ? '复制个人 Token' : 'Copy personal token'} aria-label={zh ? '复制个人 Token' : 'Copy personal token'} onClick={copyPersonalToken} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-stone-200 text-stone-600 transition hover:bg-stone-50 hover:text-stone-950 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-white/5 dark:hover:text-white">
+                        {copiedPersonalToken ? <Check className="size-4" /> : <Clipboard className="size-4" />}
+                      </button>
+                    </div>
+                  ) : null}
+                  <p className="mt-2 text-[11px] leading-5 text-stone-500">
+                    {zh ? 'Token 只在生成后显示一次；重新生成会自动撤销旧 Token。' : 'The token is shown once; generating a new one revokes the previous token.'}
+                  </p>
+                </section>
+                <section className="border-t border-stone-200 pt-5 dark:border-stone-800">
+                  <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? 'MCP 地址' : 'MCP endpoint'}</div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-stone-100 px-3 py-2 text-xs text-stone-800 dark:bg-stone-800 dark:text-stone-200">{endpoint}</code>
+                    <button type="button" title={zh ? '复制 MCP 地址' : 'Copy MCP endpoint'} aria-label={zh ? '复制 MCP 地址' : 'Copy MCP endpoint'} onClick={copyEndpoint} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-stone-200 text-stone-600 transition hover:bg-stone-50 hover:text-stone-950 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-white/5 dark:hover:text-white">
+                      {copied ? <Check className="size-4" /> : <Clipboard className="size-4" />}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-stone-500">
+                    {zh ? '使用 Personal Token 时，本地 MCP 直接连接此地址；OAuth 仍可作为其他客户端的可选方式。' : 'With a Personal Token, the local MCP connects directly to this endpoint; OAuth remains available for other clients.'}
+                  </p>
+                </section>
+              </>
+            ) : (
               <section className="border-t border-stone-200 pt-5 dark:border-stone-800">
                 <div className="font-medium text-stone-950 dark:text-stone-100">{zh ? 'MCP 地址' : 'MCP endpoint'}</div>
                 <div className="mt-3 flex items-center gap-2">
@@ -374,10 +441,10 @@ export default function McpConnectionPanel({ isOpen, onClose, onOpenDiagrams, oa
                   </button>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-stone-500">
-                  {zh ? '客户端添加此地址后会自动打开浏览器授权，不需要配置 Token。' : 'Adding this endpoint opens browser authorization automatically; no token setup is required.'}
+                  {zh ? '客户端添加此地址后会自动打开浏览器授权。' : 'Adding this endpoint opens browser authorization automatically.'}
                 </p>
               </section>
-            ) : null}
+            )}
           </>
         )}
 

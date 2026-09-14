@@ -33,6 +33,17 @@ test('browser pairing lease leaves enough time for background tabs between heart
   assert.equal(renewed.expiresAt, 20_000 + DIAGRAM_MCP_CONNECTION_TTL_MS);
 });
 
+test('connection generations fence delayed disconnects after same-client reconnects', async () => {
+  const store = new InMemoryDiagramMcpPairingStore();
+  const initial = await store.registerConnection(context(), { now: 150 });
+  const reconnected = await store.registerConnection(context(), { replace: true, now: 200 });
+  assert.equal(reconnected.generation, initial.generation + 1);
+  assert.equal(await store.disconnectConnection({ ...context(), generation: initial.generation }, { now: 201 }), false);
+  assert.equal((await store.getConnectionStatus(context(), { now: 202 })).connected, true);
+  assert.equal(await store.disconnectConnection({ ...context(), generation: reconnected.generation }, { now: 203 }), true);
+  assert.equal((await store.getConnectionStatus(context(), { now: 204 })).connected, false);
+});
+
 test('browser build handshake accepts current, rejects missing and stale versions, then recovers after refresh', async () => {
   const store = new InMemoryDiagramMcpPairingStore();
   const current = await store.registerConnection(context(), { now: 100 });
@@ -133,6 +144,46 @@ test('OAuth access tokens follow the browser workspace across tab sessions', asy
   });
   assert.equal(revoked.tokens.length, 1);
   await assert.rejects(store.authenticateToken(created.token, { now: 10_000_005 }), { code: 'TOKEN_REVOKED' });
+});
+
+test('personal token is long-lived, browser-bound, and only one active credential is kept', async () => {
+  const store = new InMemoryDiagramMcpPairingStore();
+  const registered = await store.registerConnection(context(), { now: 2_000 });
+  const created = await store.createPersonalTokenForWorkspace(context(), { now: 2_001 });
+  assert.match(created.token, /^armcp_/u);
+  assert.equal(created.record.kind, 'personal');
+  assert.equal(created.record.expiresAt, null);
+  assert.equal(store.tokens.get(created.record.id).tokenHash.includes(created.token), false);
+
+  const authenticated = await store.authenticateToken(created.token, { now: 10_000 });
+  assert.equal(authenticated.token.kind, 'personal');
+  assert.equal(authenticated.binding.bindingId, registered.bindingId);
+  assert.equal(authenticated.binding.connected, true);
+
+  const replacement = await store.createPersonalTokenForWorkspace(context(), { now: 10_001 });
+  assert.notEqual(replacement.token, created.token);
+  await assert.rejects(store.authenticateToken(created.token, { now: 10_002 }), { code: 'TOKEN_REVOKED' });
+  assert.equal((await store.listTokensForBinding(context(), { now: 10_003 })).tokens.filter((token) => token.kind === 'personal' && token.status === 'active').length, 1);
+});
+
+test('file pairing store persists personal token records and rejects legacy static tokens', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'anchorread-personal-token-'));
+  const filePath = join(directory, 'pairings.json');
+  try {
+    const first = new FileDiagramMcpPairingStore({ filePath });
+    await first.registerConnection(context(), { now: 3_000 });
+    const created = await first.createPersonalTokenForWorkspace(context(), { now: 3_001 });
+    const persisted = JSON.parse(await readFile(filePath, 'utf8'));
+    assert.equal(persisted.tokens[0].kind, 'personal');
+    assert.equal(persisted.tokens[0].expiresAt, null);
+
+    const reopened = new FileDiagramMcpPairingStore({ filePath });
+    const authenticated = await reopened.authenticateToken(created.token, { now: 3_002 });
+    assert.equal(authenticated.token.kind, 'personal');
+    assert.equal(authenticated.token.expiresAt, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('OAuth approval reuses the online browser connection without registering its temporary tab', async () => {

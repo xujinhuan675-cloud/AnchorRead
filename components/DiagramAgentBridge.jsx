@@ -73,6 +73,8 @@ export default function DiagramAgentBridge() {
     let cancelled = false;
     let pollController = null;
     let connectionHeartbeatInFlight = false;
+    let reconnectRequested = false;
+    let connectionGeneration = null;
     const { clientId, tabId, workspaceId, browserSessionId, managementSecret } = identity;
     const buildInfo = getDiagramAgentBuildInfo();
     beginDiagramBrowserHandshake({ workspaceUrl: window.location.href });
@@ -87,6 +89,7 @@ export default function DiagramAgentBridge() {
       browserSessionId,
       tabId,
       clientId,
+      generation: connectionGeneration,
       href: window.location.href,
       ...buildInfo,
     });
@@ -103,6 +106,12 @@ export default function DiagramAgentBridge() {
       session.release();
       pollController?.abort();
       if (disconnect) disconnectPairing();
+    };
+    const requestReconnect = () => {
+      if (cancelled || !pageVisible()) return;
+      reconnectRequested = true;
+      pollController?.abort();
+      if (typeof connect === 'function') connect();
     };
     const pageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
     const refreshSession = () => session.acquire({ visible: pageVisible() });
@@ -123,12 +132,16 @@ export default function DiagramAgentBridge() {
         const payload = await response.json().catch(() => ({}));
         if (response.ok) {
           allowDiagramBrowserWrites(payload.connection?.actual || buildInfo);
+          if (Number.isFinite(Number(payload.connection?.generation))) connectionGeneration = Number(payload.connection.generation);
           emitConnection(payload.connection);
         } else {
           emitConnection({ ...payload, status: payload.code === 'BROWSER_BUILD_STALE' ? 'stale' : 'disconnected' });
+          if (payload.code !== 'BROWSER_BUILD_STALE') requestReconnect();
         }
       } catch {
-        // The long-poll loop remains the recovery path for transient heartbeat failures.
+        // A heartbeat failure means the server may no longer see this tab as
+        // the active owner. Rebuild the registration and long-poll together.
+        requestReconnect();
       } finally {
         connectionHeartbeatInFlight = false;
       }
@@ -160,6 +173,7 @@ export default function DiagramAgentBridge() {
         throw error;
       }
       allowDiagramBrowserWrites(payload.connection?.actual || buildInfo);
+      if (Number.isFinite(Number(payload.connection?.generation))) connectionGeneration = Number(payload.connection.generation);
       emitConnection(payload.connection);
       return payload.connection;
     };
@@ -186,6 +200,10 @@ export default function DiagramAgentBridge() {
     };
     const poll = async () => {
       while (!cancelled && pageVisible()) {
+        if (reconnectRequested) {
+          reconnectRequested = false;
+          return;
+        }
         if (!refreshSession()) {
           await new Promise((resolve) => window.setTimeout(resolve, 500));
           continue;
@@ -218,6 +236,7 @@ export default function DiagramAgentBridge() {
             continue;
           }
           const payload = await response.json();
+          if (Number.isFinite(Number(payload.connection?.generation))) connectionGeneration = Number(payload.connection.generation);
           emitConnection(payload.connection || {
             workspaceId,
             browserSessionId,
@@ -303,8 +322,12 @@ export default function DiagramAgentBridge() {
       connect();
     };
     const handlePageHide = () => releaseSession({ disconnect: true });
+    const handlePageShow = () => {
+      if (pageVisible()) connect();
+    };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
     connect();
     return () => {
       cancelled = true;
@@ -314,6 +337,7 @@ export default function DiagramAgentBridge() {
       syncChannel?.close();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
     };
   }, [bridgeEnabled]);
 

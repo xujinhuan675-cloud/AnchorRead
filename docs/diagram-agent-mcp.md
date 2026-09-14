@@ -21,6 +21,34 @@ AnchorRead 的图解 MCP 默认连接当前打开的浏览器工作区。MCP 只
 node mcp/anchor-read-diagram.mjs --bridge http://127.0.0.1:3000
 ```
 
+个人远程使用可以直接让本地 stdio MCP 连接已部署的 AnchorRead，不需要启动本地 dev 服务。浏览器中生成一次 Personal Token 后，将它传给 MCP 进程：
+
+```text
+node mcp/anchor-read-diagram.mjs --server https://<your-host> --token <personal-token>
+```
+
+也可以用环境变量保存配置（适合 Codex 的 MCP 配置）：
+
+```text
+ANCHORREAD_DIAGRAM_SERVER_URL=https://<your-host>
+ANCHORREAD_DIAGRAM_PERSONAL_TOKEN=<personal-token>
+node mcp/anchor-read-diagram.mjs
+```
+
+Codex 的 JSON 配置可以直接把服务器地址和 Token 放进同一个 stdio 条目（Token 只保存在本机配置中）：
+
+```json
+{
+  "command": "node",
+  "args": ["F:/AnchorOS/6-项目仓库/AnchorRead/mcp/anchor-read-diagram.mjs", "--server", "https://<your-host>"],
+  "env": { "ANCHORREAD_DIAGRAM_PERSONAL_TOKEN": "<personal-token>" }
+}
+```
+
+`--server` 会自动补全为 `/mcp`，也接受已经包含 `/mcp` 的地址；`--token` 使用标准
+`Authorization: Bearer` 头发送。Personal Token 是面向单个用户/浏览器工作区的长期凭据，
+只需首次复制，撤销或重新生成后再更新本地配置。远程 MCP 仍要求日常 Chrome 中的图解工作区保持打开并在线。
+
 本地桥接可设置 `ANCHORREAD_DIAGRAM_BRIDGE_TOKEN`，并在 MCP 进程中使用同名环境变量。公网部署请使用下方的标准远程 `/mcp` 入口，不要把本地 bridge URL 直接暴露到互联网。
 
 stdio 或离线文件模式生成链接时，可设置 `ANCHORREAD_PUBLIC_URL=https://<your-host>` 指定图解页面域名；浏览器内调用会优先使用当前页面域名。
@@ -35,7 +63,7 @@ https://<your-host>/mcp
 
 ### 客户端授权与浏览器绑定
 
-远程 `/mcp` 只使用 MCP 标准的 OAuth 2.1 authorization-code + PKCE 流程。客户端收到 `401` 后，可以通过
+远程 `/mcp` 默认支持 MCP 标准的 OAuth 2.1 authorization-code + PKCE 流程；单用户自用时也可以使用上面的 Personal Token。OAuth 客户端收到 `401` 后，可以通过
 `/.well-known/oauth-protected-resource/mcp` 发现资源和授权服务器，再从
 `/.well-known/oauth-authorization-server` 获取授权、令牌和动态注册端点。客户端注册一个带精确回调地址的
 public client，打开授权页并让用户点击“允许连接”。原生客户端复用动态注册时，可以改变回环地址的临时端口；
@@ -47,8 +75,9 @@ public client，打开授权页并让用户点击“允许连接”。原生客�
 refresh token 都归属于该浏览器来源；同源标签页可以复用。浏览器关闭或离线时，MCP 会返回图解页链接，
 支持打开 URL 的客户端应使用用户的默认浏览器自动打开，不支持的客户端提示用户手动打开。
 
-`/mcp/authorize` 只保留为 OAuth 连接说明页。手工生成、复制和长期保存的静态 Bearer Token 已弃用；
-`/api/mcp/pairing` 不再提供手工 Token 创建或轮换接口，旧的非过期 Token 记录也不会被加载或接受。
+`/mcp/authorize` 只保留为 OAuth 连接说明页。多用户或第三方客户端继续使用 OAuth；单用户自用部署
+可以启用 Personal Token 模式（见上方 `--server`/`--token`），由服务器将该长期凭据绑定到一个浏览器工作区。
+Personal Token 只应通过 HTTPS 使用并在浏览器面板中撤销或重新生成，不能当作公开、多用户授权机制。
 
 浏览器图解页的“连接 MCP”面板提供两项授权管理动作：`authorizations` 只返回当前
 `workspaceId` 浏览器工作区的授权摘要和不含密文的访问授权状态；

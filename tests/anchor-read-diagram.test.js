@@ -53,6 +53,52 @@ function callLiveServer(bridgeUrl, requests, environment = {}) {
   });
 }
 
+function callRemoteServer(serverUrl, token, requests) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [serverPath, '--server', serverUrl, '--token', token], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env },
+    });
+    let output = '';
+    let errorOutput = '';
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stderr.on('data', (chunk) => { errorOutput += chunk; });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(errorOutput || `MCP exited with ${code}`));
+      try {
+        resolve(output.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)).sort((a, b) => a.id - b.id));
+      } catch (error) {
+        reject(new Error(`${error.message}\n${output}`));
+      }
+    });
+    child.stdin.end(requests.map((request) => JSON.stringify(request)).join('\n') + '\n');
+  });
+}
+
+function callConfiguredRemoteServer(requests, environment = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [serverPath], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...environment },
+    });
+    let output = '';
+    let errorOutput = '';
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stderr.on('data', (chunk) => { errorOutput += chunk; });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(errorOutput || `MCP exited with ${code}`));
+      try {
+        resolve(output.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)).sort((a, b) => a.id - b.id));
+      } catch (error) {
+        reject(new Error(`${error.message}\n${output}`));
+      }
+    });
+    child.stdin.end(requests.map((request) => JSON.stringify(request)).join('\n') + '\n');
+  });
+}
+
 test('diagram MCP lists, describes and commits with revision protection', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'anchor-read-diagram-'));
   const workspacePath = join(directory, 'workspace.anchorread');
@@ -310,6 +356,101 @@ test('live mode exposes create_diagram and forwards it to the browser bridge', a
     assert.equal(received.request.tool, 'create_diagram');
     assert.equal(received.request.args.title, 'Live concept');
     assert.equal(receivedToken, 'test-token');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('remote personal-token mode initializes MCP and forwards bearer auth', async () => {
+  const requests = [];
+  let serverSession = '';
+  const server = createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const payload = JSON.parse(body);
+      requests.push({ payload, authorization: request.headers.authorization || '' });
+      response.setHeader('content-type', 'application/json');
+      if (payload.method === 'initialize') {
+        serverSession = 'remote-session-1';
+        response.setHeader('mcp-session-id', serverSession);
+        response.end(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result: {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'anchorread-remote-test', version: '1.0.0' },
+        } }));
+        return;
+      }
+      response.end(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result: {
+        content: [{ type: 'text', text: 'remote-ok' }],
+        structuredContent: { id: 'remote-drawing', revision: 4 },
+      } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    const responses = await callRemoteServer(`http://127.0.0.1:${port}`, 'personal-test-token', [
+      { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        name: 'get_diagram', arguments: { id: 'remote-drawing' },
+      } },
+    ]);
+    assert.equal(responses[0].result.structuredContent.revision, 4);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].payload.method, 'initialize');
+    assert.equal(requests[1].payload.method, 'tools/call');
+    assert.equal(requests[1].payload.params.name, 'get_diagram');
+    assert.equal(requests[1].authorization, 'Bearer personal-test-token');
+    assert.equal(requests[1].payload.jsonrpc, '2.0');
+    assert.equal(requests[0].authorization, 'Bearer personal-test-token');
+    assert.equal(requests[1].payload.params.arguments.id, 'remote-drawing');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('remote mode fails clearly when Personal Token is missing', async () => {
+  const responses = await callRemoteServer('https://anchorread.example', '', [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+      name: 'list_diagrams', arguments: {},
+    } },
+  ]);
+  assert.equal(responses[0].result.isError, true);
+  assert.equal(responses[0].result.structuredContent.code, 'PERSONAL_TOKEN_REQUIRED');
+  assert.match(responses[0].result.content[0].text, /Personal Token/);
+});
+
+test('remote mode accepts server and Personal Token from environment', async () => {
+  const requests = [];
+  const server = createServer((request, response) => {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const payload = JSON.parse(body);
+      requests.push({ payload, authorization: request.headers.authorization || '' });
+      response.setHeader('content-type', 'application/json');
+      if (payload.method === 'initialize') response.setHeader('mcp-session-id', 'remote-env-session');
+      response.end(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result: {
+        content: [{ type: 'text', text: 'env-ok' }],
+        structuredContent: { id: 'env-drawing' },
+      } }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    const responses = await callConfiguredRemoteServer([
+      { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        name: 'list_diagrams', arguments: {},
+      } },
+    ], {
+      ANCHORREAD_DIAGRAM_SERVER_URL: `http://127.0.0.1:${port}`,
+      ANCHORREAD_DIAGRAM_PERSONAL_TOKEN: 'env-personal-token',
+    });
+    assert.equal(responses[0].result.structuredContent.id, 'env-drawing');
+    assert.equal(requests[0].authorization, 'Bearer env-personal-token');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

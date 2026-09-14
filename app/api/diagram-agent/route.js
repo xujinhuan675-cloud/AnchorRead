@@ -55,6 +55,25 @@ function authorized(request, action) {
   return true;
 }
 
+function bearerToken(request) {
+  const value = String(request.headers.get('authorization') || '').trim();
+  const match = /^Bearer\s+(.+)$/iu.exec(value);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+async function authenticatePersonalSubmit(request) {
+  const secret = bearerToken(request);
+  if (!secret) return null;
+  try {
+    const authenticated = await getDiagramMcpPairingStore().authenticateToken(secret);
+    // Personal tokens are the only bearer credentials accepted by the
+    // remote bridge endpoint. OAuth access tokens remain scoped to /mcp.
+    return authenticated?.token?.kind === 'personal' ? authenticated : null;
+  } catch {
+    return null;
+  }
+}
+
 function jsonError(message, status = 400, code = 'BRIDGE_ERROR', details = {}) {
   return NextResponse.json({ ok: false, error: message, code, ...details }, { status });
 }
@@ -216,7 +235,11 @@ async function handlePOST(request) {
     return jsonError('Diagram bridge expects a JSON request body.');
   }
   const action = String(body?.action || '');
-  if (!authorized(request, action)) return jsonError('Diagram bridge authorization failed.', 401, 'UNAUTHORIZED');
+  let personalAuth = null;
+  if (!authorized(request, action)) {
+    personalAuth = action === 'submit' ? await authenticatePersonalSubmit(request) : null;
+    if (!personalAuth) return jsonError('Diagram bridge authorization failed.', 401, 'UNAUTHORIZED');
+  }
   if (action === 'submit') {
     const command = body?.request;
     if (!command || typeof command !== 'object' || !command.tool) {
@@ -224,7 +247,17 @@ async function handlePOST(request) {
     }
     try {
       const transport = getDiagramAgentTransport();
-      const scope = body?.scope || {};
+      const requestedScope = body?.scope && typeof body.scope === 'object' ? body.scope : {};
+      const scope = personalAuth
+        ? {
+            ...requestedScope,
+            workspaceId: requestedScope.workspaceId || personalAuth.binding.workspaceId,
+            bindingId: requestedScope.bindingId || personalAuth.binding.bindingId,
+          }
+        : requestedScope;
+      if (personalAuth && (scope.workspaceId !== personalAuth.binding.workspaceId || scope.bindingId !== personalAuth.binding.bindingId)) {
+        return jsonError('Personal token scope does not match the requested browser workspace.', 403, 'BROWSER_BINDING_MISMATCH');
+      }
       if (typeof transport.getPresence === 'function') {
         const presence = await readPresence(transport, scope);
         if (!presence || presence.online !== true) {
@@ -240,7 +273,11 @@ async function handlePOST(request) {
           throw Object.assign(new Error('The paired AnchorRead browser is not writable. Refresh the workspace page and retry.'), { code: 'BROWSER_SESSION_OFFLINE' });
         }
       }
-      const { id, promise } = await transport.createRequest(command, { ttlMs: body?.ttlMs, scope: body?.scope });
+      const { id, promise } = await transport.createRequest(command, {
+        ttlMs: body?.ttlMs,
+        scope,
+        tokenId: personalAuth?.token?.id || '',
+      });
       const timeoutMs = Math.max(1_000, Math.min(Number(body?.timeoutMs) || 15_000, 60_000));
       const timeout = new Promise((_, reject) => {
         const timer = setTimeout(() => {

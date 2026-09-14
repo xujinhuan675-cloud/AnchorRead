@@ -70,7 +70,7 @@ test('authorization metadata rejects invalid URL input', () => {
   assert.throws(() => getDiagramMcpResourceUrl('not a URL'), TypeError);
 });
 
-test('browser connection surface exposes OAuth only', () => {
+test('browser connection surface exposes OAuth and Personal Token controls', () => {
   const pairingRoute = readFileSync(new URL('../app/api/mcp/pairing/route.js', import.meta.url), 'utf8');
   const panel = readFileSync(new URL('../components/McpConnectionPanel.jsx', import.meta.url), 'utf8');
   const topNav = readFileSync(new URL('../components/AppTopNav.jsx', import.meta.url), 'utf8');
@@ -79,6 +79,7 @@ test('browser connection surface exposes OAuth only', () => {
   assert.doesNotMatch(pairingRoute, /create-token|rotate-token|revoke-token/u);
   assert.doesNotMatch(panel, /ANCHORREAD_MCP_BEARER_TOKEN|bearer_token_env_var|create-token|rotate-token|revoke-token/u);
   assert.match(panel, /OAuth authorization|OAuth 授权/u);
+  assert.match(panel, /createPersonalToken|Personal Token|个人 Token/u);
   assert.match(panel, /View authorization|查看授权/u);
   assert.match(panel, /Revoke authorization|撤销授权/u);
   assert.match(panel, /codex mcp login anchor-read-diagram/u);
@@ -90,6 +91,7 @@ test('browser connection surface exposes OAuth only', () => {
   assert.match(panel, /disabled=\{Boolean\(busy\)\} onClick=\{\(\) => revokeAuthorizations\(\)\}/u);
   assert.match(pairingRoute, /authorizations/u);
   assert.match(pairingRoute, /revoke-authorizations/u);
+  assert.match(pairingRoute, /create-personal-token/u);
   assert.match(pairingRoute, /action === 'heartbeat'/u);
   assert.match(pairingRoute, /token\.status === 'active'/u);
   assert.match(panel, /submitOAuthApproval\(\{ silent: true \}\)/u);
