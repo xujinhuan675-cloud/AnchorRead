@@ -552,8 +552,24 @@ export function useDocumentDiagram({
     // Runtime interaction state must not turn a pan or selection into a persisted update.
     const current = normalizeExcalidrawScene({ elements, appState, files });
     const currentAppState = normalizePersistedExcalidrawAppState(current.appState);
-    const persistedAppState = mergeCanvasAppStateForPersistence(currentAppState, normalized.appState);
-    if (stableElementsEqual(normalized.elements, current.elements)
+    const elementsChanged = !stableElementsEqual(normalized.elements, current.elements);
+    const filesChanged = JSON.stringify(normalized.files) !== JSON.stringify(current.files);
+    const mergedAppState = mergeCanvasAppStateForPersistence(currentAppState, normalized.appState);
+    const canvasAppState = normalizePersistedExcalidrawAppState(normalized.appState);
+    // A scene edit should keep the camera that the user was looking at. Pure
+    // pan/zoom callbacks still remain transient, so moving the camera alone
+    // does not create a revision; the next drag/delete carries the viewport
+    // forward and prevents a refresh from fitting the scene back to center.
+    const persistedAppState = (elementsChanged || filesChanged)
+      ? {
+        ...mergedAppState,
+        ...(Number.isFinite(canvasAppState.scrollX) ? { scrollX: canvasAppState.scrollX } : {}),
+        ...(Number.isFinite(canvasAppState.scrollY) ? { scrollY: canvasAppState.scrollY } : {}),
+        ...(canvasAppState.zoom ? { zoom: canvasAppState.zoom } : {}),
+      }
+      : mergedAppState;
+    if (!elementsChanged
+      && !filesChanged
       && JSON.stringify(persistedAppState) === JSON.stringify(currentAppState)
       && JSON.stringify(normalized.files) === JSON.stringify(current.files)) return;
     const source = JSON.stringify(normalized.elements, null, 2);

@@ -168,7 +168,7 @@ test('external MCP scene revisions hydrate the mounted canvas without stale writ
   assert.match(componentSource, /onKeyDown=\{acknowledgeExternalHydrationByUser\}/u);
   assert.doesNotMatch(componentSource, /externalHydrationTimerRef/u);
   assert.doesNotMatch(componentSource, /1500\);/u);
-  assert.match(workspaceSource, /canPersistDiagramDrawing/u);
+  assert.match(workspaceSource, /canPersistDiagramUiDrawing/u);
 });
 
 test('external hydration quarantines delayed callbacks from the replaced scene', () => {
