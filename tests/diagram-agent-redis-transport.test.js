@@ -54,6 +54,26 @@ test('Redis broker completes enqueue, claim, and resolve across Node instances',
   assert.equal(logs.find((event) => event.event === 'request_completed')?.resolve_instance_id, 'instance-browser');
 });
 
+test('Redis broker lets the stable browser client claim work while its tab is hidden', async () => {
+  const { submitter, browser } = transports();
+  const scope = client({ visible: false, focused: false });
+  const created = await submitter.createRequest(
+    { tool: 'get_diagram', args: { id: 'diagram-background' } },
+    { ttlMs: 5_000, scope },
+  );
+
+  const [claimed] = await browser.claimRequests('client-background', { client: scope });
+  assert.equal(claimed?.id, created.id);
+  await browser.resolveRequest(
+    created.id,
+    claimed.claimToken,
+    { id: 'diagram-background' },
+    undefined,
+    { client: { ...scope, clientId: 'client-background' } },
+  );
+  assert.deepEqual(await created.promise, { id: 'diagram-background' });
+});
+
 test('Redis broker rejects a resolve from a client that did not claim the request', async () => {
   const { submitter, browser } = transports();
   const scope = client();

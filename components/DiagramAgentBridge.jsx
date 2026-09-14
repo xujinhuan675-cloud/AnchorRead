@@ -108,13 +108,13 @@ export default function DiagramAgentBridge() {
       if (disconnect) disconnectPairing();
     };
     const requestReconnect = () => {
-      if (cancelled || !pageVisible()) return;
+      if (cancelled) return;
       reconnectRequested = true;
       pollController?.abort();
       if (typeof connect === 'function') connect();
     };
     const pageVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
-    const refreshSession = () => session.acquire({ visible: pageVisible() });
+    const refreshSession = () => session.acquire();
     const leaseHeartbeat = window.setInterval(() => {
       if (cancelled) return;
       refreshSession();
@@ -179,9 +179,9 @@ export default function DiagramAgentBridge() {
     };
     const publishDrawing = (drawing, { open = true } = {}) => {
       // The MCP result carries the open request and resource link. The bridge
-      // only publishes through the visible lease owner; a hidden page releases
-      // its lease and can no longer race the user's active canvas.
-      if (!pageVisible() || !session.isOwner()) return;
+      // publishes only through the stable lease owner. Visibility is not a
+      // boundary: background tabs must still update their canvas and peers.
+      if (!session.isOwner()) return;
       const cloneableDrawing = cloneForTransport(drawing);
       if (!cloneableDrawing?.id) return;
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_DRAWING_EVENT, {
@@ -199,7 +199,7 @@ export default function DiagramAgentBridge() {
       window.dispatchEvent(new CustomEvent(DIAGRAM_AGENT_PRESENTATION_EVENT, { detail }));
     };
     const poll = async () => {
-      while (!cancelled && pageVisible()) {
+      while (!cancelled) {
         if (reconnectRequested) {
           reconnectRequested = false;
           return;
@@ -210,7 +210,6 @@ export default function DiagramAgentBridge() {
         }
         pollController = new AbortController();
         try {
-          if (!pageVisible()) return;
           const presence = new URLSearchParams({
             action: 'poll',
             waitMs: String(DIAGRAM_AGENT_LONG_POLL_MS),
@@ -291,14 +290,14 @@ export default function DiagramAgentBridge() {
       }
       connecting = true;
       try {
-        while (!cancelled && pageVisible()) {
+        while (!cancelled) {
           try {
             if (!refreshSession()) {
               await new Promise((resolve) => window.setTimeout(resolve, 500));
               continue;
             }
             await register();
-            if (!cancelled && pageVisible()) await poll();
+            if (!cancelled) await poll();
             return;
           } catch (error) {
             if (error?.code === 'BROWSER_BUILD_STALE') blockDiagramBrowserWrites(error);
@@ -310,20 +309,18 @@ export default function DiagramAgentBridge() {
         connecting = false;
         if (reconnectAfterCurrent) {
           reconnectAfterCurrent = false;
-          if (!cancelled && pageVisible()) connect();
+          if (!cancelled) connect();
         }
       }
     };
     const handleVisibilityChange = () => {
-      if (!pageVisible()) {
-        releaseSession({ disconnect: true });
-        return;
-      }
-      connect();
+      // Switching tabs must not tear down the paired workspace. Refresh the
+      // same stable lease; pagehide/unmount remain the actual release points.
+      refreshSession();
     };
     const handlePageHide = () => releaseSession({ disconnect: true });
     const handlePageShow = () => {
-      if (pageVisible()) connect();
+      connect();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);

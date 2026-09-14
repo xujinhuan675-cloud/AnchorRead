@@ -35,14 +35,27 @@ test('long polling returns when a request arrives', async () => {
   await promise;
 });
 
-test('only the active focused browser client claims an unaddressed request', async () => {
+test('a background browser client stays eligible for unaddressed work', async () => {
   const suffix = `active-${Date.now()}-${Math.random()}`;
   const first = `client-first-${suffix}`;
   const second = `client-second-${suffix}`;
   const { id, promise } = createDiagramAgentRequest({ tool: 'list_diagrams', args: {} });
-  assert.deepEqual(claimDiagramAgentRequests(first, {
+  const backgroundClaimed = claimDiagramAgentRequests(first, {
     client: compatibleClient({ tabId: 'tab-first', visible: false, focused: false }),
-  }), []);
+  });
+  assert.equal(backgroundClaimed[0]?.id, id);
+  resolveDiagramAgentRequest(id, backgroundClaimed[0].claimToken, { ok: true });
+  await promise;
+});
+
+test('a visible client wins unaddressed work when background and visible clients are both registered', async () => {
+  const suffix = `priority-${Date.now()}-${Math.random()}`;
+  const first = `client-first-${suffix}`;
+  const second = `client-second-${suffix}`;
+  claimDiagramAgentRequests(first, {
+    client: compatibleClient({ tabId: 'tab-first', visible: false, focused: false }),
+  });
+  const { id, promise } = createDiagramAgentRequest({ tool: 'list_diagrams', args: {} });
   const claimed = claimDiagramAgentRequests(second, {
     client: compatibleClient({ tabId: 'tab-second', visible: true, focused: true }),
   });

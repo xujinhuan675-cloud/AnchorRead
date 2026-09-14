@@ -21,6 +21,7 @@ import {
   resetDiagramAgentTransportForTests,
   setDiagramAgentTransport,
 } from '../lib/diagram-agent-transport.js';
+import { DIAGRAM_AGENT_REQUEST_TTL_GRACE_MS } from '../lib/diagram-agent-timing.js';
 
 function request(url, body, headers = {}, method = 'POST') {
   return new Request(url, {
@@ -54,6 +55,30 @@ test('scoped MCP commands fail fast when no browser presence is available', asyn
     resetDiagramAgentTransportForTests();
   }
   assert.ok(Date.now() - startedAt < 1_000);
+});
+
+test('HTTP MCP keeps a result-upload grace period beyond the browser completion timeout', async () => {
+  let requestTtlMs = 0;
+  setDiagramAgentTransport({
+    createRequest(_payload, options) {
+      requestTtlMs = options.ttlMs;
+      return { id: 'request-long-response', promise: Promise.resolve({ ok: true }) };
+    },
+    cancelRequest() {},
+    cancelRequestsForToken() {},
+    claimRequests() { return []; },
+    waitForRequests() { return []; },
+    resolveRequest() { return false; },
+    registerClient() {},
+    unregisterClient() {},
+  });
+  try {
+    const result = await submitDiagramTool('get_diagram', { id: 'diagram-large' }, { timeoutMs: 20_000 });
+    assert.equal(result.ok, true);
+    assert.equal(requestTtlMs, 20_000 + DIAGRAM_AGENT_REQUEST_TTL_GRACE_MS);
+  } finally {
+    resetDiagramAgentTransportForTests();
+  }
 });
 
 test('Streamable HTTP MCP initializes, lists tools and calls a browser command', async () => {

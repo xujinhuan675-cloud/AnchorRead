@@ -3,6 +3,7 @@ import { getDiagramAgentTransport } from '@/lib/diagram-agent-transport';
 import { getDiagramMcpPairingStore } from '@/lib/diagram-mcp-pairing-store';
 import { withApiObservability } from '@/lib/api-observability';
 import { createBrowserBuildStaleError, serializeDiagramAgentError } from '@/lib/diagram-agent-protocol';
+import { createDiagramAgentRequestTiming } from '@/lib/diagram-agent-timing';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -273,23 +274,31 @@ async function handlePOST(request) {
           throw Object.assign(new Error('The paired AnchorRead browser is not writable. Refresh the workspace page and retry.'), { code: 'BROWSER_SESSION_OFFLINE' });
         }
       }
-      const { id, promise } = await transport.createRequest(command, {
+      const timing = createDiagramAgentRequestTiming({
+        timeoutMs: body?.timeoutMs,
         ttlMs: body?.ttlMs,
+      });
+      const { id, promise } = await transport.createRequest(command, {
+        ttlMs: timing.ttlMs,
         scope,
         tokenId: personalAuth?.token?.id || '',
       });
-      const timeoutMs = Math.max(1_000, Math.min(Number(body?.timeoutMs) || 15_000, 60_000));
+      let timer;
       const timeout = new Promise((_, reject) => {
-        const timer = setTimeout(() => {
-          const error = new Error('No open AnchorRead browser claimed the diagram request before timeout.');
+        timer = setTimeout(() => {
+          const error = new Error('The AnchorRead browser did not complete the diagram request before timeout.');
           error.code = 'BRIDGE_TIMEOUT';
           Promise.resolve(transport.cancelRequest(id, error)).catch(() => {});
           reject(error);
-        }, timeoutMs);
+        }, timing.timeoutMs);
         timer.unref?.();
       });
-      const result = await Promise.race([promise, timeout]);
-      return NextResponse.json({ ok: true, requestId: id, result });
+      try {
+        const result = await Promise.race([promise, timeout]);
+        return NextResponse.json({ ok: true, requestId: id, result });
+      } finally {
+        clearTimeout(timer);
+      }
     } catch (error) {
       const status = error?.code === 'BRIDGE_QUEUE_FULL' ? 429 : (error?.code === 'BROWSER_BUILD_STALE' ? 409 : 504);
       const details = serializeDiagramAgentError(error);

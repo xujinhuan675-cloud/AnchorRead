@@ -16,6 +16,13 @@ import {
   resetDiagramAgentIdentityForTests,
 } from '../lib/diagram-agent-session.js';
 import { normalizeDiagramAgentRequests } from '../lib/diagram-agent-protocol.js';
+import {
+  createDiagramAgentRequestTiming,
+  DIAGRAM_AGENT_BRIDGE_DEFAULT_TIMEOUT_MS,
+  DIAGRAM_AGENT_BRIDGE_MAX_TIMEOUT_MS,
+  DIAGRAM_AGENT_REQUEST_TTL_GRACE_MS,
+  normalizeDiagramAgentBridgeTimeout,
+} from '../lib/diagram-agent-timing.js';
 
 function createStorage() {
   const values = new Map();
@@ -26,17 +33,17 @@ function createStorage() {
   };
 }
 
-test('diagram agent lease is exclusive to the visible owner', () => {
+test('diagram agent lease remains exclusive when the owner moves to the background', () => {
   const active = parseDiagramAgentLease({ tabId: 'a', expiresAt: 2_000, acquiredAt: 1_000 });
   assert.equal(isDiagramAgentLeaseActive(active, 1_500), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: true, focused: true, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: true, focused: false, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 1_500 }), false);
-  assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: false, focused: false, now: 1_500 }), false);
+  assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'a', visible: false, focused: false, now: 1_500 }), true);
   assert.equal(shouldOwnDiagramAgentLease(active, { tabId: 'b', visible: true, focused: true, now: 2_001 }), true);
 });
 
-test('drawing persistence rejects hidden and non-owner tabs', () => {
+test('drawing persistence allows the hidden owner but rejects a competing tab', () => {
   const storage = createStorage();
   storage.setItem(DIAGRAM_AGENT_LEASE_STORAGE_KEY, JSON.stringify({
     tabId: 'owner',
@@ -60,7 +67,7 @@ test('drawing persistence rejects hidden and non-owner tabs', () => {
     storage,
     documentRef: { visibilityState: 'hidden' },
     now: 1_500,
-  }), false);
+  }), true);
   assert.equal(canPersistDiagramDrawing({
     tabId: 'other',
     storage,
@@ -74,6 +81,16 @@ test('lease covers a complete long poll and heartbeat renews it early', () => {
   assert.ok(DIAGRAM_AGENT_LEASE_HEARTBEAT_MS < DIAGRAM_AGENT_LEASE_MS);
   assert.ok(DIAGRAM_AGENT_LONG_POLL_MS < DIAGRAM_AGENT_LEASE_MS);
   assert.ok(DIAGRAM_AGENT_CONNECTION_HEARTBEAT_MS < 5 * 60_000);
+});
+
+test('bridge timing gives long browser work a bounded completion and result-upload window', () => {
+  assert.equal(normalizeDiagramAgentBridgeTimeout(undefined), DIAGRAM_AGENT_BRIDGE_DEFAULT_TIMEOUT_MS);
+  assert.equal(normalizeDiagramAgentBridgeTimeout(999_999), DIAGRAM_AGENT_BRIDGE_MAX_TIMEOUT_MS);
+  assert.equal(normalizeDiagramAgentBridgeTimeout(15_000), 15_000);
+  assert.deepEqual(createDiagramAgentRequestTiming({ timeoutMs: 120_000 }), {
+    timeoutMs: 120_000,
+    ttlMs: 120_000 + DIAGRAM_AGENT_REQUEST_TTL_GRACE_MS,
+  });
 });
 
 test('session acquire and release are owner-scoped', () => {
@@ -93,11 +110,14 @@ test('session acquire and release are owner-scoped', () => {
   second.release();
 });
 
-test('hidden session releases its writer lease instead of retaining ownership', () => {
+test('hidden session retains its writer lease until page lifecycle cleanup releases it', () => {
   const storage = createStorage();
   const session = createDiagramAgentSession({ tabId: 'tab', storage, now: () => 100, leaseMs: 1_000 });
   assert.equal(session.acquire(), true);
-  assert.equal(session.acquire({ visible: false }), false);
+  assert.equal(session.acquire({ visible: false }), true);
+  assert.equal(session.isOwner(), true);
+  assert.equal(session.readLease()?.tabId, 'tab');
+  session.release();
   assert.equal(session.isOwner(), false);
   assert.equal(session.readLease(), null);
 });

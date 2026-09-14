@@ -12,6 +12,15 @@ import { DIAGRAM_MCP_APP_RESOURCE_URI, DIAGRAM_MCP_APP_MIME_TYPE } from '../lib/
 const rootDirectory = fileURLToPath(new URL('..', import.meta.url));
 const serverPath = join(rootDirectory, 'mcp', 'anchor-read-diagram.mjs');
 
+function childEnvironment(environment = {}) {
+  return {
+    ...process.env,
+    ANCHORREAD_DIAGRAM_PERSONAL_TOKEN: '',
+    ANCHORREAD_MCP_PERSONAL_TOKEN: '',
+    ...environment,
+  };
+}
+
 function callServer(workspacePath, requests, write = false) {
   return new Promise((resolve, reject) => {
     const args = [serverPath, workspacePath];
@@ -38,7 +47,7 @@ function callLiveServer(bridgeUrl, requests, environment = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [serverPath, '--bridge', bridgeUrl], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...environment },
+      env: childEnvironment(environment),
     });
     let output = '';
     let errorOutput = '';
@@ -57,7 +66,7 @@ function callRemoteServer(serverUrl, token, requests) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [serverPath, '--server', serverUrl, '--token', token], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: childEnvironment(),
     });
     let output = '';
     let errorOutput = '';
@@ -80,7 +89,7 @@ function callConfiguredRemoteServer(requests, environment = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [serverPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...environment },
+      env: childEnvironment(environment),
     });
     let output = '';
     let errorOutput = '';

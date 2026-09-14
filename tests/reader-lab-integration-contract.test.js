@@ -120,8 +120,10 @@ test('diagram library routes are separate from the editor and preserve drawing h
   assert.doesNotMatch(diagramAgentBridge, /diagramWake/);
   assert.match(diagramAgentBridge, /visibilitychange/);
   assert.match(diagramAgentBridge, /visible: String\(pageVisible\(\)\)/);
-  assert.match(diagramAgentBridge, /session\.acquire\(\{ visible: pageVisible\(\) \}\)/);
-  assert.match(diagramAgentBridge, /if \(!pageVisible\(\) \|\| !session\.isOwner\(\)\) return/);
+  assert.match(diagramAgentBridge, /const refreshSession = \(\) => session\.acquire\(\)/);
+  assert.match(diagramAgentBridge, /const handleVisibilityChange = \(\) => \{[\s\S]*?refreshSession\(\);[\s\S]*?\};/);
+  assert.doesNotMatch(diagramAgentBridge, /const handleVisibilityChange = \(\) => \{[\s\S]{0,200}?releaseSession\(/);
+  assert.match(diagramAgentBridge, /if \(!session\.isOwner\(\)\) return/);
   assert.match(diagramLibrary, /canPersistDiagramDrawing/);
   assert.match(diagramAgentBridge, /addEventListener\('pagehide', handlePageHide\)/);
   assert.match(homePage, /if \(resolution\.reason !== 'not_found'\) router\.replace\('\/diagrams'\)/);

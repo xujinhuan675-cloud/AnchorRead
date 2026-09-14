@@ -79,6 +79,10 @@ import {
 import { createSentryOptions, safeTelemetryIdentifier } from '../lib/sentry-config.js';
 import { openDiagramUrl } from '../lib/diagram-mcp-browser-launch.js';
 import { createDiagramOperationMetrics, mergeDiagramOperationMetrics } from '../lib/diagram-operation-metrics.js';
+import {
+  DIAGRAM_AGENT_REQUEST_TTL_GRACE_MS,
+  normalizeDiagramAgentBridgeTimeout,
+} from '../lib/diagram-agent-timing.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = DIAGRAM_MCP_SERVER_INFO;
@@ -1325,14 +1329,17 @@ async function callBridgeTool(name, args = {}) {
   if (bridgeToken) {
     headers['x-anchorread-bridge-token'] = bridgeToken;
   }
-  const timeoutMs = Math.max(5_000, Math.min(Number(process.env.ANCHORREAD_DIAGRAM_BRIDGE_TIMEOUT_MS) || 15_000, 60_000));
+  const timeoutMs = normalizeDiagramAgentBridgeTimeout(
+    process.env.ANCHORREAD_DIAGRAM_BRIDGE_TIMEOUT_MS,
+    { minMs: 5_000 },
+  );
   let response;
   try {
     response = await fetch(bridgeUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify({ action: 'submit', request: { tool: name, args }, timeoutMs }),
-      signal: AbortSignal.timeout(timeoutMs + 5_000),
+      signal: AbortSignal.timeout(timeoutMs + DIAGRAM_AGENT_REQUEST_TTL_GRACE_MS),
     });
   } catch (error) {
     const wrapped = new Error(`无法连接 AnchorRead live bridge ${bridgeUrl}: ${error?.message || error}`);
