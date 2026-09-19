@@ -48,5 +48,8 @@ graphify-out/
 tmp-*
 .code-review-graph/
 
+# Local upstream reference checkout
+/mcp_excalidraw/
+
 # Local persistent MCP pairing data
 .anchorread-data/
