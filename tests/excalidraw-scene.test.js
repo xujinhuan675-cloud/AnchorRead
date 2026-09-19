@@ -145,6 +145,24 @@ test('normalizes external MCP point and arrow binding shorthand without dropping
   assert.deepEqual(normalized.custom, { keep: true });
 });
 
+test('preserves authored elbow waypoints for bound arrows', () => {
+  const normalized = normalizeExcalidrawScene([{
+    id: 'flow',
+    type: 'arrow',
+    x: 10,
+    y: 20,
+    width: 320,
+    height: 120,
+    startElementId: 'source',
+    endElementId: 'target',
+    elbowed: true,
+    points: [[0, 0], [120, 0], [120, 120], [320, 120]],
+  }]).elements[0];
+
+  assert.equal(normalized.elbowed, true);
+  assert.deepEqual(normalized.points, [[0, 0], [120, 0], [120, 120], [320, 120]]);
+});
+
 test('adds a visible default segment to an externally bound arrow without points', () => {
   const normalized = parseExcalidrawScene([{
     id: 'flow',

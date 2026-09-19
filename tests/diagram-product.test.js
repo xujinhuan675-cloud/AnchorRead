@@ -4,6 +4,7 @@ import {
   createDiagramGenerationPlan,
   createDiagramMetadata,
   DIAGRAM_SCOPES,
+  EXCALIDRAW_DEFAULT_VISUAL_CONTRACT,
   inferDiagramIntent,
   recommendDiagramRenderer,
   switchDiagramVariant,
@@ -30,6 +31,8 @@ test('generation plans keep product scope separate from renderer details', () =>
   assert.equal(deep.renderer, 'excalidraw');
   assert.equal(deep.intent, 'swimlane');
   assert.match(deep.prompt, /例外路径/);
+  assert.match(deep.prompt, /默认视觉系统/);
+  assert.match(deep.prompt, new RegExp(EXCALIDRAW_DEFAULT_VISUAL_CONTRACT.slice(0, 18)));
 });
 
 test('drawing metadata keeps compatibility fields and reserves the semantic spec', () => {

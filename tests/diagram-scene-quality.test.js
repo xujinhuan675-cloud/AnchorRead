@@ -28,3 +28,15 @@ test('scene preflight reports actionable quality warnings and blocking id errors
   assert.ok(result.warnings.some((item) => item.code === 'UNBOUND_CONNECTOR'));
   assert.ok(result.repairSuggestions.length >= 2);
 });
+
+test('scene preflight flags a flat multi-node scene without visual design', () => {
+  const result = preflightDiagramScene({ elements: [
+    { id: 'a', type: 'rectangle', x: 0, y: 0, width: 160, height: 80, label: { text: 'A' } },
+    { id: 'b', type: 'rectangle', x: 240, y: 0, width: 160, height: 80, label: { text: 'B' } },
+    { id: 'c', type: 'rectangle', x: 480, y: 0, width: 160, height: 80, label: { text: 'C' } },
+  ] });
+
+  assert.equal(result.status, 'warn');
+  assert.ok(result.warnings.some((item) => item.code === 'VISUAL_STYLE_MISSING'));
+  assert.ok(result.repairSuggestions.some((item) => item.includes('semantic colors')));
+});
