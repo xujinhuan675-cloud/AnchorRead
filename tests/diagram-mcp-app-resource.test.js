@@ -58,6 +58,11 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /\.app-canvas \{ position: relative; height: clamp\(360px, 55vh, 620px\)/);
   assert.match(resource.text, /\.app-canvas > \.excalidraw \{ width: 100%; height: 100%; \}/);
   assert.match(resource.text, /api\.scrollToContent\(displayedElements/);
+  assert.match(resource.text, /const canvasHostRef = useRef\(null\)/);
+  assert.match(resource.text, /new ResizeObserver\(refreshCanvas\)/);
+  assert.match(resource.text, /typeof api\.refresh === 'function'/);
+  assert.match(resource.text, /presentationStep\?\.camera \|\| typeof api\.scrollToContent/);
+  assert.match(resource.text, /observer\?\.observe\(canvasHostRef\.current\)/);
   assert.match(resource.text, /defaultMermaidPresentation/);
   assert.match(resource.text, /DEFAULT_STEP_DURATION_MS = 1500/);
   assert.doesNotMatch(resource.text, /MAX_DEFAULT_PLAYBACK_STEPS/);
