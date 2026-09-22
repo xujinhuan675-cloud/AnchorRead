@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Highlighter,
+  Languages,
   Library,
   LayoutGrid,
   List,
@@ -1307,7 +1308,7 @@ export default function ReaderLabWorkspace({
     }
   }, [aidVisibility, callReaderAnalysisApi, documents, knownMasteredWithGlossary, persistImportedDocument, selectDocument, updateAids]);
 
-  const runReaderAnalysis = useCallback(async (kind = 'inline') => {
+  const runReaderAnalysis = useCallback(async (kind = 'inline', { plainOnly = false } = {}) => {
     if (!currentDocument || busyAction) return;
     setBusyAction('analysis');
     setNotice(null);
@@ -1379,14 +1380,17 @@ export default function ReaderLabWorkspace({
       ]);
       // 分析完成后同步选中态：解读批量含重点与贴行卡；解读批量还带白话映射，白话开关一并打开；
       // 重点批量只负责高亮，白话保持用户原状
-      updateAids(kind === 'inline'
-        ? { ...aidVisibility, explanations: true, precision: true }
-        : { ...aidVisibility, explanations: true });
+      updateAids(plainOnly
+        ? { ...aidVisibility, precision: true }
+        : kind === 'inline'
+          ? { ...aidVisibility, explanations: true, precision: true }
+          : { ...aidVisibility, explanations: true });
       setNotice(kind === 'highlights'
         ? (effectiveRecords.length === 0
           ? { type: 'success', messageKey: 'workspace.notice.highlightsCovered' }
           : { type: 'success', messageKey: 'workspace.notice.highlightsMarked', params: { count: effectiveRecords.length } })
         : { type: 'success', messageKey: 'workspace.notice.anchorsLocated', params: { anchors: result.anchors.length, records: effectiveRecords.length } });
+      return effectiveRecords;
     } catch (error) {
       setNotice(errorNotice(error));
     } finally {
@@ -1396,8 +1400,12 @@ export default function ReaderLabWorkspace({
 
   const analyzeHighlights = useCallback(() => runReaderAnalysis('highlights'), [runReaderAnalysis]);
   const analyzeInlineAid = useCallback(() => runReaderAnalysis('inline'), [runReaderAnalysis]);
+  const analyzePlainAid = useCallback(
+    () => runReaderAnalysis('inline', { plainOnly: true }),
+    [runReaderAnalysis]
+  );
 
-  const generateFlashcards = useCallback(async () => {
+  const generateFlashcards = useCallback(async (highlightsOverride = null) => {
     if (!currentDocument || busyAction) return;
     setBusyAction('flashcards');
     setNotice(null);
@@ -1414,7 +1422,7 @@ export default function ReaderLabWorkspace({
         headers,
         body: JSON.stringify({
           article: currentDocument.content,
-          highlights: currentExplanations
+          highlights: (Array.isArray(highlightsOverride) ? highlightsOverride : currentExplanations)
             .filter((record) => record.level !== 'word')
             .map((record) => ({
               text: record.selectedText,
@@ -1799,9 +1807,9 @@ export default function ReaderLabWorkspace({
 
   // 一键生成全部：重点 → 解读（含白话）→ 闪卡 → 图解，均依赖模型配置
   const analyzeDocument = useCallback(async () => {
-    await runReaderAnalysis('highlights');
-    await runReaderAnalysis('inline');
-    try { await generateFlashcards(); } catch { /* 单步失败不阻断后续生成 */ }
+    // inline 批次同时包含重点锚点与逐块白话解读；只请求一次，避免长文重复触发全文分析超时
+    const analysisRecords = await runReaderAnalysis('inline');
+    try { await generateFlashcards(analysisRecords); } catch { /* 单步失败不阻断后续生成 */ }
     generateFullDiagram();
   }, [runReaderAnalysis, generateFlashcards, generateFullDiagram]);
 
@@ -2814,6 +2822,16 @@ export default function ReaderLabWorkspace({
                   >
                     <MessageSquareText size={14} className="shrink-0" aria-hidden="true" />
                     <span className="min-w-0 flex-1">{t('workspace.genExplain')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setMoreMenuOpen(false); analyzePlainAid(); }}
+                    disabled={Boolean(busyAction)}
+                    title={t('workspace.genPlainTitle')}
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-stone-700 dark:text-stone-300 outline-none hover:bg-stone-50 dark:bg-white/5 focus-visible:ring-2 focus-visible:ring-stone-400 disabled:cursor-not-allowed disabled:text-stone-300 dark:text-stone-600"
+                  >
+                    <Languages size={14} className="shrink-0" />
+                    <span className="min-w-0 flex-1">{t('workspace.genPlain')}</span>
                   </button>
                   <button
                     type="button"

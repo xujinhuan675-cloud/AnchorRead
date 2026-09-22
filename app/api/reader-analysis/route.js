@@ -5,6 +5,8 @@ import {
   ReaderAnalysisRequestError,
   ReaderAnalysisResponseError,
   buildReaderAnalysisPrompt,
+  createReaderAnalysisChunks,
+  mergeReaderAnalysisResponses,
   normalizeReaderAnalysisRequest,
   normalizeReaderAnalysisResponse,
 } from '@/lib/reader-analysis';
@@ -13,6 +15,46 @@ import {
   normalizeApiErrorStatus,
   withApiObservability,
 } from '@/lib/api-observability';
+
+const ANALYSIS_CHUNK_CONCURRENCY = 3;
+const ANALYSIS_CHUNK_RETRIES = 2;
+
+async function mapWithConcurrency(items, worker, limit) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const consume = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index], index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => consume())
+  );
+  return results;
+}
+
+async function analyzeChunk({ config, source, chunk }) {
+  let lastError;
+  for (let attempt = 0; attempt < ANALYSIS_CHUNK_RETRIES; attempt += 1) {
+    try {
+      const result = await callLLMForJson(config, [
+        { role: 'user', content: buildReaderAnalysisPrompt(source, chunk.blocks, { allowSubset: true }) },
+      ]);
+      return normalizeReaderAnalysisResponse(result, source, chunk.blocks, {
+        allowEmpty: true,
+        allowSubset: true,
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < ANALYSIS_CHUNK_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+  }
+  throw lastError;
+}
 
 /**
  * POST /api/reader-analysis
@@ -27,11 +69,15 @@ async function handlePOST(request) {
   try {
     const { config, body } = await resolveLLMConfig(request, 'analysis');
     const source = normalizeReaderAnalysisRequest(body);
-    const result = await callLLMForJson(config, [
-      { role: 'user', content: buildReaderAnalysisPrompt(source) },
-    ]);
+    const chunks = createReaderAnalysisChunks(source);
+    const chunkResults = await mapWithConcurrency(
+      chunks,
+      (chunk) => analyzeChunk({ config, source, chunk }),
+      ANALYSIS_CHUNK_CONCURRENCY
+    );
+    const result = mergeReaderAnalysisResponses(chunkResults, source);
 
-    return NextResponse.json(normalizeReaderAnalysisResponse(result, source));
+    return NextResponse.json(result);
   } catch (error) {
     const status =
       error instanceof SyntaxError || error instanceof ReaderAnalysisRequestError

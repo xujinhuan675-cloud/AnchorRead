@@ -5,8 +5,10 @@ import {
   ReaderAnalysisResponseError,
   buildReaderAnalysisPrompt,
   createReaderAnalysisBlocks,
+  createReaderAnalysisChunks,
   locateExactQuote,
   locateFuzzyQuote,
+  mergeReaderAnalysisResponses,
   normalizeReaderAnalysisRequest,
   normalizeReaderAnalysisResponse,
 } from '../lib/reader-analysis.js';
@@ -216,6 +218,52 @@ test('creates stable source blocks and a JSON-only grounded prompt', () => {
     () => buildReaderAnalysisPrompt({ title: '标题', content: '正文', mode: 'invalid' }),
     ReaderAnalysisRequestError
   );
+});
+
+test('splits long analysis prompts into validated original block groups', () => {
+  const chunkRequest = {
+    title: '分块文档',
+    content: '第一段内容。\n\n第二段内容。\n\n第三段内容。',
+    mode: 'plain',
+  };
+  const chunks = createReaderAnalysisChunks(chunkRequest, { maxBlocks: 1, maxChars: 10_000 });
+  assert.equal(chunks.length, 3);
+  assert.deepEqual(chunks.map((chunk) => chunk.blocks[0].source), [
+    '第一段内容。',
+    '第二段内容。',
+    '第三段内容。',
+  ]);
+  const prompt = buildReaderAnalysisPrompt(chunkRequest, chunks[1].blocks, { allowSubset: true });
+  const sourceDocument = prompt.match(/<sourceDocumentJson>[\s\S]*<\/sourceDocumentJson>/u)?.[0] || '';
+  assert.match(sourceDocument, /reader-analysis-block-1/);
+  assert.doesNotMatch(sourceDocument, /reader-analysis-block-0/);
+});
+
+test('merges normalized chunk responses by source range and block id', () => {
+  const chunkRequest = {
+    title: '分块文档',
+    content: '第一段内容。\n\n第二段内容。\n\n第三段内容。',
+    mode: 'plain',
+  };
+  const chunks = createReaderAnalysisChunks(chunkRequest, { maxBlocks: 1, maxChars: 10_000 });
+  const responses = chunks.map((chunk, index) => normalizeReaderAnalysisResponse({
+    summary: `摘要${index + 1}`,
+    anchors: [{ source: chunk.blocks[0].source, role: 'subthesis', importance: 3, reason: '' }],
+    explanations: [{
+      blockId: chunk.blocks[0].id,
+      mode: 'plain',
+      display: `白话${index + 1}`,
+      mappings: [],
+    }],
+  }, chunkRequest, chunk.blocks, { allowEmpty: true, allowSubset: true }));
+  const merged = mergeReaderAnalysisResponses(responses, chunkRequest);
+  assert.equal(merged.anchors.length, 3);
+  assert.equal(merged.explanations.length, 3);
+  assert.deepEqual(merged.explanations.map((item) => item.blockId), [
+    'reader-analysis-block-0',
+    'reader-analysis-block-1',
+    'reader-analysis-block-2',
+  ]);
 });
 
 test('injects glossary background only when present and keeps it out otherwise', () => {
