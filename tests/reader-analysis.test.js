@@ -30,12 +30,21 @@ test('normalizes reader analysis requests without changing source offsets', () =
       content: '  原文保留空格  ',
       mode: 'plain',
       depth: 'standard',
+      outputs: ['highlights', 'explanations'],
       knownMasteredTerms: [],
       knownExplainedTerms: [],
       glossary: [],
       userContext: '',
       promptPreset: '',
     }
+  );
+  assert.deepEqual(
+    normalizeReaderAnalysisRequest({ ...request, outputs: ['highlights'] }).outputs,
+    ['highlights']
+  );
+  assert.throws(
+    () => normalizeReaderAnalysisRequest({ ...request, outputs: ['plain'] }),
+    /outputs must contain only/
   );
   assert.throws(
     () => normalizeReaderAnalysisRequest({ title: '', content: '正文' }),
@@ -220,6 +229,20 @@ test('creates stable source blocks and a JSON-only grounded prompt', () => {
   );
 });
 
+test('highlight-only prompts explicitly suppress explanation generation', () => {
+  const prompt = buildReaderAnalysisPrompt({ ...request, outputs: ['highlights'] });
+  assert.match(prompt, /Output scope: return anchors only/);
+  assert.match(prompt, /explanations to an empty array/);
+  assert.match(prompt, /"outputs":\["highlights"\]/);
+});
+
+test('explanation-only prompts explicitly suppress highlight generation', () => {
+  const prompt = buildReaderAnalysisPrompt({ ...request, outputs: ['explanations'] });
+  assert.match(prompt, /Output scope: return explanations only/);
+  assert.match(prompt, /anchors to an empty array/);
+  assert.match(prompt, /"outputs":\["explanations"\]/);
+});
+
 test('splits long analysis prompts into validated original block groups', () => {
   const chunkRequest = {
     title: '分块文档',
@@ -264,6 +287,19 @@ test('merges normalized chunk responses by source range and block id', () => {
     'reader-analysis-block-1',
     'reader-analysis-block-2',
   ]);
+});
+
+test('merges highlight-only responses without requiring explanations', () => {
+  const highlightRequest = { ...request, outputs: ['highlights'] };
+  const blocks = createReaderAnalysisChunks(highlightRequest, { maxBlocks: 1, maxChars: 10_000 });
+  const responses = blocks.map((chunk, index) => normalizeReaderAnalysisResponse({
+    summary: `重点${index + 1}`,
+    anchors: [{ source: chunk.blocks[0].source, role: 'subthesis', importance: 3, reason: '' }],
+    explanations: [],
+  }, highlightRequest, chunk.blocks, { allowEmpty: true, allowSubset: true }));
+  const merged = mergeReaderAnalysisResponses(responses, highlightRequest);
+  assert.equal(merged.anchors.length, blocks.length);
+  assert.deepEqual(merged.explanations, []);
 });
 
 test('injects glossary background only when present and keeps it out otherwise', () => {

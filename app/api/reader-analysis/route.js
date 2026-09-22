@@ -16,7 +16,9 @@ import {
   withApiObservability,
 } from '@/lib/api-observability';
 
-const ANALYSIS_CHUNK_CONCURRENCY = 3;
+// The model gateway currently enforces a low per-request concurrency limit.
+// Serializing chunks prevents a single document from amplifying 429s.
+const ANALYSIS_CHUNK_CONCURRENCY = 1;
 const ANALYSIS_CHUNK_RETRIES = 2;
 
 async function mapWithConcurrency(items, worker, limit) {
@@ -48,8 +50,13 @@ async function analyzeChunk({ config, source, chunk }) {
       });
     } catch (error) {
       lastError = error;
+      // A provider 524 already consumed the edge timeout budget; retrying it
+      // inside the same HTTP request only makes the outer request more likely
+      // to hit Cloudflare's timeout. Rate limits get a short exponential backoff.
+      if (error?.upstreamStatus === 524) throw error;
       if (attempt + 1 < ANALYSIS_CHUNK_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        const delayMs = error?.upstreamStatus === 429 ? 2_000 * (2 ** attempt) : 500 * (2 ** attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
   }

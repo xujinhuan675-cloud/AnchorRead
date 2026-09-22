@@ -1198,7 +1198,7 @@ export default function ReaderLabWorkspace({
     return { result: await response.json(), isDemo: false };
   }, [currentDocument, glossaryPayload]);
 
-  const callReaderAnalysisApi = useCallback(async (document = currentDocument) => {
+  const callReaderAnalysisApi = useCallback(async (document = currentDocument, { outputs } = {}) => {
     if (!document) throw new Error('请先导入一篇文档。');
     const config = getConfig();
     const usePassword = hasPasswordMode();
@@ -1216,6 +1216,9 @@ export default function ReaderLabWorkspace({
       title: document.title,
       content: document.content,
       mode: 'plain',
+      outputs: Array.isArray(outputs) && outputs.length > 0
+        ? outputs
+        : ['highlights', 'explanations'],
       // 解释深度档位随阅读偏好（白话下拉里选择），控制 mapping 密度与 display 详尽度
       depth: explanationDepth,
       knownMasteredTerms,
@@ -1313,7 +1316,13 @@ export default function ReaderLabWorkspace({
     setBusyAction('analysis');
     setNotice(null);
     try {
-      const { result } = await callReaderAnalysisApi();
+      const { result } = await callReaderAnalysisApi(undefined, {
+        outputs: kind === 'highlights'
+          ? ['highlights']
+          : plainOnly
+            ? ['explanations']
+            : ['highlights', 'explanations'],
+      });
       const nextRecords = createReaderLabAnalysisRecords({
         document: currentDocument,
         analysis: result,
