@@ -409,6 +409,9 @@ test('batch analysis replaces old batch records without deleting manual explanat
   );
   assert.match(readerLabWorkspace, /runReaderAnalysis\('highlights'\)/);
   assert.match(readerLabWorkspace, /runReaderAnalysis\('inline'\)/);
+  assert.match(readerLabWorkspace, /outputs: kind === 'highlights'/);
+  assert.match(readerLabWorkspace, /plainOnly\s*\?\s*\['explanations'\]/);
+  assert.match(readerLabWorkspace, /explanations: false, precision: true/);
   // 两类批量来自同一次分析、锚点重合：按锚点键跨批量去重，避免同一锚点出现重复卡片；
   // 历史重复数据在恢复时由 dedupeBatchAnalysisRecords 清理
   assert.match(readerLabWorkspace, /batchAnchorKey/);

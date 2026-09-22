@@ -238,8 +238,10 @@ test('highlight-only prompts explicitly suppress explanation generation', () => 
 
 test('explanation-only prompts explicitly suppress highlight generation', () => {
   const prompt = buildReaderAnalysisPrompt({ ...request, outputs: ['explanations'] });
-  assert.match(prompt, /Output scope: return explanations only/);
+  assert.match(prompt, /Output scope: return explanations and grounded replacement mappings only/);
   assert.match(prompt, /anchors to an empty array/);
+  assert.match(prompt, /grounded replacement mappings/);
+  assert.match(prompt, /"source":"short verbatim phrase"/);
   assert.match(prompt, /"outputs":\["explanations"\]/);
 });
 

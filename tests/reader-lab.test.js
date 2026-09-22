@@ -521,6 +521,40 @@ test('createReaderLabAnalysisRecords highlights kind keeps highlight records wit
   assert.deepEqual(records[0].terms, []);
 });
 
+test('explanation-only analysis keeps word mappings for plain-language replacement', () => {
+  const [document] = createReaderLabSeedDocuments({ now: 100 });
+  const blocks = createReaderAnalysisBlocks(document.content);
+  const block = blocks.find((item) => item.source.includes('Idempotency-Key'));
+  const source = 'Idempotency-Key';
+  const target = 'duplicate-request protection key';
+  const records = createReaderLabAnalysisRecords({
+    document,
+    analysis: {
+      version: 1,
+      title: document.title,
+      summary: 'summary',
+      anchors: [],
+      explanations: [{
+        blockId: block.id,
+        source: block.source,
+        sourceStart: block.sourceStart,
+        sourceEnd: block.sourceEnd,
+        mode: 'plain',
+        display: 'A plain-language explanation.',
+        mappings: [{ source, target, note: '', aliases: [] }],
+      }],
+    },
+    now: 200,
+    kind: 'inline',
+  });
+
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0].explanation.mappings, [{ source, target, note: '', aliases: [] }]);
+  assert.equal(records[0].sourceStart, block.sourceStart);
+  assert.equal(records[0].sourceEnd, block.sourceEnd);
+  assert.match(applyReaderLabReplacements(document.content, records[0].explanation.mappings, 'target'), /duplicate-request protection key/);
+});
+
 test('collectKnownTerms prefers mastered and accumulates aliases; listMasteredTerms filters mastered', () => {
   const terms = [
     { documentId: 'doc-a', term: 'RAG', normalizedTerm: 'rag', aliases: ['retrieval'], status: 'learning' },

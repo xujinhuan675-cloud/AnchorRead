@@ -1389,8 +1389,9 @@ export default function ReaderLabWorkspace({
       ]);
       // 分析完成后同步选中态：解读批量含重点与贴行卡；解读批量还带白话映射，白话开关一并打开；
       // 重点批量只负责高亮，白话保持用户原状
+      // Standalone plain language shows replacement chips without sentence-level explanation decorations.
       updateAids(plainOnly
-        ? { ...aidVisibility, precision: true }
+        ? { ...aidVisibility, explanations: false, precision: true }
         : kind === 'inline'
           ? { ...aidVisibility, explanations: true, precision: true }
           : { ...aidVisibility, explanations: true });
