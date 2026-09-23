@@ -157,6 +157,32 @@ test('create_diagram rejects duplicate element ids before persistence', async ()
   assert.equal((await workspace.drawings.list()).length, 0);
 });
 
+test('create_diagram rejects unsafe fan-out routes before persistence', async () => {
+  const workspace = repository();
+  await assert.rejects(
+    executeDiagramAgentCommand({
+      tool: 'create_diagram',
+      args: {
+        title: 'Unsafe fan-out',
+        engine: 'excalidraw',
+        elements: [
+          { id: 'source', type: 'rectangle', x: 0, y: 0, width: 120, height: 60, label: { text: '来源' } },
+          { id: 'first', type: 'rectangle', x: 0, y: 140, width: 120, height: 60, label: { text: '第一路' } },
+          { id: 'second', type: 'rectangle', x: 220, y: 140, width: 120, height: 60, label: { text: '第二路' } },
+          { id: 'to-first', type: 'arrow', x: 0, y: 60, width: 0, height: 80, startElementId: 'source', endElementId: 'first' },
+          { id: 'to-second', type: 'arrow', x: 0, y: 60, width: 220, height: 80, startElementId: 'source', endElementId: 'second' },
+        ],
+      },
+    }, { repository: workspace, now: 108 }),
+    (error) => error.code === 'SCENE_PREFLIGHT_FAILED'
+      && error.preflight?.errors?.filter((item) => item.code === 'CONNECTOR_ROUTING_RISK')
+        .map((item) => item.elementIds[0])
+        .sort()
+        .join(',') === 'to-first,to-second',
+  );
+  assert.equal((await workspace.drawings.list()).length, 0);
+});
+
 test('content diagrams receive a default presentation and play when opened', async () => {
   const workspace = repository();
   const events = [];
