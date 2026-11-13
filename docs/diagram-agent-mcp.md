@@ -138,7 +138,7 @@ Redis broker 按 `workspaceId + bindingId` 分片（无 workspace 或旧请求�
 
 ## MCP Apps 客户端内嵌画布
 
-`create_view` 和 `create_diagram` 都在工具元数据中声明了 `ui://anchorread/diagram/mcp-app.html` 资源。支持 MCP Apps 的 AI 客户端会读取该 HTML 资源，并在客户端消息中直接渲染可编辑的 Mermaid 或 Excalidraw 画布，同时为有内容的图解提供播放控件；画布中的“在 AnchorRead 中打开”按钮仍可跳转到正式工作区。客户端还可以主动调用 `resources/list` / `resources/read` 获取同一资源。`create_view` 完全兼容官方 Excalidraw MCP Apps 的 elements JSON 输入，不依赖浏览器；`create_diagram` 仍负责工作区持久化。
+`create_view` 和 `create_diagram` 都在工具元数据中声明了 `ui://anchorread/diagram/mcp-app.html` 资源。支持 MCP Apps 的 AI 客户端会读取该 HTML 资源，并在客户端消息中直接渲染可编辑的 Mermaid 或 Excalidraw 画布。默认展示完整静态图，用户主动点击才开始播放；桌面端工具栏和播放控件在鼠标悬浮或键盘聚焦时浮现，不占独立标题行，触摸设备保留可见控件。画布中的“在 AnchorRead 中打开”按钮仍可跳转到正式工作区。客户端还可以主动调用 `resources/list` / `resources/read` 获取同一资源。`create_view` 完全兼容官方 Excalidraw MCP Apps 的 elements JSON 输入，不依赖浏览器；`create_diagram` 仍负责工作区持久化。
 
 `read_me` 提供与官方入口一致的简短输入约定，说明何时使用 `create_view`、如何传递 Excalidraw elements，以及 Mermaid、流式伪元素和稳定 id 的处理方式。
 

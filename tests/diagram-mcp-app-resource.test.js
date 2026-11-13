@@ -1,12 +1,102 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
+import React, { act, useEffect, useMemo, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { parseHTML } from 'linkedom';
 import {
   DIAGRAM_MCP_APP_MIME_TYPE,
   DIAGRAM_MCP_APP_RESOURCE_URI,
   diagramMcpAppResourceListing,
   readDiagramMcpAppResource,
 } from '../lib/diagram-mcp-app-resource.js';
+
+async function withCanvasApp(run, runtimeOverrides = {}) {
+  const previousWindow = globalThis.window;
+  const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
+  globalThis.window = window;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const timers = [];
+  const root = createRoot(window.document.getElementById('root'));
+  const handlersRef = { current: {} };
+  let canvasProps;
+  const icon = () => null;
+  const runtime = {
+    Excalidraw: (props) => { canvasProps = props; return React.createElement('canvas'); },
+    convertToExcalidrawElements: (elements) => elements.map((element) => ({ ...element, version: 1, opacity: 100 })),
+    restoreElements: (elements) => elements,
+    FONT_FAMILY: { Excalifont: 5 },
+    ChevronDown: icon, ChevronLeft: icon, ChevronRight: icon, ChevronUp: icon,
+    Eye: icon, Maximize2: icon, Minimize2: icon, Pause: icon, Pencil: icon, Play: icon, Square: icon,
+    ...runtimeOverrides,
+  };
+  const script = readDiagramMcpAppResource().text.match(/<script type="module">([\s\S]*?)<\/script>/u)[1];
+  const coreScript = script.slice(script.indexOf('const PSEUDO_ELEMENT_TYPES'), script.indexOf('const root = createRoot'));
+  const context = vm.createContext({
+    React, useEffect, useMemo, useRef, useState,
+    window: { setTimeout: (callback) => { timers.push(callback); return timers.length; }, clearTimeout() {} },
+    cancelAnimationFrame() {},
+  });
+  const App = vm.runInContext(coreScript + '\nAnchorReadDiagramAppCore;', context);
+  try {
+    await act(() => root.render(React.createElement(App, {
+      app: { getHostContext: () => ({ displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'] }) },
+      handlersRef, pendingEventsRef: { current: [] }, runtime,
+    })));
+    await run({
+      document: window.document,
+      send: (kind, payload) => act(() => handlersRef.current[kind](payload)),
+      getCanvas: () => canvasProps,
+      timers,
+    });
+  } finally {
+    await act(() => root.unmount());
+    globalThis.window = previousWindow;
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  }
+}
+
+test('MCP App hydrates shorthand shapes through the loaded canvas runtime without autoplay', async () => {
+  await withCanvasApp(async ({ send, getCanvas, document, timers }) => {
+    await send('input', { arguments: { elements: JSON.stringify([
+      { id: 'draft', type: 'rectangle', x: 0, y: 0, width: 160, height: 80, label: { text: 'Draft' } },
+      { id: 'review', type: 'rectangle', x: 220, y: 0, width: 160, height: 80, label: { text: 'Review' } },
+    ]) } });
+    assert.ok(document.querySelector('canvas'), 'input must produce a visible canvas instead of an empty placeholder');
+    assert.deepEqual(Array.from(getCanvas().initialData.elements, (element) => element.id), ['draft', 'review']);
+    assert.equal(getCanvas().viewModeEnabled, true);
+    assert.equal(document.querySelector('[aria-label="暂停"]'), null);
+    assert.ok(document.querySelector('[aria-label="播放"]'));
+    assert.equal(timers.length, 0, 'receiving a diagram must not start a playback timer');
+  });
+});
+
+test('MCP App shows the complete result scene until playback is explicitly requested', async () => {
+  await withCanvasApp(async ({ send, getCanvas, document, timers }) => {
+    await send('result', { structured_content: {
+      engine: 'excalidraw',
+      elements: [{ id: 'draft', type: 'rectangle', version: 1 }, { id: 'review', type: 'rectangle', version: 1 }],
+      presentation: { steps: [
+        { id: 'first', visibleElementIds: ['draft'], durationMs: 1500 },
+        { id: 'second', visibleElementIds: ['draft', 'review'], durationMs: 1500 },
+      ] },
+    } });
+    assert.deepEqual(Array.from(getCanvas().initialData.elements, (element) => element.id), ['draft', 'review']);
+    assert.equal(timers.length, 0);
+    assert.equal(document.querySelector('[aria-label="暂停"]'), null);
+    await act(() => document.querySelector('[aria-label="播放"]').click());
+    assert.ok(document.querySelector('[aria-label="暂停"]'));
+    assert.equal(timers.length, 1);
+  });
+});
+
+test('MCP App reports conversion errors instead of waiting forever for already received input', async () => {
+  await withCanvasApp(async ({ send, document }) => {
+    await send('input', { arguments: { elements: '[{"id":"broken","type":"rectangle"}]' } });
+    assert.match(document.querySelector('.app-empty').textContent, /图解转换失败.*unsupported shape/u);
+    assert.equal(document.querySelector('[aria-label="暂停"]'), null);
+  }, { convertToExcalidrawElements: () => { throw new Error('unsupported shape'); } });
+});
 
 test('MCP App initializes and buffers input without loading external canvas scripts', { timeout: 2000 }, async () => {
   const resource = readDiagramMcpAppResource();
