@@ -8,28 +8,86 @@ import {
   readDiagramMcpAppResource,
 } from '../lib/diagram-mcp-app-resource.js';
 
+test('MCP App initializes and buffers input without loading external canvas scripts', { timeout: 2000 }, async () => {
+  const resource = readDiagramMcpAppResource();
+  const bootstrap = resource.text.match(/<script>([\s\S]*?)<\/script>/u)?.[1];
+  assert.ok(bootstrap, 'the host handshake must have an inline, network-independent bootstrap');
+  const messages = [];
+  const listeners = new Set();
+  const input = { arguments: { title: 'Early input', elements: '[]' } };
+  const result = { content: [], structuredContent: { engine: 'excalidraw', title: 'Early result', elements: [] } };
+  const window = {
+    addEventListener: (name, handler) => { if (name === 'message') listeners.add(handler); },
+    removeEventListener: (name, handler) => { if (name === 'message') listeners.delete(handler); },
+    innerWidth: 800,
+  };
+  const receive = (data) => {
+    for (const handler of listeners) handler({ source: window.parent, data });
+  };
+  window.parent = {
+    postMessage: (message) => {
+      messages.push(message);
+      if (message.method !== 'ui/initialize') return;
+      queueMicrotask(() => {
+        receive({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: input });
+        receive({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: result });
+        receive({ jsonrpc: '2.0', id: message.id, result: {
+          protocolVersion: message.params.protocolVersion,
+          hostInfo: { name: 'test-host', version: '1.0.0' },
+          hostCapabilities: { openLinks: {} },
+          hostContext: { displayMode: 'inline' },
+        } });
+      });
+    },
+  };
+  const root = { textContent: '' };
+  const context = vm.createContext({
+    window, console: { debug() {}, error() {}, log() {} },
+    document: { getElementById: () => root },
+    setTimeout, clearTimeout, AbortController, URL, TextEncoder, TextDecoder,
+    requestAnimationFrame: () => 1,
+    ResizeObserver: class { observe() {} disconnect() {} },
+  });
+  vm.runInContext(bootstrap, context, { timeout: 1000 });
+  try {
+    await context.window.anchorReadMcpApp.ready;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(messages.some((message) => message.method === 'ui/notifications/initialized'));
+    const state = context.window.anchorReadMcpApp;
+    assert.deepEqual(JSON.parse(JSON.stringify(state.pendingEventsRef.current)), [
+      { kind: 'input', payload: input },
+      { kind: 'result', payload: result },
+    ]);
+    assert.equal(state.app.getHostCapabilities().openLinks !== undefined, true);
+    const delivered = [];
+    state.handlersRef.current.partial = (payload) => delivered.push(payload);
+    receive({ jsonrpc: '2.0', method: 'ui/notifications/tool-input-partial', params: input });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(JSON.parse(JSON.stringify(delivered)), [input]);
+  } finally {
+    await context.window.anchorReadMcpApp.app.close();
+  }
+});
+
 test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   const resource = readDiagramMcpAppResource();
   assert.equal(resource.uri, DIAGRAM_MCP_APP_RESOURCE_URI);
   assert.equal(resource.mimeType, DIAGRAM_MCP_APP_MIME_TYPE);
   assert.equal(resource._meta.ui.prefersBorder, true);
   assert.deepEqual(resource._meta.ui.csp.resourceDomains, ['https://esm.sh']);
-  assert.match(resource.text, /@modelcontextprotocol\/ext-apps@0\.4\.0\/react/);
+  assert.match(resource.text, /window\.anchorReadMcpApp/);
   assert.match(resource.text, /const canvasRuntimePromise = Promise\.all\(\[/);
   assert.match(resource.text, /import\('https:\/\/esm\.sh\/@excalidraw\/excalidraw@0\.18\.0/);
   assert.match(resource.text, /import\('https:\/\/esm\.sh\/lucide-react@1\.31\.0/);
   assert.match(resource.text, /import\('https:\/\/esm\.sh\/mermaid@11\.16\.1/);
   assert.doesNotMatch(resource.text, /^\s*import\s+.*(?:@excalidraw|lucide-react|mermaid)/mu);
   assert.doesNotMatch(resource.text, /<link rel="stylesheet" href="https:\/\/esm\.sh\/@excalidraw/);
-  assert.match(resource.text, /canvasRuntimePromise\.then/);
+  assert.match(resource.text, /Promise\.all\(\[ready, canvasRuntimePromise\]\)/);
   assert.match(resource.text, /@excalidraw\/excalidraw@0\.18\.0\/dist\/prod\/index\.css/);
   assert.match(resource.text, /exportToSvg/);
   assert.match(resource.text, /convertToExcalidrawElements, restoreElements, FONT_FAMILY/);
   assert.match(resource.text, /mermaid@11\.16\.1/);
-  assert.match(resource.text, /useApp\(/);
-  assert.match(resource.text, /onAppCreated/);
   assert.match(resource.text, /pendingEventsRef/);
-  assert.match(resource.text, /createdApp\.ontoolinputpartial/);
   assert.match(resource.text, /ontoolinputpartial/);
   assert.match(resource.text, /cameraUpdate/);
   assert.match(resource.text, /excludeIncompleteLastItem/);
@@ -109,7 +167,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.doesNotMatch(resource.text, /diagramWake/);
   assert.match(resource.text, /打开 AnchorRead 图解工作区/);
   assert.match(resource.text, /\.replace\(\/<script\[\\s\\S\]\*\?<\\\/script>\/gi/);
-  assert.equal(resource.text.split('</script>').length - 1, 1);
+  assert.equal(resource.text.split('</script>').length - 1, 2);
   assert.doesNotMatch(resource.text, /<script\[sS\]\*\?<\/script>/);
   assert.doesNotMatch(resource.text, /\.replace\(\/s\+on\[a-z-\]/);
   assert.match(resource.text, /Prefer the typed result channel when a host does not forward/);
@@ -120,10 +178,13 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.doesNotMatch(resource.text, /ANCHORREAD_MCP|Bearer\s+/i);
 });
 
-test('MCP App embedded module remains syntactically valid', () => {
+test('MCP App embedded scripts remain syntactically valid', () => {
   const resource = readDiagramMcpAppResource();
   const moduleMatch = resource.text.match(/<script type="module">([\s\S]*?)<\/script>/u);
   assert.ok(moduleMatch, 'expected one embedded module script');
+  const bootstrap = resource.text.match(/<script>([\s\S]*?)<\/script>/u)?.[1];
+  assert.doesNotThrow(() => new vm.Script(bootstrap, { filename: 'anchorread-diagram-mcp-bootstrap.js' }));
+  assert.doesNotMatch(bootstrap, /\bimport\s*(?:\(|[{*'"])/u);
   const scriptWithoutImports = moduleMatch[1]
     .replace(/^\s*import\s+.*?;\s*$/gmu, '')
     .replace(/^\s*createRoot\(document\.getElementById\('root'\)\).*?;\s*$/gmu, '');

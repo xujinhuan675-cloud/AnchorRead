@@ -9,8 +9,9 @@
     }
   },
   "scripts": {
+    "build:mcp-app": "node scripts/build-diagram-mcp-app.mjs",
     "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "node scripts/build-diagram-mcp-app.mjs && next build --webpack",
     "start": "next start",
     "mcp:diagram": "node mcp/anchor-read-diagram.mjs",
     "mcp:diagram-bootstrap": "node mcp/anchor-read-diagram-bootstrap.mjs",
@@ -77,6 +78,7 @@
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
     "@commitlint/config-conventional": "^21.2.2",
+    "@modelcontextprotocol/ext-apps": "0.4.0",
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
