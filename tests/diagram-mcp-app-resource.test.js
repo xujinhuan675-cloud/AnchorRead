@@ -15,9 +15,14 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.equal(resource._meta.ui.prefersBorder, true);
   assert.deepEqual(resource._meta.ui.csp.resourceDomains, ['https://esm.sh']);
   assert.match(resource.text, /@modelcontextprotocol\/ext-apps@0\.4\.0\/react/);
-  assert.match(resource.text, /@excalidraw\/excalidraw@0\.18\.0/);
+  assert.match(resource.text, /const canvasRuntimePromise = Promise\.all\(\[/);
+  assert.match(resource.text, /import\('https:\/\/esm\.sh\/@excalidraw\/excalidraw@0\.18\.0/);
+  assert.match(resource.text, /import\('https:\/\/esm\.sh\/lucide-react@1\.31\.0/);
+  assert.match(resource.text, /import\('https:\/\/esm\.sh\/mermaid@11\.16\.1/);
+  assert.doesNotMatch(resource.text, /^\s*import\s+.*(?:@excalidraw|lucide-react|mermaid)/mu);
+  assert.doesNotMatch(resource.text, /<link rel="stylesheet" href="https:\/\/esm\.sh\/@excalidraw/);
+  assert.match(resource.text, /canvasRuntimePromise\.then/);
   assert.match(resource.text, /@excalidraw\/excalidraw@0\.18\.0\/dist\/prod\/index\.css/);
-  assert.match(resource.text, /lucide-react@1\.31\.0/);
   assert.match(resource.text, /exportToSvg/);
   assert.match(resource.text, /convertToExcalidrawElements, restoreElements, FONT_FAMILY/);
   assert.match(resource.text, /mermaid@11\.16\.1/);
