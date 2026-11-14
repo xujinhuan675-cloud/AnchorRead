@@ -26,7 +26,7 @@ async function withCanvasApp(run, runtimeOverrides = {}) {
     convertToExcalidrawElements: (elements) => elements.map((element) => ({ ...element, version: 1, opacity: 100 })),
     restoreElements: (elements) => elements,
     FONT_FAMILY: { Excalifont: 5 },
-    ChevronDown: icon, ChevronLeft: icon, ChevronRight: icon, ChevronUp: icon,
+    ChevronLeft: icon, ChevronRight: icon,
     ExternalLink: icon, Eye: icon, Maximize2: icon, Minimize2: icon, Pause: icon, Pencil: icon, Play: icon, Square: icon,
     ...runtimeOverrides,
   };
@@ -92,6 +92,58 @@ test('MCP App shows the complete result scene until playback is explicitly reque
     await act(() => document.querySelector('[aria-label="播放"]').click());
     assert.ok(document.querySelector('[aria-label="暂停"]'));
     assert.equal(timers.length, 1);
+  });
+});
+
+test('MCP App keeps playback controls minimal until playback starts and returns to minimal controls on stop', async () => {
+  await withCanvasApp(async ({ send, document }) => {
+    await send('input', { arguments: {
+      elements: '[{"id":"draft","type":"rectangle"},{"id":"review","type":"rectangle"}]',
+      presentation: { steps: [
+        { id: 'first', title: 'Draft', visibleElementIds: ['draft'] },
+        { id: 'second', title: 'Review', visibleElementIds: ['draft', 'review'] },
+      ] },
+    } });
+    const controls = () => Array.from(document.querySelectorAll('.app-playback button'), (button) => button.getAttribute('aria-label'));
+    assert.deepEqual(controls(), ['播放']);
+    assert.equal(document.querySelector('.app-playback select'), null);
+    assert.equal(document.querySelector('.app-playback [aria-live]'), null);
+    await act(() => document.querySelector('[aria-label="播放"]').click());
+    assert.deepEqual(controls(), ['暂停', '上一步', '下一步', '停止']);
+    await act(() => document.querySelector('[aria-label="下一步"]').click());
+    assert.equal(document.querySelector('[aria-label="下一步"]').disabled, true);
+    await act(() => document.querySelector('[aria-label="播放"]').click());
+    assert.equal(document.querySelector('[aria-label="下一步"]').disabled, false);
+    await act(() => document.querySelector('[aria-label="停止"]').click());
+    assert.deepEqual(controls(), ['播放']);
+  });
+});
+
+test('MCP App leaves playback before editing and keeps the playback bar out of the editor', async () => {
+  await withCanvasApp(async ({ send, getCanvas, document }) => {
+    await send('input', { arguments: { elements: '[{"id":"draft","type":"rectangle"},{"id":"review","type":"rectangle"}]' } });
+    await act(() => document.querySelector('[aria-label="播放"]').click());
+    await act(() => document.querySelector('[aria-label="编辑图解"]').click());
+    assert.equal(getCanvas().viewModeEnabled, false);
+    assert.ok(!document.querySelector('.app-playback'), 'editing must not expose playback controls');
+    await act(() => document.querySelector('[aria-label="退出编辑"]').click());
+    assert.equal(getCanvas().viewModeEnabled, true);
+    assert.ok(document.querySelector('[aria-label="播放"]'));
+    assert.equal(document.querySelector('[aria-label="暂停"]'), null);
+    assert.equal(document.querySelector('[aria-label="停止"]'), null);
+  });
+});
+
+test('MCP App pauses the last step in place and replays from the beginning', async () => {
+  await withCanvasApp(async ({ send, document, timers }) => {
+    await send('input', { arguments: { elements: '[{"id":"draft","type":"rectangle"},{"id":"review","type":"rectangle"}]' } });
+    await act(() => document.querySelector('[aria-label="播放"]').click());
+    await act(() => timers[0]());
+    assert.equal(document.querySelector('[aria-label="下一步"]').disabled, true);
+    await act(() => document.querySelector('[aria-label="暂停"]').click());
+    assert.equal(document.querySelector('[aria-label="下一步"]').disabled, true);
+    await act(() => document.querySelector('[aria-label="播放"]').click());
+    assert.equal(document.querySelector('[aria-label="下一步"]').disabled, false);
   });
 });
 
@@ -187,12 +239,6 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /cameraUpdate/);
   assert.match(resource.text, /excludeIncompleteLastItem/);
   assert.match(resource.text, /app-playback/);
-  assert.match(resource.text, /app-playback-collapsed/);
-  assert.match(resource.text, /app-playback-secondary/);
-  assert.match(resource.text, /playbackExpanded/);
-  assert.match(resource.text, /aria-label': playbackExpanded \? '收起播放控件' : '展开播放控件'/);
-  assert.match(resource.text, /ChevronDown/);
-  assert.match(resource.text, /ChevronUp/);
   assert.match(resource.text, /app-toolbar-actions/);
   assert.match(resource.text, /app-icon-button/);
   assert.ok(!resource.text.includes('const toolbarLabel = status || title'));
@@ -235,9 +281,6 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /presentationStep\.focusElementIds/);
   assert.match(resource.text, /presentationStep\.camera/);
   assert.match(resource.text, /presentationStep\.highlightElementIds/);
-  assert.match(resource.text, /app-playback-select/);
-  assert.match(resource.text, /presentationHasNamedSteps && React\.createElement\('select'/);
-  assert.match(resource.text, /presentationIndex \+ 1\) \+ '\/' \+ presentationSteps\.length/);
   assert.match(resource.text, /@media \(max-width: 520px\)/);
   assert.doesNotMatch(resource.text, /app-playback-title/);
   assert.doesNotMatch(resource.text, /presentationStepLabel/);
@@ -247,11 +290,10 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /value\.openRequested === true/);
   assert.match(resource.text, /app\.openLink\(\{ url: requestedUrl \}\)/);
   assert.match(resource.text, /presentationTransitionDuration\(presentationStep\)/);
-  assert.match(resource.text, /presentationStepDuration\(presentationStep, playbackRate\)/);
+  assert.match(resource.text, /presentationStepDuration\(presentationStep\)/);
   assert.match(resource.text, /newlyVisibleIds/);
   assert.match(resource.text, /elementsFitSafeViewport\(readableFocusElements, currentState\)/);
   assert.match(resource.text, /FOCUS_CAMERA_COOLDOWN_MS = 2400/);
-  assert.match(resource.text, /'aria-label': '播放速度'/);
   assert.match(resource.text, /React\.createElement\(ChevronLeft/);
   assert.match(resource.text, /React\.createElement\(ChevronRight/);
   assert.match(resource.text, /React\.createElement\(Square/);
