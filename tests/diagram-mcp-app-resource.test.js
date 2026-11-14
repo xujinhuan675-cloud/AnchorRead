@@ -17,6 +17,7 @@ async function withCanvasApp(run, runtimeOverrides = {}) {
   globalThis.window = window;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const timers = [];
+  const timerDelays = [];
   const root = createRoot(window.document.getElementById('root'));
   const handlersRef = { current: {} };
   let canvasProps;
@@ -34,7 +35,7 @@ async function withCanvasApp(run, runtimeOverrides = {}) {
   const coreScript = script.slice(script.indexOf('const PSEUDO_ELEMENT_TYPES'), script.indexOf('const root = createRoot'));
   const context = vm.createContext({
     React, useEffect, useMemo, useRef, useState,
-    window: { setTimeout: (callback) => { timers.push(callback); return timers.length; }, clearTimeout() {} },
+    window: { setTimeout: (callback, delay) => { timers.push(callback); timerDelays.push(delay); return timers.length; }, clearTimeout() {} },
     cancelAnimationFrame() {},
   });
   const App = vm.runInContext(coreScript + '\nAnchorReadDiagramAppCore;', context);
@@ -48,6 +49,7 @@ async function withCanvasApp(run, runtimeOverrides = {}) {
       send: (kind, payload) => act(() => handlersRef.current[kind](payload)),
       getCanvas: () => canvasProps,
       timers,
+      timerDelays,
     });
   } finally {
     await act(() => root.unmount());
@@ -107,6 +109,7 @@ test('MCP App keeps playback controls minimal until playback starts and returns 
     const controls = () => Array.from(document.querySelectorAll('.app-playback button'), (button) => button.getAttribute('aria-label'));
     assert.deepEqual(controls(), ['播放']);
     assert.equal(document.querySelector('.app-playback select'), null);
+    assert.equal(document.querySelector('.app-playback input[type="range"]'), null);
     assert.equal(document.querySelector('.app-playback [aria-live]'), null);
     await act(() => document.querySelector('[aria-label="播放"]').click());
     assert.deepEqual(controls(), ['暂停', '上一步', '下一步', '停止']);
@@ -116,6 +119,49 @@ test('MCP App keeps playback controls minimal until playback starts and returns 
     assert.equal(document.querySelector('[aria-label="下一步"]').disabled, false);
     await act(() => document.querySelector('[aria-label="停止"]').click());
     assert.deepEqual(controls(), ['播放']);
+  });
+});
+
+test('MCP App adjusts playback timing with an accessible speed slider', async () => {
+  await withCanvasApp(async ({ send, document, timerDelays }) => {
+    await send('input', { arguments: {
+      elements: '[{"id":"draft","type":"rectangle"},{"id":"review","type":"rectangle"}]',
+      presentation: { steps: [
+        { id: 'first', visibleElementIds: ['draft'], durationMs: 1200, revealMs: 600, holdMs: 1200 },
+        { id: 'second', visibleElementIds: ['draft', 'review'] },
+      ] },
+    } });
+    await act(() => document.querySelector('[aria-label="播放"]').click());
+    const slider = document.querySelector('input[aria-label="播放速度"]');
+    assert.ok(slider, 'playback must expose a speed slider');
+    assert.equal(slider.type, 'range');
+    assert.equal(slider.getAttribute('min'), '0.5');
+    assert.equal(slider.getAttribute('max'), '2');
+    assert.equal(slider.getAttribute('step'), '0.25');
+    assert.equal(slider.value, '1');
+    assert.equal(timerDelays.at(-1), 1800);
+    await act(() => {
+      slider.value = '1.5';
+      slider.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    });
+    assert.equal(slider.getAttribute('aria-valuetext'), '1.5倍速');
+    assert.equal(document.querySelector('.app-playback-speed span').textContent, '1.5×');
+    assert.equal(timerDelays.at(-1), 1200, 'speed must scale reveal and hold timing together');
+    await act(() => {
+      slider.value = '0.75';
+      slider.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    });
+    assert.equal(timerDelays.at(-1), 2400);
+    await act(() => {
+      slider.value = '2';
+      slider.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    });
+    assert.equal(timerDelays.at(-1), 900);
+    await act(() => {
+      slider.value = '0.5';
+      slider.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+    });
+    assert.equal(timerDelays.at(-1), 3600);
   });
 });
 
@@ -132,6 +178,12 @@ test('MCP App leaves playback before editing and keeps the playback bar out of t
     assert.equal(document.querySelector('[aria-label="暂停"]'), null);
     assert.equal(document.querySelector('[aria-label="停止"]'), null);
   });
+});
+
+test('MCP App hides the native editor footer with CSS', () => {
+  const { document } = parseHTML(readDiagramMcpAppResource().text);
+  const styles = document.querySelector('style').textContent;
+  assert.match(styles, /\.app-editing \.excalidraw \.App-menu_bottom,\s*\.app-editing \.excalidraw \.App-bottom-bar\s*\{\s*display: none !important;\s*\}/u);
 });
 
 test('MCP App pauses the last step in place and replays from the beginning', async () => {
