@@ -30,7 +30,7 @@ async function withCanvasApp(run, runtimeOverrides = {}) {
     ExternalLink: icon, Eye: icon, Maximize2: icon, Minimize2: icon, Pause: icon, Pencil: icon, Play: icon, Square: icon,
     ...runtimeOverrides,
   };
-  const script = readDiagramMcpAppResource().text.match(/<script type="module">([\s\S]*?)<\/script>/u)[1];
+  const script = readDiagramMcpAppResource().text.match(/<script type="module"[^>]*>([\s\S]*?)<\/script>/u)[1];
   const coreScript = script.slice(script.indexOf('const PSEUDO_ELEMENT_TYPES'), script.indexOf('const root = createRoot'));
   const context = vm.createContext({
     React, useEffect, useMemo, useRef, useState,
@@ -216,6 +216,15 @@ test('MCP App initializes and buffers input without loading external canvas scri
   }
 });
 
+test('MCP App canvas modules do not block host document readiness', () => {
+  const { document } = parseHTML(readDiagramMcpAppResource().text);
+  const modules = document.querySelectorAll('script[type="module"]');
+  assert.ok(modules.length > 0, 'expected a canvas module');
+  for (const script of modules) {
+    assert.ok(script.hasAttribute('async'), 'canvas dependencies must not delay DOMContentLoaded and trigger the host initialization timeout');
+  }
+});
+
 test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   const resource = readDiagramMcpAppResource();
   assert.equal(resource.uri, DIAGRAM_MCP_APP_RESOURCE_URI);
@@ -316,7 +325,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
 
 test('MCP App embedded scripts remain syntactically valid', () => {
   const resource = readDiagramMcpAppResource();
-  const moduleMatch = resource.text.match(/<script type="module">([\s\S]*?)<\/script>/u);
+  const moduleMatch = resource.text.match(/<script type="module"[^>]*>([\s\S]*?)<\/script>/u);
   assert.ok(moduleMatch, 'expected one embedded module script');
   const bootstrap = resource.text.match(/<script>([\s\S]*?)<\/script>/u)?.[1];
   assert.doesNotThrow(() => new vm.Script(bootstrap, { filename: 'anchorread-diagram-mcp-bootstrap.js' }));
