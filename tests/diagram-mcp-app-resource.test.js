@@ -27,7 +27,7 @@ async function withCanvasApp(run, runtimeOverrides = {}) {
     restoreElements: (elements) => elements,
     FONT_FAMILY: { Excalifont: 5 },
     ChevronDown: icon, ChevronLeft: icon, ChevronRight: icon, ChevronUp: icon,
-    Eye: icon, Maximize2: icon, Minimize2: icon, Pause: icon, Pencil: icon, Play: icon, Square: icon,
+    ExternalLink: icon, Eye: icon, Maximize2: icon, Minimize2: icon, Pause: icon, Pencil: icon, Play: icon, Square: icon,
     ...runtimeOverrides,
   };
   const script = readDiagramMcpAppResource().text.match(/<script type="module">([\s\S]*?)<\/script>/u)[1];
@@ -65,9 +65,14 @@ test('MCP App hydrates shorthand shapes through the loaded canvas runtime withou
     assert.ok(document.querySelector('canvas'), 'input must produce a visible canvas instead of an empty placeholder');
     assert.deepEqual(Array.from(getCanvas().initialData.elements, (element) => element.id), ['draft', 'review']);
     assert.equal(getCanvas().viewModeEnabled, true);
+    assert.ok(!document.querySelector('.app-title'), 'a loaded diagram must not show instructional text or a fallback title');
     assert.equal(document.querySelector('[aria-label="暂停"]'), null);
     assert.ok(document.querySelector('[aria-label="播放"]'));
     assert.equal(timers.length, 0, 'receiving a diagram must not start a playback timer');
+    await send('error', new Error('Unable to load diagram'));
+    assert.equal(document.querySelector('[role="status"]').textContent, 'Unable to load diagram');
+    await send('input', { arguments: { elements: '[]' } });
+    assert.equal(document.querySelector('.app-empty').textContent, '暂无图解内容');
   });
 });
 
@@ -190,8 +195,7 @@ test('MCP App resource exposes a pinned AnchorRead Excalidraw client', () => {
   assert.match(resource.text, /ChevronUp/);
   assert.match(resource.text, /app-toolbar-actions/);
   assert.match(resource.text, /app-icon-button/);
-  assert.doesNotMatch(resource.text, /className: 'app-status'/);
-  assert.match(resource.text, /const toolbarLabel = status \|\| title/);
+  assert.ok(!resource.text.includes('const toolbarLabel = status || title'));
   assert.match(resource.text, /aria-label': editing \? '退出编辑' : '编辑图解'/);
   assert.match(resource.text, /engine === 'excalidraw' && !streaming && elements\.length/);
   assert.match(resource.text, /getHostCapabilities\(\)/);
